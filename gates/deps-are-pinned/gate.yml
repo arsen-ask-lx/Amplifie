@@ -1,0 +1,10 @@
+intent: версии зависимостей закреплены — сборка воспроизводима
+intent_en: dependency versions are pinned — the build is reproducible
+
+trigger:
+  has_deps: true
+
+recipes:
+  any: bash {gate}/check.sh {dir}
+
+proof: incidents/README.md — «2026-08-27 сборка невоспроизводима: версии не закреплены»

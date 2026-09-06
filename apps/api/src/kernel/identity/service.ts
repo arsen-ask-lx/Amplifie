@@ -201,7 +201,16 @@ export async function logout(token: string): Promise<void> {
  * сборке приложения. Зависимость от абстракции, а не от конкретного логгера
  * (SOLID-D): ядро не знает, чем логирует витрина.
  */
-let onTouchFailed: (error: unknown) => void = () => {};
+let onTouchFailed: (error: unknown) => void = (error) => {
+  // Заглушка по умолчанию НЕ молчит. Пустая функция здесь неотличима от
+  // глушения ошибки, а сюда попадают только те случаи, когда витрина забыла
+  // подключить настоящего получателя, — то есть сама поломка сборки.
+  // emitWarning, а не console: ядро не знает, чем логирует витрина.
+  process.emitWarning(
+    `отметка «сессия жива» не удалась, а получатель не подключён: ${String(error)}`,
+    "AmplifieSessionTouch",
+  );
+};
 
 export function setSessionTouchFailureReporter(report: (error: unknown) => void): void {
   onTouchFailed = report;

@@ -61,10 +61,16 @@ arch: ## архитектурные границы (запреты импорт�
 decisions: ## решения приняты с источниками, а не по памяти
 > npm run decisions
 
+gates: ## вшитые записи каталога AQK (размер файла, TODO, ссылки, версии)
+> npm run gates
+
+aqk: ## ступень соответствия AQK и что до следующей
+> npx --yes agent-quality-kit@0.4.2 doctor
+
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
-check: lint typecheck arch decisions ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions gates ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions test check
+.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions gates aqk test check

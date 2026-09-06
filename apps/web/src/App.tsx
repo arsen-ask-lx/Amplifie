@@ -3,7 +3,11 @@ import { AuthScreen } from "./AuthScreen.js";
 import { api, type Me } from "./api.js";
 import { HomeScreen } from "./HomeScreen.js";
 
-type State = { status: "loading" } | { status: "anon" } | { status: "entered"; me: Me };
+type State =
+  | { status: "loading" }
+  /** notice — то, что человек обязан узнать при возврате на экран входа. */
+  | { status: "anon"; notice?: string }
+  | { status: "entered"; me: Me };
 
 export function App() {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -20,15 +24,37 @@ export function App() {
   if (state.status === "loading") return null;
 
   if (state.status === "anon") {
-    return <AuthScreen onEntered={(me) => setState({ status: "entered", me })} />;
+    return (
+      <>
+        {state.notice ? <div className="err-top">{state.notice}</div> : null}
+        <AuthScreen onEntered={(me) => setState({ status: "entered", me })} />
+      </>
+    );
   }
 
   return (
     <HomeScreen
       me={state.me}
       onLeave={async () => {
-        await api.logout().catch(() => {});
-        setState({ status: "anon" });
+        // Выйти локально обязаны в любом случае: человек нажал «выйти», и
+        // держать его в приложении из-за сетевой ошибки — худшее из решений.
+        // Но и глушить молча нельзя: если запрос не дошёл, серверная сессия
+        // ещё жива и погаснет только по сроку. Говорим об этом вслух.
+        const reachedServer = await api.logout().then(
+          () => true,
+          () => false,
+        );
+        // Поле не подставляем как undefined: при exactOptionalPropertyTypes
+        // «нет поля» и «поле равно undefined» — разные вещи, и это правильно.
+        setState(
+          reachedServer
+            ? { status: "anon" }
+            : {
+                status: "anon",
+                notice:
+                  "Мы вышли на этом устройстве, но сервер не ответил: сеанс мог остаться открытым.",
+              },
+        );
       }}
     />
   );

@@ -28,6 +28,8 @@ jobs:
         run: npm run arch
       - name: Решения со ссылками на источники
         run: npm run decisions
+      - name: Записи каталога AQK
+        run: npm run gates
 
   security:
     runs-on: ubuntu-latest

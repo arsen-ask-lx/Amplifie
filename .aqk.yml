@@ -1,0 +1,51 @@
+# .aqk.yml — манифест Agent Quality Kit для Amplifie.
+#
+# ЗАЧЕМ ОН ЗДЕСЬ. Проверки у нас были и до него — линтер, типы, границы модулей,
+# источники решений, приёмочные тесты. Но нигде не было сказано машиночитаемо,
+# какие они и где. Сам AQK формулирует это точнее всего: пока проверка не
+# объявлена, о ней не знает ни агент, ни конвейер, ни новый человек.
+#
+# ГРАНИЦА СВЯЗАННОСТИ. Здесь только ОБЪЯВЛЕНИЕ. Каждая проверка обязана
+# запускаться через `make` и без AQK: пропадёт инструмент — проверки останутся.
+# Параллельный узел, не последовательный (Р-001, тот же довод Люссера).
+
+aqk: 1
+
+# AQK-0 — что агент читает первым.
+entry:
+  - AGENTS.md
+  - CLAUDE.md
+
+# AQK-1 — свод правил и проверки командами.
+rules: .temper/rules
+gates:
+  # Наши, были раньше AQK. Все до одной проверены подсаженным нарушением.
+  # lint держит сразу три записи каталога AQK: no-print-in-prod (noConsole),
+  # complexity-limit (maxAllowedComplexity 10) и swallowed-error
+  # (noEmptyBlockStatements). Отдельными гейтами они НЕ ставятся: два арбитра
+  # на одно правило — это два разных ответа на один вопрос, а переносимый
+  # арбитр swallowed-error проверен и оказался слабее — многострочный пустой
+  # catch, самый частый в TypeScript, он не видит и возвращает зелёный.
+  lint: "npm run lint"
+  typecheck: "npm run typecheck"
+  arch: "npm run arch"
+  decisions: "npm run decisions"
+
+  # Из каталога AQK. Каждый проверен подсаженным нарушением в НАШЕМ коде,
+  # а не только на своих образцах.
+  #
+  # Каталог gates/ исключён из biome (см. biome.json): форматировать образцы
+  # нельзя. Красный образец обязан остаться красным, а форматирование меняет
+  # тот самый файл, на котором арбитр доказывает, что ловит брак.
+  file-size-limit: "bash gates/file-size-limit/check.sh ."
+  todo-without-task: "bash gates/todo-without-task/check.sh ."
+  entry-links-exist: "bash gates/entry-links-exist/check.sh ."
+  deps-are-pinned: "bash gates/deps-are-pinned/check.sh ."
+  lesson-has-outcome: "bash gates/lesson-has-outcome/check.sh ."
+
+# AQK-2 — образцы и реестры долга. Заполняется по мере установки записей.
+samples: gates
+ratchets: ratchets
+
+# AQK-3 — куда возвращаются шишки.
+lessons: dock/incidents

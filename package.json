@@ -15,6 +15,7 @@
     "format": "biome check --write .",
     "arch": "depcruise apps --config .dependency-cruiser.cjs",
     "decisions": "node scripts/check-decisions.mjs",
+    "gates": "node scripts/run-gates.mjs",
     "test": "vitest run"
   },
   "devDependencies": {
