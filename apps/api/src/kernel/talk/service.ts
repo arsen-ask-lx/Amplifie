@@ -145,7 +145,7 @@ export async function sendMessage(
       return { replayed: false, message: await viewOf(tx, created.id) };
     });
 
-    // Звонок ТОЛЬКО после фиксации (Р-005). Позвонив раньше, мы отправили бы
+    // Звонок ТОЛЬКО после фиксации (Р-006). Позвонив раньше, мы отправили бы
     // клиента в /v1/sync за тем, чего в базе ещё нет, — и второго звонка
     // бы не было. Повтор не звонит: ничего не изменилось.
     if (!result.replayed) publish(viewer.workspaceId);

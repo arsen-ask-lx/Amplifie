@@ -41,6 +41,28 @@ try {
 
 const problems = [];
 
+// Два решения под одним номером. Случилось на самом деле: владелец и агент
+// писали параллельно и оба взяли 005. Ссылка «см. Р-005» после этого
+// указывает на два разных документа, и читающий не знает, на какой.
+const byNumber = new Map();
+for (const name of files) {
+  const number = /^(\d+)/u.exec(name)?.[1];
+  if (!number) continue;
+  byNumber.set(number, [...(byNumber.get(number) ?? []), name]);
+}
+for (const [number, names] of byNumber) {
+  if (names.length < 2) continue;
+  problems.push(
+    `${DIR}/ — номер ${number} занят дважды: ${names.join(", ")}
+` +
+      `  ПОЧИНИТЬ: перенумеруй то решение, на которое ещё никто не ссылается,
+` +
+      `  и поправь ссылки на него в коде и документах. Ссылка «см. Р-${number}»
+` +
+      `  при двух документах указывает в никуда.`,
+  );
+}
+
 for (const name of files) {
   const path = join(DIR, name);
   const text = readFileSync(path, "utf8");
