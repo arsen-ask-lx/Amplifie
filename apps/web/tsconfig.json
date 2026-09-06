@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "module": "ESNext",
+    // Фронт ничего не эмитит: сборку делает Vite, tsc только проверяет типы.
+    // Поэтому не composite — иначе TS требует эмита деклараций.
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+}

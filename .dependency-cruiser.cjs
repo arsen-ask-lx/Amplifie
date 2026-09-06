@@ -10,7 +10,7 @@
  *   kernel/*  — ядро: правится только миграцией данных
  *   surface/* — снаружи: выбрасывается целиком, ядра не касаясь
  */
-const TEST = "\.(test|spec)\.ts$";
+const TEST = ".(test|spec).ts$";
 
 module.exports = {
   forbidden: [
@@ -35,7 +35,7 @@ module.exports = {
       from: {
         orphan: true,
         // Точки входа и тесты — сироты по построению, это не нарушение.
-        pathNot: `\.d\.ts$|(^|/)(main|config|drizzle\.config)\.ts$|${TEST}|/tests/`,
+        pathNot: `.d.ts$|(^|/)(main|config|drizzle.config).ts$|${TEST}|/tests/`,
       },
       to: {},
     },
@@ -66,7 +66,7 @@ module.exports = {
         "surface не импортирует repo и schema напрямую — только публичный index модуля. " +
         "Иначе появляются жирные вьюхи и путь записи в обход службы (Р-2).",
       from: { path: "^apps/api/src/surface/" },
-      to: { path: "^apps/api/src/kernel/[^/]+/(repo|schema)\.ts$" },
+      to: { path: "^apps/api/src/kernel/[^/]+/(repo|schema).ts$" },
     },
     {
       name: "чужие-внутренности-закрыты",
@@ -78,7 +78,7 @@ module.exports = {
         "свой repo/service импортировать можно, чужой нельзя.",
       from: { path: "^apps/api/src/kernel/([^/]+)/", pathNot: TEST },
       to: {
-        path: "^apps/api/src/kernel/[^/]+/(repo|service)\.ts$",
+        path: "^apps/api/src/kernel/[^/]+/(repo|service).ts$",
         pathNot: "^apps/api/src/kernel/$1/",
       },
     },
