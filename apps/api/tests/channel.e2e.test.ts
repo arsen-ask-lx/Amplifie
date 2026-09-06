@@ -176,6 +176,38 @@ describe("каналы", () => {
     expect(read.status).toBe(200);
   });
 
+  it("список идёт по свежести: где писали последним — первый", async () => {
+    // Р-011: порядок по активности решает большую часть задачи «сто
+    // каналов» сам по себе — в работе нужны те же три-пять мест.
+    const owner = await newOwner("Порядок");
+    const first = (await (await createChannel(owner, "Ранний")).json()) as { id: string };
+    const second = (await (await createChannel(owner, "Поздний")).json()) as { id: string };
+
+    const say = async (id: string, body: string) =>
+      fetch(`${BASE}/v1/conversations/${id}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: owner },
+        body: JSON.stringify({ body, clientMsgId: crypto.randomUUID() }),
+      });
+
+    // Пишем в СТАРШИЙ канал первым, в младший — последним. Прежний
+    // порядок «по времени создания» дал бы обратное, поэтому проверка
+    // различает: с ним она красная, с новым порядком зелёная.
+    // (Первая редакция была написана наоборот и проходила сама собой —
+    // ложный зелёный, пойманный до того, как что-то починили.)
+    await say(first.id, "в старшем");
+    await say(second.id, "в младшем — и это свежее");
+
+    const order = (await rooms(owner)).map((r) => r.id);
+    expect(order.indexOf(second.id)).toBeLessThan(order.indexOf(first.id));
+  });
+
+  it("канал без сообщений не пропадает из списка", async () => {
+    const owner = await newOwner("Молчун");
+    const quiet = (await (await createChannel(owner, "Тихий")).json()) as { id: string };
+    expect((await rooms(owner)).map((r) => r.id)).toContain(quiet.id);
+  });
+
   it("без названия канал не создаётся", async () => {
     const owner = await newOwner("Безымянный");
     const response = await createChannel(owner, "   ");

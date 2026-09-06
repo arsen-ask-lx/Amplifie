@@ -271,6 +271,19 @@ button:disabled {
   color: var(--muted);
 }
 
+.rail-search {
+  margin: 0 0 6px;
+  font-size: 13px;
+  padding: 5px 9px;
+  background: var(--bg);
+}
+
+.rooms-empty {
+  margin: 8px 9px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .rooms {
   display: flex;
   flex-direction: column;

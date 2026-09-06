@@ -116,17 +116,37 @@ export async function insertMember(
 }
 
 /** Разговоры, где участник состоит, плюс их ветки. */
+/**
+ * Список разговоров — по свежести (Р-011).
+ *
+ * Порядок по последней активности решает большую часть задачи «сто
+ * каналов» сам по себе: в работе человеку почти всегда нужны те же
+ * три-пять мест, и они всплывают наверх без всякой раскладки по папкам.
+ *
+ * Разговор без сообщений не проваливается вниз навсегда: за неимением
+ * последнего сообщения берётся время создания. Иначе только что заведённый
+ * канал оказывался бы в самом хвосте — там, где его никто не найдёт.
+ */
 export async function listConversationsFor(tx: Executor, participantId: string) {
+  const lastAt = sql<Date>`GREATEST(
+    ${conversation.createdAt},
+    COALESCE((
+      SELECT MAX(${message.createdAt}) FROM ${message}
+      WHERE ${message.conversationId} = ${conversation.id}
+    ), ${conversation.createdAt})
+  )`;
+
   return tx
     .select({
       id: conversation.id,
       kind: conversation.kind,
       title: conversation.title,
       parentId: conversation.parentId,
+      lastAt,
     })
     .from(conversation)
     .where(visibleTo(participantId))
-    .orderBy(asc(conversation.createdAt));
+    .orderBy(desc(lastAt));
 }
 
 export async function findMessageByClientId(

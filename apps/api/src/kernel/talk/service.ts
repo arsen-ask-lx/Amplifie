@@ -71,7 +71,15 @@ async function requireVisible(tx: Executor, viewer: Viewer, conversationId: stri
 
 export async function listConversations(viewer: Viewer) {
   const rows = await repo.listConversationsFor(db, viewer.participantId);
-  return rows.map((r) => ({ id: r.id, kind: r.kind, title: r.title, parentId: r.parentId }));
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    title: r.title,
+    parentId: r.parentId,
+    // Время последней активности отдаём наружу: по нему клиент показывает
+    // «когда тут в последний раз говорили», не запрашивая ленту.
+    lastAt: r.lastAt,
+  }));
 }
 
 /**

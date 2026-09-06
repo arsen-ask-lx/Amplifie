@@ -45,6 +45,8 @@ export interface Conversation {
   kind: string;
   title: string;
   parentId: string | null;
+  /** Когда тут в последний раз говорили. По нему сервер и сортирует. */
+  lastAt?: string;
 }
 
 export interface Message {
