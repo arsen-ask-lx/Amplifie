@@ -4,11 +4,12 @@ import { api } from "./api.js";
 import { Composer } from "./Composer.js";
 import { Feed } from "./Feed.js";
 import { InvitePanel } from "./InvitePanel.js";
+import { ModelScreen } from "./ModelScreen.js";
 import { NewRoom } from "./NewRoom.js";
 import { RoomList } from "./RoomList.js";
 import { type Chat, useChat } from "./useChat.js";
-import { useWork } from "./useWork.js";
-import { WorkScreen } from "./WorkScreen.js";
+import { useWork, type Work } from "./useWork.js";
+import { type GoTo, WorkScreen } from "./WorkScreen.js";
 import { awaiting } from "./work.js";
 
 /**
@@ -22,7 +23,13 @@ import { awaiting } from "./work.js";
  * есть. Папок по-прежнему нет: порядок и поиск (Р-011).
  */
 
-type Section = "talk" | "work";
+/**
+ * Разделы главного экрана. «Нейросеть» — не раздел содержимого, поэтому
+ * её нет в переключателе: попасть туда можно кнопкой внизу панели,
+ * рядом с приглашением. Так переключатель остаётся про работу, а не
+ * про настройки.
+ */
+type Section = "talk" | "work" | "model";
 
 /**
  * Середина экрана: загрузка, пустое пространство или разговор.
@@ -141,6 +148,25 @@ function Parts({
   );
 }
 
+/** Середина экрана целиком: разговор, работа или подключение модели. */
+function Middle({
+  section,
+  chat,
+  work,
+  meId,
+  onGoTo,
+}: {
+  section: Section;
+  chat: Chat;
+  work: Work;
+  meId: string;
+  onGoTo: GoTo;
+}) {
+  if (section === "model") return <ModelScreen />;
+  if (section === "work") return <WorkScreen work={work} goTo={onGoTo} />;
+  return <Room chat={chat} meId={meId} />;
+}
+
 export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
   const chat = useChat();
   const work = useWork();
@@ -175,6 +201,13 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
         </div>
 
         <div className="rail-foot">
+          <button
+            type="button"
+            className={section === "model" ? "rail-add rail-add-on" : "rail-add"}
+            onClick={() => setSection("model")}
+          >
+            Своя нейросеть
+          </button>
           <InvitePanel />
           <button type="button" className="quiet rail-out" onClick={onLeave}>
             Выйти
@@ -184,7 +217,13 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
 
       <main className="room-view">
         <header className="room-head">
-          <h2>{section === "work" ? "Работа" : (chat.current?.title ?? "Канал")}</h2>
+          <h2>
+            {section === "work"
+              ? "Работа"
+              : section === "model"
+                ? "Подключить свою нейросеть"
+                : (chat.current?.title ?? "Канал")}
+          </h2>
           {section === "talk" && chat.current ? (
             <Listen conversationId={chat.current.id} onHeard={work.reload} />
           ) : null}
@@ -192,17 +231,16 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
 
         {chat.failure ? <p className="err-top">{chat.failure}</p> : null}
 
-        {section === "work" ? (
-          <WorkScreen
-            work={work}
-            goTo={(conversationId, seq) => {
-              setSection("talk");
-              chat.openAt(conversationId, seq);
-            }}
-          />
-        ) : (
-          <Room chat={chat} meId={me.participant.id} />
-        )}
+        <Middle
+          section={section}
+          chat={chat}
+          work={work}
+          meId={me.participant.id}
+          onGoTo={(conversationId, seq) => {
+            setSection("talk");
+            chat.openAt(conversationId, seq);
+          }}
+        />
       </main>
     </div>
   );

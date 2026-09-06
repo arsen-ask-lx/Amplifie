@@ -866,3 +866,38 @@ button:disabled {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* ── подключение своей нейросети ──────────────────────────────────── */
+
+.rail-add-on {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+.links {
+  margin: 12px 0 0;
+}
+.link-state {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+.link-when {
+  color: var(--muted);
+  font-size: 12px;
+}
+/* Точка состояния: цвет НЕ единственный признак — рядом всегда слово.
+   Иначе состояние не читается тем, кто не различает цвета. */
+.dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--edge);
+  align-self: center;
+}
+.dot-on {
+  background: var(--accent);
+}

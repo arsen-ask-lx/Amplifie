@@ -1,4 +1,12 @@
 export {
+  type BridgeView,
+  issueBridgeCode,
+  joinBridge,
+  listBridges,
+  markBridgeSeen,
+  resolveBridge,
+} from "./bridges.js";
+export {
   type Actor,
   EmailTakenError,
   ensureAgent,

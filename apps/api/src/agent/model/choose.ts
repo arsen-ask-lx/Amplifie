@@ -1,6 +1,10 @@
-import { cliProvider } from "./cli.js";
+import {
+  cliProvider,
+  KNOWN_CLIENTS,
+  type Provider,
+  ProviderUnavailableError,
+} from "@amplifie/model";
 import { keyProvider } from "./http.js";
-import { type Provider, ProviderUnavailableError } from "./provider.js";
 
 /**
  * Что настроено, то и берём (Р-012).
@@ -12,13 +16,12 @@ import { type Provider, ProviderUnavailableError } from "./provider.js";
 
 const MINUTE = 60_000;
 
-/** Готовые наборы, чтобы владелец не собирал строку запуска руками. */
-const KNOWN_CLI: Record<string, { command: string; args: string[] }> = {
-  // -p: неинтерактивный режим, ответ уходит в стандартный вывод.
-  "claude-cli": { command: "claude", args: ["-p"] },
-  // exec: то же самое у Codex, читает задание со стандартного ввода.
-  "codex-cli": { command: "codex", args: ["exec", "-"] },
-};
+/**
+ * Клиенты командной строки. Работают ТОЛЬКО там, где клиент установлен
+ * и в него выполнен вход, — то есть не в контейнере сервера. Обычный путь
+ * для подписки — мост на машине человека (task-001).
+ */
+const KNOWN_CLI = KNOWN_CLIENTS;
 
 const KNOWN_API: Record<string, { url: string; dialect: "anthropic" | "openai"; model: string }> = {
   "anthropic-api": {

@@ -3,7 +3,11 @@ FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json* tsconfig.base.json tsconfig.json ./
 COPY apps/api/package.json apps/api/
+# Общий пакет: интерфейс модели. Сам клиент запускает мост на машине
+# человека, но интерфейс нужен обеим сторонам и обязан быть один (task-001).
+COPY packages/model/package.json packages/model/
 RUN npm ci
+COPY packages/model packages/model
 COPY apps/api apps/api
 # Именно tsc --build, а не корневой `npm run typecheck`: тот проверяет ещё
 # и фронт, которого в этом образе нет.
@@ -14,7 +18,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
 COPY apps/api/package.json apps/api/
+COPY packages/model/package.json packages/model/
 RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /app/packages/model/dist packages/model/dist
 COPY --from=build /app/apps/api/dist apps/api/dist
 USER node
 EXPOSE 3000

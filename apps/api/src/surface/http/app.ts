@@ -4,6 +4,7 @@ import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
 import { setBusFailureReporter } from "../../platform/bus.js";
 import { config } from "../../platform/config.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerBridgeRoutes } from "./routes/bridge.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerInviteRoutes } from "./routes/invites.js";
@@ -35,6 +36,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   registerHealthRoutes(app);
   registerAuthRoutes(app);
+  registerBridgeRoutes(app);
   registerChatRoutes(app);
   registerInviteRoutes(app);
   registerStreamRoutes(app);

@@ -4,7 +4,7 @@ import {
   BadAnswerError,
   type Provider,
   ProviderUnavailableError,
-} from "./provider.js";
+} from "@amplifie/model";
 
 /**
  * Ключ: обычный запрос к API (Р-012).

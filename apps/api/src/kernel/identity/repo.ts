@@ -1,7 +1,7 @@
-import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
 import type { Executor } from "../../platform/db.js";
 import { workspace } from "../space/schema.js";
-import { account, invite, participant, session } from "./schema.js";
+import { account, bridge, invite, participant, session } from "./schema.js";
 
 /**
  * Слой хранилища модуля identity. Только запросы, никакой логики.
@@ -199,4 +199,85 @@ export async function findAgent(tx: Executor, workspaceId: string) {
     .where(and(eq(participant.workspaceId, workspaceId), eq(participant.kind, "agent")))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/* ── мосты: машина участника со своей подпиской (task-001) ───────────── */
+
+export async function insertBridge(
+  tx: Executor,
+  input: {
+    workspaceId: string;
+    participantId: string;
+    codeHash: string;
+    codeExpiresAt: Date;
+  },
+) {
+  const rows = await tx.insert(bridge).values(input).returning();
+  const created = rows[0];
+  if (!created) throw new Error("не удалось завести мост");
+  return created;
+}
+
+/**
+ * Погасить код подключения — атомарно, тем же приёмом, что у приглашений.
+ *
+ * Одноразовость держится условием внутри самого изменения. Проверка
+ * «а не занято ли» отдельным запросом была бы гонкой: две машины
+ * с одним кодом получили бы по токену.
+ *
+ * Все три поля ставятся ОДНИМ запросом — этого требует CHECK в базе,
+ * а отложить его нельзя: Postgres не умеет DEFERRABLE для CHECK.
+ */
+export async function claimBridge(
+  tx: Executor,
+  input: { codeHash: string; tokenHash: string; name: string; now: Date },
+) {
+  const rows = await tx
+    .update(bridge)
+    .set({
+      tokenHash: input.tokenHash,
+      name: input.name,
+      joinedAt: input.now,
+      lastSeenAt: input.now,
+    })
+    .where(
+      and(
+        eq(bridge.codeHash, input.codeHash),
+        isNull(bridge.joinedAt),
+        isNull(bridge.revokedAt),
+        gt(bridge.codeExpiresAt, input.now),
+      ),
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
+/** Мост по его постоянному токену. Отозванный не находится. */
+export async function findBridgeByToken(tx: Executor, tokenHash: string) {
+  const rows = await tx
+    .select()
+    .from(bridge)
+    .where(and(eq(bridge.tokenHash, tokenHash), isNull(bridge.revokedAt)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Отметить, что мост приходил.
+ *
+ * Пишется на каждый заход за работой — иначе «на связи» врёт. Заходов
+ * немного: один на каждые 25 секунд ожидания, а не на каждый запрос
+ * человека, поэтому отдельной бережливости, как у сессий, здесь не нужно.
+ */
+export async function touchBridge(tx: Executor, bridgeId: string, now: Date) {
+  await tx.update(bridge).set({ lastSeenAt: now }).where(eq(bridge.id, bridgeId));
+}
+
+/** Мосты участника: и подключённые, и ещё не погашенные коды. */
+export async function listBridgesOf(tx: Executor, participantId: string) {
+  return tx
+    .select()
+    .from(bridge)
+    .where(and(eq(bridge.participantId, participantId), isNull(bridge.revokedAt)))
+    .orderBy(desc(bridge.createdAt));
 }

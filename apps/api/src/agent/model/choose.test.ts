@@ -5,9 +5,10 @@
  * не должна приходить из данных, а подписочный токен не должен
  * оказаться в поле ключа.
  */
+
+import { ProviderUnavailableError } from "@amplifie/model";
 import { describe, expect, it } from "vitest";
 import { chooseProvider, KNOWN_PROVIDERS } from "./choose.js";
-import { ProviderUnavailableError } from "./provider.js";
 
 describe("выбор провайдера", () => {
   it("модель не подключена — это законное состояние, а не ошибка", () => {

@@ -1,8 +1,8 @@
-import { createHash, randomBytes } from "node:crypto";
 import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
 import { db, type Tx, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import * as repo from "./repo.js";
+import { hashToken, newToken } from "./tokens.js";
 
 /** Сколько живёт сессия. Продлевать будем позже — сейчас проще некуда. */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -40,12 +40,8 @@ export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
 function newSessionToken(): { token: string; tokenHash: string } {
-  const token = randomBytes(32).toString("base64url");
+  const token = newToken();
   return { token, tokenHash: hashToken(token) };
 }
 
@@ -261,7 +257,7 @@ export async function issueInvite(
 ): Promise<{ id: string; token: string; expiresAt: Date }> {
   const live = Math.min(Math.max(lifetimeMs, 1000), INVITE_MAX_TTL_MS);
   // Те же 256 бит, что и у токена сессии: это тоже вход в пространство.
-  const token = randomBytes(32).toString("base64url");
+  const token = newToken();
   const expiresAt = new Date(Date.now() + live);
 
   return withTransaction(async (tx) => {

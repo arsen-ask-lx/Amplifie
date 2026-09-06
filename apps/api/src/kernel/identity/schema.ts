@@ -97,3 +97,45 @@ export const invite = pgTable(
   },
   (table) => [index("invite_workspace_idx").on(table.workspaceId, table.createdAt)],
 );
+
+/**
+ * Мост — машина участника, на которой живёт его подписка (task-001).
+ *
+ * Лежит рядом с сессией не случайно: это такое же удостоверение, только
+ * не браузера, а машины. Поэтому и устройство то же — хеш токена, срок,
+ * последний контакт. Разные они в одном: сессия действует от лица
+ * учётной записи, мост — от лица участника в одном пространстве.
+ *
+ * ⚠️ Токена подписки здесь нет и быть не может. Мы его не видим: клиент
+ * читает свои учётные данные сам, на своей машине (Р-012).
+ *
+ * Одна таблица, а не «код» плюс «мост»: строка рождается кодом
+ * подключения и превращается в мост, когда код погашен. Так одноразовость
+ * держит один условный UPDATE, а не сговор двух таблиц.
+ */
+export const bridge = pgTable(
+  "bridge",
+  {
+    id: uuid("id").primaryKey().default(sql`uuidv7()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    /** Чья подписка. Мост всегда принадлежит человеку, а не пространству. */
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => participant.id, { onDelete: "cascade" }),
+    /** Код подключения: в базе только хеш, как у приглашения (Р-009). */
+    codeHash: text("code_hash").notNull().unique(),
+    codeExpiresAt: timestamp("code_expires_at", { withTimezone: true }).notNull(),
+    /** Постоянный токен моста. Пусто, пока код не погашен. */
+    tokenHash: text("token_hash").unique(),
+    /** Имя машины — чтобы человек отличал ноутбук от рабочего компьютера. */
+    name: text("name"),
+    joinedAt: timestamp("joined_at", { withTimezone: true }),
+    /** Когда мост в последний раз приходил за работой. По нему «на связи». */
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("bridge_workspace_participant_idx").on(table.workspaceId, table.participantId)],
+);

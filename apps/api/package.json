@@ -9,6 +9,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@amplifie/model": "*",
     "@fastify/cookie": "11.1.2",
     "@node-rs/argon2": "2.2.0",
     "drizzle-orm": "0.45.2",

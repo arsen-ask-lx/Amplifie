@@ -93,6 +93,18 @@ export interface Task {
   citations: Citation[];
 }
 
+/** Мост — машина участника, на которой живёт его подписка (task-001). */
+export interface Bridge {
+  id: string;
+  name: string | null;
+  /** Код погашен, машина подключалась хотя бы раз. */
+  joined: boolean;
+  /** Приходил за работой недавно — значит спросить можно прямо сейчас. */
+  online: boolean;
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+
 export const api = {
   me: () => request<Me>("/v1/me"),
   conversations: () => request<{ items: Conversation[] }>("/v1/conversations"),
@@ -169,6 +181,26 @@ export const api = {
    */
   decide: (id: string, verdict: "confirm" | "reject") =>
     request<Agreement>(`/v1/agreements/${id}/${verdict}`, { method: "POST", body: "{}" }),
+
+  /** Мосты участника: и подключённые, и ещё не погашенные коды. */
+  bridges: () => request<{ items: Bridge[] }>("/v1/bridges"),
+
+  /**
+   * Выдать код подключения. Код и готовая строка запуска приходят ОДИН раз:
+   * в базе только хеш, как у приглашения (Р-009).
+   */
+  createBridgeCode: () =>
+    request<{ id: string; code: string; command: string; expiresAt: string }>("/v1/bridges", {
+      method: "POST",
+      body: "{}",
+    }),
+
+  /** Живая проверка: спросить настоящую модель через свой мост. */
+  checkModel: (prompt?: string) =>
+    request<{ text: string; ms: number }>("/v1/model/check", {
+      method: "POST",
+      body: JSON.stringify(prompt ? { prompt } : {}),
+    }),
 
   /**
    * Разобрать разговор: агент читает ленту и предлагает договорённости.

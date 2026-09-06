@@ -23,7 +23,8 @@
     "arbiter:check": "node --test arbiter/*.test.mjs",
     "arbiter": "node arbiter/report.mjs",
     "label": "node arbiter/label.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bridge": "tsc --build apps/bridge && node apps/bridge/dist/main.js"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.11",

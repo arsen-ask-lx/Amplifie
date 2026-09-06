@@ -24,7 +24,7 @@
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "overrides": [
     {
-      "includes": ["scripts/**", "arbiter/**"],
+      "includes": ["scripts/**", "arbiter/**", "apps/bridge/**"],
       "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
     }
   ]
