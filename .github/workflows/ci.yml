@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Дешёвое первым (fail fast): секунды, без базы и без Docker.
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Формат и линтер
+        run: npm run lint
+      - name: Типы
+        run: npm run typecheck
+      - name: Архитектурные границы
+        run: npm run arch
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Секреты в истории
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Уязвимости в зависимостях
+        run: npm audit --audit-level=high
+
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Поднять стек и дёрнуть health как пользователь
+        run: |
+          cp .env.example .env
+          docker compose up -d --build
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health; then echo; echo "стек живой"; exit 0; fi
+            sleep 2
+          done
+          echo "стек не поднялся"; docker compose logs; exit 1
+      - name: Логи при падении
+        if: failure()
+        run: docker compose logs

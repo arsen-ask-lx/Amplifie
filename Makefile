@@ -1,0 +1,61 @@
+# Единый интерфейс команд — для человека и для агента.
+# Ни одна команда проекта не запускается мимо этого файла.
+# .RECIPEPREFIX убирает требование табов: правило начинается с '>'.
+.RECIPEPREFIX = >
+.DEFAULT_GOAL := help
+SHELL := /bin/sh
+
+help: ## показать этот список
+> @grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+
+env: ## создать .env из шаблона, если его нет
+> @test -f .env || (cp .env.example .env && echo "создан .env из .env.example")
+
+up: env ## поднять весь стек
+> docker compose up -d --build
+> @echo "ждём здоровья api..."
+> @for i in $$(seq 1 30); do \
+>   if docker compose ps api --format '{{.Health}}' | grep -q healthy; then echo "готово: http://localhost:$${HTTP_PORT:-8080}/health"; exit 0; fi; \
+>   sleep 2; \
+> done; echo "api не стал здоровым за 60с — смотри 'make logs'"; exit 1
+
+down: ## остановить стек (данные сохраняются)
+> docker compose down
+
+reset: ## остановить и СТЕРЕТЬ данные (дев-база)
+> docker compose down -v
+
+logs: ## хвост логов всех сервисов
+> docker compose logs -f --tail=100
+
+ps: ## что запущено
+> docker compose ps
+
+health: ## дёрнуть /health как пользователь (не test client)
+> curl -fsS http://localhost:$${HTTP_PORT:-8080}/health && echo
+
+psql: ## консоль базы
+> docker compose exec postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie}
+
+install: ## поставить зависимости локально (для типов и линтера)
+> npm install
+
+typecheck: ## проверка типов
+> npm run typecheck
+
+lint: ## формат + линтер (проверка)
+> npm run lint
+
+format: ## формат + линтер (с исправлением)
+> npm run format
+
+arch: ## архитектурные границы (запреты импортов)
+> npm run arch
+
+test: ## тесты
+> npm test
+
+check: lint typecheck arch ## всё быстрое разом — то же, что гоняет CI
+> @echo "все быстрые проверки прошли"
+
+.PHONY: help env up down reset logs ps health psql install typecheck lint format arch test check

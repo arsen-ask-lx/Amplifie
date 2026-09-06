@@ -1,0 +1,17 @@
+# Дев-конфиг. TLS появится вместе с доменом (Caddy возьмёт сертификат сам).
+:80 {
+	encode gzip
+
+	# Поток живых обновлений: буферизация обязана быть выключена,
+	# иначе события копятся в прокси и не доезжают.
+	@stream path /events* /v1/stream*
+	reverse_proxy @stream api:3000 {
+		flush_interval -1
+	}
+
+	reverse_proxy /api/* api:3000
+	reverse_proxy /health api:3000
+
+	# Фронт появится на следующем шаге; пока корень отдаёт заглушку.
+	respond / "Amplifie: каркас поднят. API: /health" 200
+}

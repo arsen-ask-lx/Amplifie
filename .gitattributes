@@ -1,2 +1,6 @@
-# Скрипты обязаны иметь LF: CRLF ломает shebang в контейнере и WSL.
+* text=auto eol=lf
 *.sh text eol=lf
+*.md text eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
