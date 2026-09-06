@@ -25,14 +25,32 @@ export interface Proposal {
   text: string;
 }
 
+/**
+ * Цитата в том виде, в каком её показывают человеку.
+ *
+ * Три поля сверх текста, и каждое отвечает на свой вопрос перед тем, как
+ * человек нажмёт «подтверждаю»: кто это сказал, в каком месте ленты
+ * и на какое сообщение указывает.
+ */
+export interface CitationView {
+  messageId: string;
+  seq: number;
+  quote: string;
+  authorName: string;
+}
+
 export interface AgreementView {
   id: string;
   conversationId: string;
+  /** Где сказано — словами. Идентификатор человеку ничего не говорит. */
+  conversationTitle: string;
   text: string;
   status: string;
+  /** Кто предложил. Пока всегда агент, но поле не про «агента», а про автора. */
+  proposedBy: { id: string; name: string };
   confirmedBy: string | null;
   createdAt: Date;
-  citations: Array<{ messageId: string; quote: string }>;
+  citations: CitationView[];
 }
 
 /**
@@ -145,6 +163,16 @@ export async function decide(
   return viewOf(db, changed.id, actor.workspaceId);
 }
 
+/** Цитаты одной договорённости, без полей соединения. */
+function citesOf(
+  all: Array<CitationView & { agreementId: string }>,
+  agreementId: string,
+): CitationView[] {
+  return all
+    .filter((c) => c.agreementId === agreementId)
+    .map(({ messageId, seq, quote, authorName }) => ({ messageId, seq, quote, authorName }));
+}
+
 async function withCitations(
   tx: Executor,
   rows: Awaited<ReturnType<typeof repo.listAgreementsIn>>,
@@ -156,13 +184,13 @@ async function withCitations(
   return rows.map((row) => ({
     id: row.id,
     conversationId: row.conversationId,
+    conversationTitle: row.conversationTitle,
     text: row.text,
     status: row.status,
+    proposedBy: { id: row.proposedById, name: row.proposedByName },
     confirmedBy: row.confirmedBy,
     createdAt: row.createdAt,
-    citations: cites
-      .filter((c) => c.agreementId === row.id)
-      .map((c) => ({ messageId: c.messageId, quote: c.quote })),
+    citations: citesOf(cites, row.id),
   }));
 }
 
@@ -196,8 +224,8 @@ export async function listTasks(workspaceId: string) {
     title: row.title,
     status: row.status,
     createdAt: row.createdAt,
-    citations: cites
-      .filter((c) => c.agreementId === row.agreementId)
-      .map((c) => ({ messageId: c.messageId, quote: c.quote })),
+    conversationId: row.conversationId,
+    conversationTitle: row.conversationTitle,
+    citations: citesOf(cites, row.agreementId),
   }));
 }

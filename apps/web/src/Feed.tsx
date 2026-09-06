@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Message } from "./api.js";
 import { RichText } from "./RichText.js";
+import type { Focus } from "./useChat.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).
@@ -97,7 +98,8 @@ function Bubble({ row }: { row: Row }) {
     .join(" ");
 
   return (
-    <article className={shape}>
+    // data-seq — по нему лента находит реплику при переходе из цитаты.
+    <article className={shape} data-seq={row.message.seq}>
       {/* Кружок держит место у всей группы, но виден только у последнего:
           так строки одного автора стоят ровно, а лента не пестрит. */}
       {row.mine ? null : (
@@ -120,18 +122,24 @@ function Bubble({ row }: { row: Row }) {
   );
 }
 
+/** Сколько держится подсветка найденной реплики. */
+const HIGHLIGHT_MS = 2200;
+
 export function Feed({
   messages,
   hasOlder,
   onLoadOlder,
   title,
   meId,
+  focus,
 }: {
   messages: Message[];
   hasOlder: boolean;
   onLoadOlder: () => void;
   title: string | undefined;
   meId: string;
+  /** Реплика, из которой пришли по цитате. */
+  focus: Focus | null;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const newest = messages.at(-1)?.seq ?? 0;
@@ -186,11 +194,50 @@ export function Feed({
     settled.current = true;
 
     const frame = requestAnimationFrame(() => {
+      // Проверяем ЕЩЁ РАЗ, уже в кадре: между планированием и отрисовкой
+      // человек мог уйти к цитате. Без этой строки переход отрабатывал,
+      // подсвечивал реплику — и лента тут же уезжала обратно в конец.
+      // Видно только глазами: подсветка-то ставилась, тест был бы зелёным.
+      if (!stuckToBottom.current) return;
       if (instant) node.scrollTop = node.scrollHeight;
       else node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
     });
     return () => cancelAnimationFrame(frame);
   }, [newest]);
+
+  /**
+   * Переход по цитате: довести до реплики и отметить её.
+   *
+   * Отдельным эффектом после того, который уводит ленту в конец: иначе
+   * прокрутка вниз перебила бы переход. Класс ставится напрямую, минуя
+   * состояние, — подсветка живёт две секунды и перерисовки не стоит.
+   */
+  useEffect(() => {
+    const node = box.current;
+    if (!node || !focus) return;
+
+    const found = node.querySelector<HTMLElement>(`[data-seq="${focus.seq}"]`);
+    // Не нашли — цитата указывает на реплику, которой в ленте нет: удалена
+    // либо дальше десяти страниц догрузки. Человек всё равно оказывается
+    // в нужном разговоре, но подсветки не увидит. ⚠️ Это известный пробел:
+    // экран не говорит, ПОЧЕМУ не подсветилось.
+    if (!found) return;
+
+    // Мы уже НЕ внизу ленты: иначе догон утащит человека обратно.
+    stuckToBottom.current = false;
+
+    // Мгновенно, а не плавно. Плавная прокрутка живёт на цикле кадров, а он
+    // во вкладке без фокуса не крутится вовсе: подсветка ставилась, а лента
+    // оставалась внизу. Поймано живым прогоном, из кода не видно. Здесь это
+    // и не потеря: человек нажал «показать» и должен УВИДЕТЬ, а не ехать.
+    found.scrollIntoView({ block: "center", behavior: "auto" });
+    found.classList.add("msg-found");
+    const timer = setTimeout(() => found.classList.remove("msg-found"), HIGHLIGHT_MS);
+    return () => {
+      clearTimeout(timer);
+      found.classList.remove("msg-found");
+    };
+  }, [focus]);
 
   if (messages.length === 0) return <Empty />;
 

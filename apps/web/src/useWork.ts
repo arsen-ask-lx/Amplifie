@@ -1,0 +1,72 @@
+import { useCallback, useEffect, useState } from "react";
+import { type Agreement, api, type Task } from "./api.js";
+
+/**
+ * Данные экрана работы: договорённости и задачи.
+ *
+ * Живёт выше экрана, в `ChatScreen`, потому что разбор запускается из шапки
+ * разговора, а его результат виден здесь. Два держателя одного списка
+ * разошлись бы — и разошлись бы молча.
+ */
+
+export interface Work {
+  agreements: Agreement[];
+  tasks: Task[];
+  loading: boolean;
+  failure: string | null;
+  /** По какой договорённости сейчас идёт запрос: кнопки на ней гаснут. */
+  deciding: string | null;
+  reload: () => Promise<void>;
+  decide: (id: string, verdict: "confirm" | "reject") => Promise<void>;
+}
+
+export function useWork(): Work {
+  const [agreements, setAgreements] = useState<Agreement[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [deciding, setDeciding] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    try {
+      // Оба списка одним заходом: подтверждение меняет сразу и то и другое,
+      // а показать новое в одном и старое в другом — хуже, чем подождать.
+      const [gathered, done] = await Promise.all([api.agreements(), api.tasks()]);
+      setAgreements(gathered.items);
+      setTasks(done.items);
+      setFailure(null);
+    } catch {
+      setFailure("Не удалось загрузить договорённости");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const decide = useCallback(
+    async (id: string, verdict: "confirm" | "reject") => {
+      setDeciding(id);
+      try {
+        await api.decide(id, verdict);
+        // Перечитываем целиком, а не правим состояние на месте: подтверждение
+        // рождает ещё и задачу, и собирать её здесь из воздуха — значит
+        // завести второй источник правды о том, что уже есть на сервере.
+        await reload();
+      } catch {
+        setFailure(
+          verdict === "confirm"
+            ? "Подтвердить не удалось — договорённость осталась предложенной"
+            : "Отклонить не удалось — договорённость осталась предложенной",
+        );
+      } finally {
+        setDeciding(null);
+      }
+    },
+    [reload],
+  );
+
+  return { agreements, tasks, loading, failure, deciding, reload, decide };
+}

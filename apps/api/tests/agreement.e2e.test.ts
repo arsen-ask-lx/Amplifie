@@ -80,7 +80,9 @@ interface Agreement {
   status: string;
   conversationId: string;
   confirmedBy: string | null;
-  citations: Array<{ messageId: string; quote: string }>;
+  conversationTitle: string;
+  proposedBy: { id: string; name: string };
+  citations: Array<{ messageId: string; seq: number; quote: string; authorName: string }>;
 }
 
 async function agreements(place: Stage): Promise<Agreement[]> {
@@ -241,5 +243,69 @@ describe("ядро: договорённость", () => {
       ).json()) as { items: unknown[] };
       expect(tasks.items).toHaveLength(1);
     });
+  });
+});
+
+/**
+ * ④ Контекст, без которого экран работы бессмысленен.
+ *
+ * Договорённость, вырванная из разговора, — это строка текста, под которой
+ * человек жмёт «подтверждаю» не глядя. Ровно тот отказ, который план
+ * называет главным риском Э3 (штамповка одобрений, А-2).
+ *
+ * Чтобы человек мог решать, а не штамповать, ему нужны три вещи, и ни одной
+ * из них API сейчас не отдаёт:
+ *   • ГДЕ сказано — название разговора, а не голый идентификатор;
+ *   • КТО сказал — имя автора цитаты. «Кто попросил» из бизнес-ТЗ;
+ *   • КУДА прыгнуть — номер сообщения: по идентификатору ленту не открыть,
+ *     она листается номерами.
+ */
+describe("④ контекст для экрана работы", () => {
+  it("у договорённости видно разговор, автора цитаты и номер сообщения", async () => {
+    const place = await stage("Контекстный");
+    const promise = await say(place, "Я поправлю выгрузку до вторника.");
+    await listen(place);
+
+    const [found] = await agreements(place);
+    if (!found) throw new Error("агент ничего не предложил");
+
+    // Где сказано — словами, а не идентификатором.
+    expect(found.conversationTitle).toBeTruthy();
+    // Кто предложил — участник с именем, а не безличная машина.
+    expect(found.proposedBy?.name).toBeTruthy();
+
+    const [cite] = found.citations;
+    expect(cite?.messageId).toBe(promise.id);
+    // Кто это сказал: имя автора реплики, а не автора предложения.
+    expect(cite?.authorName).toBe("Контекстный");
+    // Куда прыгнуть: лента листается номерами, идентификатор ей не годится.
+    expect(cite?.seq).toBe(promise.seq);
+  });
+
+  it("у задачи тот же контекст: разговор и цитата с автором", async () => {
+    const place = await stage("Задача-контекст");
+    const promise = await say(place, "Беру на себя переговоры, отвечу к среде.");
+    await listen(place);
+
+    const [proposal] = await agreements(place);
+    if (!proposal) throw new Error("агент ничего не предложил");
+    await decide(place, proposal.id, "confirm");
+
+    const tasks = (await (
+      await fetch(`${BASE}/v1/tasks`, { headers: { cookie: place.cookie } })
+    ).json()) as {
+      items: Array<{
+        conversationId: string;
+        conversationTitle: string;
+        citations: Array<{ messageId: string; seq: number; quote: string; authorName: string }>;
+      }>;
+    };
+
+    const task = tasks.items[0];
+    // Из задачи открывается разговор — иначе «дойти до реплики» невозможно.
+    expect(task?.conversationId).toBe(place.channelId);
+    expect(task?.conversationTitle).toBeTruthy();
+    expect(task?.citations[0]?.seq).toBe(promise.seq);
+    expect(task?.citations[0]?.authorName).toBe("Задача-контекст");
   });
 });

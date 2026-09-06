@@ -60,6 +60,39 @@ export interface Message {
   author: { id: string; name: string; kind: string };
 }
 
+/** На чём агент основал предложение. Настоящая ссылка, а не слепок. */
+export interface Citation {
+  messageId: string;
+  /** Номер в ленте: по нему открывается нужное место разговора. */
+  seq: number;
+  quote: string;
+  /** Кто это сказал. Автор РЕПЛИКИ, а не автор предложения. */
+  authorName: string;
+}
+
+export interface Agreement {
+  id: string;
+  conversationId: string;
+  conversationTitle: string;
+  text: string;
+  status: string;
+  proposedBy: { id: string; name: string };
+  confirmedBy: string | null;
+  createdAt: string;
+  citations: Citation[];
+}
+
+export interface Task {
+  id: string;
+  agreementId: string;
+  title: string;
+  status: string;
+  createdAt: string;
+  conversationId: string;
+  conversationTitle: string;
+  citations: Citation[];
+}
+
 export const api = {
   me: () => request<Me>("/v1/me"),
   conversations: () => request<{ items: Conversation[] }>("/v1/conversations"),
@@ -125,4 +158,27 @@ export const api = {
   login: (input: { email: string; password: string }) =>
     request<Me>("/v1/auth/login", { method: "POST", body: JSON.stringify(input) }),
   logout: () => request<void>("/v1/auth/logout", { method: "POST", body: "{}" }),
+
+  /** Договорённости пространства: и ждущие решения, и решённые. */
+  agreements: () => request<{ items: Agreement[] }>("/v1/agreements"),
+  tasks: () => request<{ items: Task[] }>("/v1/tasks"),
+
+  /**
+   * Подтвердить или отклонить. Сервер пускает сюда только человека —
+   * не потому, что мы не доверяем агенту, а потому что это гейт одобрения.
+   */
+  decide: (id: string, verdict: "confirm" | "reject") =>
+    request<Agreement>(`/v1/agreements/${id}/${verdict}`, { method: "POST", body: "{}" }),
+
+  /**
+   * Разобрать разговор: агент читает ленту и предлагает договорённости.
+   *
+   * Пока это КНОПКА. Агент не слушает сам — на это нужен ответ про лимиты
+   * тарифа (О-1, О-2), иначе каждое сообщение уходило бы в модель.
+   */
+  listen: (conversationId: string) =>
+    request<{ proposed: number }>(`/v1/conversations/${conversationId}/listen`, {
+      method: "POST",
+      body: "{}",
+    }),
 };

@@ -21,6 +21,42 @@ function merge(current: Message[], incoming: Message[]): Message[] {
 
 const maxSeq = (messages: Message[]) => messages.reduce((top, m) => Math.max(top, m.seq), 0);
 
+/**
+ * Куда смотреть в ленте. Каждый переход рождает НОВЫЙ объект, даже если
+ * поля те же: по его смене лента понимает, что надо подсветить реплику
+ * ещё раз. Сравнение по значению здесь молча съело бы повторный переход.
+ */
+export interface Focus {
+  conversationId: string;
+  seq: number;
+}
+
+/**
+ * Долистать назад, пока нужная реплика не окажется в ленте.
+ *
+ * Ограничение по числу страниц, а не «пока не найдём»: цитата может
+ * указывать на удалённое сообщение, и тогда цикл вечен.
+ */
+const BACK_PAGES = 10;
+
+async function pageBackTo(
+  conversationId: string,
+  start: { items: Message[]; hasMore: boolean },
+  want: number,
+): Promise<{ items: Message[]; hasMore: boolean }> {
+  let all = start.items;
+  let more = start.hasMore;
+
+  for (let page = 0; more && page < BACK_PAGES; page++) {
+    const oldest = all[0]?.seq;
+    if (oldest === undefined || oldest <= want) break;
+    const older = await api.messages(conversationId, { limit: PAGE, before: oldest });
+    all = merge(all, older.items);
+    more = older.hasMore;
+  }
+  return { items: all, hasMore: more };
+}
+
 export interface Chat {
   conversations: Conversation[];
   current: Conversation | null;
@@ -28,7 +64,10 @@ export interface Chat {
   hasOlder: boolean;
   loading: boolean;
   failure: string | null;
+  focus: Focus | null;
   select: (id: string) => void;
+  /** Открыть разговор на конкретной реплике — переход по цитате. */
+  openAt: (conversationId: string, seq: number) => void;
   loadOlder: () => Promise<void>;
   send: (body: string, clientMsgId: string) => Promise<void>;
   addChannel: (title: string) => Promise<void>;
@@ -42,6 +81,7 @@ export function useChat(): Chat {
   const [hasOlder, setHasOlder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
+  const [focus, setFocus] = useState<Focus | null>(null);
 
   // Курсор догона живёт в ref, а не в состоянии: он меняется чаще, чем экран,
   // и перерисовывать ленту ради него незачем.
@@ -78,6 +118,9 @@ export function useChat(): Chat {
   }, []);
 
   // Лента выбранного разговора — с нуля при каждом переключении.
+  // `wanted` в зависимостях: переход по цитате в УЖЕ открытый разговор
+  // обязан долистать до реплики, а идентификатор при этом не меняется.
+  const wanted = focus?.conversationId === currentId ? focus.seq : null;
   useEffect(() => {
     if (!currentId) return;
     let cancelled = false;
@@ -85,11 +128,14 @@ export function useChat(): Chat {
 
     api
       .messages(currentId, { limit: PAGE })
-      .then(async ({ items, hasMore }) => {
+      .then(async (first) => {
         if (cancelled) return;
-        setMessages(items);
-        setHasOlder(hasMore);
-        cursor.current = maxSeq(items);
+        const page = wanted === null ? first : await pageBackTo(currentId, first, wanted);
+        if (cancelled) return;
+
+        setMessages(page.items);
+        setHasOlder(page.hasMore);
+        cursor.current = maxSeq(page.items);
         await catchUp();
       })
       .catch(() => {
@@ -102,7 +148,7 @@ export function useChat(): Chat {
     return () => {
       cancelled = true;
     };
-  }, [currentId, catchUp]);
+  }, [currentId, catchUp, wanted]);
 
   // Звонок. EventSource переподключается сам — этим SSE и хорош.
   useEffect(() => {
@@ -177,7 +223,14 @@ export function useChat(): Chat {
 
   const select = useCallback((id: string) => {
     setFailure(null);
+    setFocus(null);
     setCurrentId(id);
+  }, []);
+
+  const openAt = useCallback((conversationId: string, seq: number) => {
+    setFailure(null);
+    setCurrentId(conversationId);
+    setFocus({ conversationId, seq });
   }, []);
 
   return {
@@ -187,7 +240,9 @@ export function useChat(): Chat {
     hasOlder,
     loading,
     failure,
+    focus,
     select,
+    openAt,
     loadOlder,
     send,
     addChannel,

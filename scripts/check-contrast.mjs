@@ -31,6 +31,7 @@ const PAIRS = [
   { fg: "--ink", bg: "--selected", need: TEXT, what: "текст на выбранном" },
   { fg: "--muted", bg: "--bg", need: TEXT, what: "приглушённый текст на фоне" },
   { fg: "--muted", bg: "--panel", need: TEXT, what: "приглушённый текст на панели" },
+  { fg: "--muted", bg: "--raised", need: TEXT, what: "подпись цитаты на цитате" },
   { fg: "--danger", bg: "--bg", need: TEXT, what: "текст ошибки" },
   { fg: "--danger", bg: "--panel", need: TEXT, what: "текст ошибки на панели" },
   { fg: "--on-accent", bg: "--accent", need: TEXT, what: "текст на акценте" },

@@ -682,3 +682,187 @@ button:disabled {
     transform: translateY(3px);
   }
 }
+
+/* ── разделы ──────────────────────────────────────────────────────────
+   Переключатель над списком разговоров: список — навигация ВНУТРИ
+   раздела, а не над ним. Разделов будет больше; место уже есть. */
+
+.parts {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 12px;
+}
+.part {
+  width: auto;
+  flex: 1;
+  background: none;
+  color: var(--muted);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.part:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
+.part-on,
+.part-on:hover {
+  background: var(--selected);
+  color: var(--ink);
+}
+/* Единственное место, где тратится акцент вне ленты, — и ровно то,
+   на которое он был отложен: найденная договорённость (Р-008). */
+.part-count {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+}
+
+/* Шапка разговора: название слева, разбор справа. */
+.room-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.listen {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.listen-said {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ── экран работы ─────────────────────────────────────────────────── */
+
+.work {
+  overflow-y: auto;
+  padding: 20px 26px 30px;
+  min-height: 0;
+}
+.work-part {
+  max-width: 62ch;
+  margin-bottom: 30px;
+}
+.work-part h3 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+/* Внутри экрана работы пустая строка не прижимается к низу, как в ленте:
+   здесь читают сверху вниз. */
+.work .feed-empty {
+  margin: 0;
+  padding: 0;
+}
+
+.deal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.deal-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.deal-where {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.deal-done,
+.deal-off {
+  padding: 11px 16px;
+}
+.deal-off .deal-text {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* Цитата — то единственное, чем человек может поймать выдумку агента.
+   Поэтому она видна всегда и стоит рядом с кнопками, а не за раскрытием. */
+.cite {
+  margin: 11px 0 0;
+  padding: 9px 12px;
+  background: var(--raised);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 7px 7px 0;
+}
+.cite-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.cite-who {
+  margin: 5px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.cite-go {
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.cite-go:hover {
+  background: none;
+}
+.cite-none {
+  margin: 11px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* Обе кнопки решения одного веса: экран не подсказывает верный ответ. */
+.deal-do {
+  display: flex;
+  gap: 8px;
+  margin-top: 13px;
+}
+.deal-do button {
+  width: auto;
+  background: none;
+  border: 1px solid var(--edge);
+  color: var(--ink);
+  padding: 6px 15px;
+  font-size: 13px;
+  border-radius: 7px;
+}
+.deal-do button:hover:not(:disabled) {
+  background: var(--raised);
+}
+.deal-do .quiet {
+  border: 0;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* Найденная по цитате реплика: короткая вспышка, а не постоянная метка.
+   Постоянную перестают замечать через день. */
+.msg-found .bubble {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
