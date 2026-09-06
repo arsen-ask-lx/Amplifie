@@ -30,6 +30,8 @@ jobs:
         run: npm run decisions
       - name: Записи каталога AQK
         run: npm run gates
+      - name: Счётчик согласия арбитра К2
+        run: npm run arbiter:check
 
   security:
     runs-on: ubuntu-latest

@@ -22,7 +22,7 @@
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "overrides": [
     {
-      "includes": ["scripts/**"],
+      "includes": ["scripts/**", "arbiter/**"],
       "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
     }
   ]

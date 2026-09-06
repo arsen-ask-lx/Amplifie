@@ -64,13 +64,22 @@ decisions: ## решения приняты с источниками, а не �
 gates: ## вшитые записи каталога AQK (размер файла, TODO, ссылки, версии)
 > npm run gates
 
+arbiter-check: ## проверки самого счётчика согласия (числа посчитаны руками)
+> npm run arbiter:check
+
+arbiter: ## отчёт арбитра К2 — согласие людей и число агента
+> npm run arbiter
+
+label: ## вторая разметка корпуса К2 вручную (нужен терминал)
+> npm run label
+
 aqk: ## ступень соответствия AQK и что до следующей
 > npx --yes agent-quality-kit@0.4.2 doctor
 
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
-check: lint typecheck arch decisions gates ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions gates arbiter-check ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions gates aqk test check
+.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions gates arbiter-check arbiter label aqk test check
