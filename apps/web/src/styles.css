@@ -36,6 +36,10 @@
 
   --danger: #9c2418;
 
+  /* Полоса прокрутки: видна, но не спорит с содержимым. */
+  --scroll: #cbc6b8;
+  --scroll-hot: #a8a294;
+
   --step: 4px;
 
   /* Родной шрифт платформы — SF на Apple, Segoe UI на Windows,
@@ -68,11 +72,46 @@
     --accent-soft-edge: #2a423b;
 
     --danger: #e78075;
+
+    --scroll: #3a3831;
+    --scroll-hot: #55524a;
   }
 }
 
 * {
   box-sizing: border-box;
+}
+
+/*
+ * Полосы прокрутки — тонкие и тихие, но НЕ спрятанные.
+ *
+ * Спрятать совсем — значит убрать единственный признак того, что выше
+ * есть ещё содержимое. Человек не листает то, о чём не знает. Поэтому
+ * полоса остаётся, но становится незаметной, пока на неё не наведёшься.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--scroll);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-hot);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 body {

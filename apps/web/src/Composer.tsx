@@ -23,7 +23,21 @@ const MAX_ROWS = 10;
  * их не считает, и высота выходила на два пикселя короче нужной,
  * отчего на ОДНОЙ строке появлялась полоса прокрутки.
  */
-function fit(node: HTMLTextAreaElement): void {
+function fit(node: HTMLTextAreaElement, expected: string): void {
+  // Меряем, только когда в поле УЖЕ нужное значение. Без этой проверки
+  // можно посчитать высоту по старому тексту — ровно та ошибка, из-за
+  // которой поле не сжималось после отправки многострочного сообщения.
+  if (node.value !== expected) return;
+
+  // Пустое поле не меряем вовсе: снимаем высоту и отдаём её обратно
+  // разметке, где она задана числом строк. Измерение здесь было лишним
+  // звеном — а лишнее звено и оказалось тем, что ломалось.
+  if (expected === "") {
+    node.style.height = "";
+    node.style.overflowY = "hidden";
+    return;
+  }
+
   node.style.height = "auto";
   const line = Number.parseFloat(getComputedStyle(node).lineHeight) || 21;
   const borders = node.offsetHeight - node.clientHeight;
@@ -49,11 +63,20 @@ export function Composer({
   const draftId = useRef(crypto.randomUUID());
   const field = useRef<HTMLTextAreaElement>(null);
 
-  // Подгоняем и при первом показе, и после каждой правки текста:
-  // после отправки текст пуст, и поле обязано сжаться обратно.
+  /**
+   * Высота подгоняется ПОСЛЕ отрисовки и на каждое изменение текста.
+   *
+   * Раньше `fit` звался руками сразу за `setText("")` — то есть до того,
+   * как React успевал очистить поле. Мерилась старая высота, и после
+   * отправки многострочного сообщения поле оставалось раздутым.
+   * Найдено владельцем на живом прогоне.
+   *
+   * Одно место вместо трёх вызовов: подгонка следует за состоянием,
+   * а не за событиями, и разойтись с ним больше не может.
+   */
   useLayoutEffect(() => {
-    if (field.current) fit(field.current);
-  }, []);
+    if (field.current) fit(field.current, text);
+  }, [text]);
 
   async function submit(): Promise<void> {
     const body = text.trim();
@@ -68,7 +91,6 @@ export function Composer({
       // не появится, даже если первое всё-таки дошло.
       draftId.current = crypto.randomUUID();
       setText("");
-      if (field.current) fit(field.current);
     } catch {
       setFailure("Сообщение не ушло. Отправьте ещё раз — оно не задвоится.");
     } finally {
@@ -100,10 +122,7 @@ export function Composer({
           ref={field}
           value={text}
           rows={1}
-          onChange={(event) => {
-            setText(event.target.value);
-            fit(event.target);
-          }}
+          onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Написать в канал"
           aria-label="Текст сообщения"
