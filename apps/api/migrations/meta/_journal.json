@@ -29,6 +29,13 @@
       "when": 1788701309724,
       "tag": "0003_deferrable_invite_pair",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788701929539,
+      "tag": "0004_channel_visibility",
+      "breakpoints": true
     }
   ]
 }

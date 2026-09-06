@@ -299,3 +299,50 @@ export async function addToRootChannel(
 
   return channel;
 }
+
+/** Кому виден новый канал (Р-010). Ветка своей видимости не имеет. */
+export type Visibility = "workspace" | "private";
+
+/**
+ * Создать канал.
+ *
+ * Строку членства заводим создателю ВСЕГДА, даже для открытого канала:
+ * членство отвечает не за доступ, а за «канал у меня в списке». Для
+ * приватного она же оказывается единственным основанием доступа —
+ * и это не совпадение, а ровно то разделение, ради которого писалось Р-010.
+ */
+export async function createChannel(
+  viewer: Viewer,
+  input: { title: string; visibility?: Visibility | undefined },
+) {
+  const created = await withTransaction(async (tx) => {
+    const created = await repo.insertConversation(tx, {
+      workspaceId: viewer.workspaceId,
+      kind: "channel",
+      title: input.title,
+      visibility: input.visibility ?? "workspace",
+    });
+    await repo.insertMember(tx, {
+      conversationId: created.id,
+      participantId: viewer.participantId,
+      workspaceId: viewer.workspaceId,
+      role: "owner",
+    });
+
+    await appendEvent(tx, {
+      kind: "conversation.created",
+      workspaceId: viewer.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "conversation",
+      subjectId: created.id,
+      payload: { kind: "channel", title: created.title, visibility: created.visibility },
+    });
+
+    return created;
+  });
+
+  // Звонок ТОЛЬКО после фиксации: новый канал обязан появиться у всех,
+  // кому он виден, без перезагрузки страницы.
+  publish(viewer.workspaceId);
+  return created;
+}

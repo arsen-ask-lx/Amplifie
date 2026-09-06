@@ -34,6 +34,41 @@ export async function nextSeq(tx: Executor, workspaceId: string): Promise<number
  * Не найдено и не видно — оба случая дают null: наружу это одна и та же
  * ошибка, иначе по ответу перебирают существующие разговоры.
  */
+/**
+ * ЕДИНСТВЕННОЕ условие видимости (Р-010). Всё, что спрашивает «можно ли
+ * это читать», обязано спрашивать здесь — иначе ответов станет два.
+ *
+ * Два повода сказать «да», но арбитр по-прежнему один:
+ *   ① канал открыт всему пространству, и участник — из этого пространства;
+ *   ② есть строка членства в КОРНЕ дерева (ветка своих участников не имеет).
+ *
+ * Членство при этом продолжает отвечать на свой отдельный вопрос —
+ * «канал у меня в списке», см. listConversationsFor.
+ */
+function visibleTo(participantId: string) {
+  const rootOf = sql`COALESCE(${conversation.parentId}, ${conversation.id})`;
+
+  const openToMyWorkspace = sql`
+    ${conversation.visibility} = 'workspace'
+    AND ${conversation.workspaceId} = (
+      SELECT ${participant.workspaceId} FROM ${participant}
+      WHERE ${participant.id} = ${participantId}
+    )`;
+
+  const iAmMemberOfRoot = sql`EXISTS (
+    SELECT 1 FROM ${conversationMember}
+    WHERE ${conversationMember.conversationId} = ${rootOf}
+      AND ${conversationMember.participantId} = ${participantId}
+  )`;
+
+  // ⚠️ ВНЕШНИЕ СКОБКИ ОБЯЗАТЕЛЬНЫ. Без них `and(eq(id, ...), visibleTo(...))`
+  // склеивается в `id = $1 AND A OR B`, а по приоритету это `(id = $1 AND A)
+  // OR B` — и доступ начинает давать членство в ЛЮБОМ другом разговоре.
+  // Так и было: чужой канал открывался тому, у кого есть свой.
+  // Найдено приёмочным тестом «чужой канал не виден и не читается».
+  return sql`((${openToMyWorkspace}) OR (${iAmMemberOfRoot}))`;
+}
+
 export async function findVisibleConversation(
   tx: Executor,
   conversationId: string,
@@ -46,16 +81,10 @@ export async function findVisibleConversation(
       kind: conversation.kind,
       parentId: conversation.parentId,
       title: conversation.title,
+      visibility: conversation.visibility,
     })
     .from(conversation)
-    .innerJoin(
-      conversationMember,
-      and(
-        sql`${conversationMember.conversationId} = COALESCE(${conversation.parentId}, ${conversation.id})`,
-        eq(conversationMember.participantId, participantId),
-      ),
-    )
-    .where(eq(conversation.id, conversationId))
+    .where(and(eq(conversation.id, conversationId), visibleTo(participantId)))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -67,6 +96,7 @@ export async function insertConversation(
     kind: string;
     title: string;
     parentId?: string | null;
+    visibility?: string;
   },
 ) {
   const rows = await tx
@@ -87,11 +117,6 @@ export async function insertMember(
 
 /** Разговоры, где участник состоит, плюс их ветки. */
 export async function listConversationsFor(tx: Executor, participantId: string) {
-  const roots = tx
-    .select({ id: conversationMember.conversationId })
-    .from(conversationMember)
-    .where(eq(conversationMember.participantId, participantId));
-
   return tx
     .select({
       id: conversation.id,
@@ -100,7 +125,7 @@ export async function listConversationsFor(tx: Executor, participantId: string) 
       parentId: conversation.parentId,
     })
     .from(conversation)
-    .where(sql`${conversation.id} IN ${roots} OR ${conversation.parentId} IN ${roots}`)
+    .where(visibleTo(participantId))
     .orderBy(asc(conversation.createdAt));
 }
 
@@ -211,11 +236,6 @@ export async function listMessagesAfter(
   upToSeq: number,
   limit: number,
 ) {
-  const roots = tx
-    .select({ id: conversationMember.conversationId })
-    .from(conversationMember)
-    .where(eq(conversationMember.participantId, participantId));
-
   return tx
     .select(MESSAGE_VIEW)
     .from(message)
@@ -226,7 +246,7 @@ export async function listMessagesAfter(
         eq(message.workspaceId, workspaceId),
         gt(message.seq, afterSeq),
         lte(message.seq, upToSeq),
-        sql`COALESCE(${conversation.parentId}, ${conversation.id}) IN ${roots}`,
+        visibleTo(participantId),
       ),
     )
     .orderBy(asc(message.seq))

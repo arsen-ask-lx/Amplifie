@@ -1,6 +1,7 @@
 export {
   addToRootChannel,
   ConversationNotVisibleError,
+  createChannel,
   createDefaultChannel,
   createThread,
   listConversations,
@@ -9,4 +10,5 @@ export {
   sendMessage,
   sync,
   type Viewer,
+  type Visibility,
 } from "./service.js";

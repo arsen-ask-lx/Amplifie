@@ -3,6 +3,7 @@ import { z } from "zod";
 import { resolveActor } from "../../../kernel/identity/index.js";
 import {
   ConversationNotVisibleError,
+  createChannel,
   createThread,
   listConversations,
   listMessages,
@@ -18,6 +19,13 @@ const DEFAULT_PAGE = 50;
 const sendSchema = z.object({
   body: z.string().trim().min(1, "сообщение пустое").max(8000, "сообщение длиннее 8000 символов"),
   clientMsgId: z.uuid("нужен идентификатор, сгенерированный клиентом"),
+});
+
+const channelSchema = z.object({
+  title: z.string().trim().min(1, "у канала нужно название").max(120),
+  // Приватный канал в интерфейсе пока не заводится, но чтение его уже
+  // проверено тестом: поле не мёртвое, а опережающее (Р-010).
+  visibility: z.enum(["workspace", "private"]).optional(),
 });
 
 const threadSchema = z.object({
@@ -79,6 +87,22 @@ export function registerChatRoutes(app: FastifyInstance): void {
     const viewer = await viewerOf(request, reply);
     if (!viewer) return reply;
     return { items: await listConversations(viewer) };
+  });
+
+  app.post("/v1/conversations", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    const input = parse(channelSchema, request.body, reply);
+    if (!input) return reply;
+
+    const created = await createChannel(viewer, input);
+    return reply.code(201).send({
+      id: created.id,
+      kind: created.kind,
+      title: created.title,
+      parentId: created.parentId,
+    });
   });
 
   app.get<{ Params: { id: string }; Querystring: { limit?: string; before?: string } }>(
