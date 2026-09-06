@@ -2,14 +2,18 @@ import { useEffect, useRef } from "react";
 import type { Message } from "./api.js";
 
 /**
- * Лента сообщений.
+ * Лента сообщений — по модели Телеграма (Р-008).
  *
- * Подряд идущие сообщения одного автора не повторяют его имя: повтор имени
- * над каждой строкой — шум, из-за которого разговор читается как журнал.
- * Разделитель дня стоит потому, что кодирует смысл, а не потому что пусто.
+ * Свои справа, чужие слева; подряд идущие от одного автора собираются
+ * в группу и не повторяют имя; время живёт внутри пузыря; день отбивается
+ * плашкой по центру.
+ *
+ * Пузырь здесь не украшение: он кодирует «кто сказал» без подписи под
+ * каждой строкой. Именно поэтому у продолжений группы имени нет —
+ * сторона и цвет уже ответили на этот вопрос.
  */
 
-/** Столько времени между сообщениями — и автора надо назвать снова. */
+/** Столько времени между сообщениями — и группа начинается заново. */
 const REGROUP_MS = 5 * 60 * 1000;
 
 const time = new Intl.DateTimeFormat("ru", { hour: "2-digit", minute: "2-digit" });
@@ -19,7 +23,6 @@ function sameDay(a: Date, b: Date): boolean {
   return a.toDateString() === b.toDateString();
 }
 
-/** Нужно ли называть автора перед этим сообщением. */
 function startsGroup(message: Message, previous: Message | undefined): boolean {
   if (!previous) return true;
   if (previous.author.id !== message.author.id) return true;
@@ -27,12 +30,24 @@ function startsGroup(message: Message, previous: Message | undefined): boolean {
   return gap > REGROUP_MS;
 }
 
-/** Классы сообщения: начало группы и «пришло только что». */
-function classOf(message: Message, previous: Message | undefined, wasThere: number | null): string {
-  const parts = ["msg"];
-  if (startsGroup(message, previous)) parts.push("msg-head");
-  if (wasThere !== null && message.seq > wasThere) parts.push("msg-fresh");
-  return parts.join(" ");
+function endsGroup(message: Message, next: Message | undefined): boolean {
+  return next === undefined || startsGroup(next, message);
+}
+
+/**
+ * Три и больше переводов строки подряд сжимаются до одного пустого ряда.
+ *
+ * Хранимый текст не трогаем — по Р-002 он остаётся ровно таким, каким его
+ * отправили. Это правило ПОКАЗА: полтора экрана пустоты внутри сообщения
+ * разрывают разговор сильнее, чем помогает задуманная автором пауза.
+ */
+function forDisplay(body: string): string {
+  return body.replace(/\n{3,}/gu, "\n\n");
+}
+
+/** Кружок с инициалом — вместо картинки, которой у нас нет. */
+function initial(name: string): string {
+  return (name.trim()[0] ?? "?").toUpperCase();
 }
 
 function Empty() {
@@ -43,16 +58,79 @@ function Empty() {
   );
 }
 
+interface Row {
+  message: Message;
+  mine: boolean;
+  first: boolean;
+  last: boolean;
+  newDay: boolean;
+  fresh: boolean;
+}
+
+/** Что показать для каждого сообщения. Считается один раз, не в разметке. */
+function rowsOf(messages: Message[], meId: string, wasThere: number | null): Row[] {
+  return messages.map((message, index) => {
+    const previous = messages[index - 1];
+    const first = startsGroup(message, previous);
+    return {
+      message,
+      mine: message.author.id === meId,
+      first,
+      last: endsGroup(message, messages[index + 1]),
+      newDay: !previous || !sameDay(new Date(message.createdAt), new Date(previous.createdAt)),
+      fresh: wasThere !== null && message.seq > wasThere,
+    };
+  });
+}
+
+function Bubble({ row }: { row: Row }) {
+  const at = new Date(row.message.createdAt);
+  const shape = [
+    "msg",
+    row.mine ? "msg-mine" : "msg-theirs",
+    row.first ? "msg-first" : "",
+    row.last ? "msg-last" : "",
+    row.fresh ? "msg-fresh" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <article className={shape}>
+      {/* Кружок держит место у всей группы, но виден только у последнего:
+          так строки одного автора стоят ровно, а лента не пестрит. */}
+      {row.mine ? null : (
+        <span className="msg-face" aria-hidden="true">
+          {row.last ? initial(row.message.author.name) : ""}
+        </span>
+      )}
+      <div className="bubble">
+        {row.first && !row.mine ? (
+          <span className="msg-author">{row.message.author.name}</span>
+        ) : null}
+        <span className="msg-text">{forDisplay(row.message.body)}</span>
+        <time className="msg-time" dateTime={row.message.createdAt}>
+          {time.format(at)}
+        </time>
+      </div>
+    </article>
+  );
+}
+
 export function Feed({
   messages,
   hasOlder,
   onLoadOlder,
+  title,
+  meId,
 }: {
   messages: Message[];
   hasOlder: boolean;
   onLoadOlder: () => void;
+  title: string | undefined;
+  meId: string;
 }) {
-  const bottom = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   const newest = messages.at(-1)?.seq ?? 0;
 
   // Что было на экране при первом показе — не «новое». Иначе при открытии
@@ -63,46 +141,45 @@ export function Feed({
     wasThereAtFirst.current = newest;
   }
 
-  // Новое сообщение доводим до глаз. Зависимость — номер последнего:
-  // от неё же зависит и первый показ, поэтому отдельного эффекта
-  // «прокрутить при открытии» не нужно.
+  // Прокручиваем САМ контейнер, а не якорь в его конце. scrollIntoView
+  // на якоре не сработал ни разу: он отрабатывает до того, как встанут
+  // высоты пузырей, и лента остаётся наверху. Найдено живым прогоном.
   useEffect(() => {
-    if (newest === 0) return;
+    const node = box.current;
+    if (!node || newest === 0) return;
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    bottom.current?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "end" });
+    // Ждём кадр: к этому моменту разметка уже посчитана.
+    const frame = requestAnimationFrame(() => {
+      node.scrollTo({ top: node.scrollHeight, behavior: still ? "auto" : "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [newest]);
 
   if (messages.length === 0) return <Empty />;
 
+  const rows = rowsOf(messages, meId, wasThereAtFirst.current);
+
   return (
-    <div className="feed">
+    // role="log" — новые сообщения читаются вслух программой чтения экрана.
+    <div className="feed" role="log" aria-live="polite" aria-relevant="additions" ref={box}>
       {hasOlder ? (
         <button type="button" className="quiet feed-older" onClick={onLoadOlder}>
           Показать более раннее
         </button>
-      ) : null}
+      ) : (
+        <p className="feed-start">{title ? `Начало канала «${title}»` : "Начало канала"}</p>
+      )}
 
-      {messages.map((message, index) => {
-        const previous = messages[index - 1];
-        const at = new Date(message.createdAt);
-        const newDay = !previous || !sameDay(at, new Date(previous.createdAt));
-
-        return (
-          <div key={message.id}>
-            {newDay ? <p className="feed-day">{day.format(at)}</p> : null}
-            <article className={classOf(message, previous, wasThereAtFirst.current)}>
-              {startsGroup(message, previous) ? (
-                <header className="msg-who">
-                  <span className="msg-author">{message.author.name}</span>
-                  <time dateTime={message.createdAt}>{time.format(at)}</time>
-                </header>
-              ) : null}
-              <p className="msg-body">{message.body}</p>
-            </article>
-          </div>
-        );
-      })}
-      <div ref={bottom} />
+      {rows.map((row) => (
+        <div key={row.message.id}>
+          {row.newDay ? (
+            <p className="feed-day">
+              <span>{day.format(new Date(row.message.createdAt))}</span>
+            </p>
+          ) : null}
+          <Bubble row={row} />
+        </div>
+      ))}
     </div>
   );
 }

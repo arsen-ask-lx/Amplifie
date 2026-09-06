@@ -17,7 +17,7 @@ import { type Chat, useChat } from "./useChat.js";
  * учётные записи, заведённые до того, как канал стал появляться при
  * регистрации. Экран обязан сказать это прямо, а не крутить загрузку.
  */
-function Room({ chat }: { chat: Chat }) {
+function Room({ chat, meId }: { chat: Chat; meId: string }) {
   if (chat.loading) return <p className="feed-empty">Загружаем…</p>;
 
   if (chat.conversations.length === 0) {
@@ -35,6 +35,8 @@ function Room({ chat }: { chat: Chat }) {
         messages={chat.messages}
         hasOlder={chat.hasOlder}
         onLoadOlder={() => void chat.loadOlder()}
+        title={chat.current?.title}
+        meId={meId}
       />
       <Composer onSend={chat.send} />
     </>
@@ -58,6 +60,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
               <button
                 type="button"
                 className={channel.id === chat.current?.id ? "room room-on" : "room"}
+                aria-current={channel.id === chat.current?.id ? "page" : undefined}
                 onClick={() => chat.select(channel.id)}
               >
                 {channel.title}
@@ -71,6 +74,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
                     className={
                       thread.id === chat.current?.id ? "room room-sub room-on" : "room room-sub"
                     }
+                    aria-current={thread.id === chat.current?.id ? "page" : undefined}
                     onClick={() => chat.select(thread.id)}
                   >
                     {thread.title}
@@ -91,7 +95,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
         </header>
 
         {chat.failure ? <p className="err-top">{chat.failure}</p> : null}
-        <Room chat={chat} />
+        <Room chat={chat} meId={me.participant.id} />
       </main>
     </div>
   );
