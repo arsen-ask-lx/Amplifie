@@ -1,3 +1,4 @@
+import { publish } from "../../platform/bus.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import * as repo from "./repo.js";
@@ -73,10 +74,23 @@ export async function listConversations(viewer: Viewer) {
   return rows.map((r) => ({ id: r.id, kind: r.kind, title: r.title, parentId: r.parentId }));
 }
 
-export async function listMessages(viewer: Viewer, conversationId: string, limit: number) {
+/**
+ * Лента разговора страницами назад.
+ *
+ * `hasMore` считается по признаку «страница набралась целиком»: просить
+ * у базы отдельный COUNT ради этого — лишний запрос на каждое листание.
+ * Цена — одна пустая страница в конце, когда сообщений ровно кратно
+ * размеру. Дёшево и не врёт.
+ */
+export async function listMessages(
+  viewer: Viewer,
+  conversationId: string,
+  limit: number,
+  before?: number,
+) {
   await requireVisible(db, viewer, conversationId);
-  const rows = await repo.listMessages(db, conversationId, limit);
-  return rows.map(presentMessage);
+  const rows = await repo.listMessages(db, conversationId, limit, before);
+  return { items: rows.map(presentMessage), hasMore: rows.length === limit };
 }
 
 export interface SendResult {
@@ -98,7 +112,7 @@ export async function sendMessage(
   input: { body: string; clientMsgId: string },
 ): Promise<SendResult> {
   try {
-    return await withTransaction(async (tx) => {
+    const result = await withTransaction(async (tx) => {
       const target = await requireVisible(tx, viewer, conversationId);
 
       const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
@@ -130,6 +144,12 @@ export async function sendMessage(
 
       return { replayed: false, message: await viewOf(tx, created.id) };
     });
+
+    // Звонок ТОЛЬКО после фиксации (Р-005). Позвонив раньше, мы отправили бы
+    // клиента в /v1/sync за тем, чего в базе ещё нет, — и второго звонка
+    // бы не было. Повтор не звонит: ничего не изменилось.
+    if (!result.replayed) publish(viewer.workspaceId);
+    return result;
   } catch (error) {
     // Гонка: два запроса с одним ключом ушли одновременно и оба прошли
     // проверку «уже есть». Проигравший откатывается — номер возвращается

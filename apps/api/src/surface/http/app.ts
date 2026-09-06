@@ -1,10 +1,12 @@
 import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance } from "fastify";
 import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
+import { setBusFailureReporter } from "../../platform/bus.js";
 import { config } from "../../platform/config.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerStreamRoutes } from "./routes/stream.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -25,10 +27,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   setSessionTouchFailureReporter((error) => {
     app.log.warn({ err: error }, "не удалось обновить отметку сессии");
   });
+  setBusFailureReporter((error) => {
+    app.log.warn({ err: error }, "слушатель живых обновлений упал");
+  });
 
   registerHealthRoutes(app);
   registerAuthRoutes(app);
   registerChatRoutes(app);
+  registerStreamRoutes(app);
 
   return app;
 }

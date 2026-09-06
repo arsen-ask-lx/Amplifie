@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from "drizzle-orm";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
@@ -166,13 +166,28 @@ export async function findMessageViewById(tx: Executor, messageId: string) {
   return rows[0] ?? null;
 }
 
-/** Лента разговора: последние N, отдаются по возрастанию номера. */
-export async function listMessages(tx: Executor, conversationId: string, limit: number) {
+/**
+ * Лента разговора: последние N, отдаются по возрастанию номера.
+ *
+ * `before` — номер, СТРОГО старше которого нужна страница. Курсор по
+ * значению, а не смещение: смещение съезжает, когда во время листания
+ * приходит новое сообщение, и страницы начинают и повторяться, и пропадать.
+ */
+export async function listMessages(
+  tx: Executor,
+  conversationId: string,
+  limit: number,
+  before?: number,
+) {
   const rows = await tx
     .select(MESSAGE_VIEW)
     .from(message)
     .innerJoin(participant, eq(participant.id, message.authorParticipantId))
-    .where(eq(message.conversationId, conversationId))
+    .where(
+      before === undefined
+        ? eq(message.conversationId, conversationId)
+        : and(eq(message.conversationId, conversationId), lt(message.seq, before)),
+    )
     .orderBy(desc(message.seq))
     .limit(limit);
   return rows.reverse();

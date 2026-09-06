@@ -81,14 +81,22 @@ export function registerChatRoutes(app: FastifyInstance): void {
     return { items: await listConversations(viewer) };
   });
 
-  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { limit?: string; before?: string } }>(
     "/v1/conversations/:id/messages",
     async (request, reply) => {
       const viewer = await viewerOf(request, reply);
       if (!viewer) return reply;
-      return orNotFound(reply, async () => ({
-        items: await listMessages(viewer, request.params.id, clampLimit(request.query.limit)),
-      }));
+      // before — курсор листания назад. Мусор в нём означает «с конца»,
+      // а не ошибку: сломанная ссылка не должна ронять экран.
+      const before = Number(request.query.before);
+      return orNotFound(reply, async () =>
+        listMessages(
+          viewer,
+          request.params.id,
+          clampLimit(request.query.limit),
+          Number.isFinite(before) && before > 0 ? before : undefined,
+        ),
+      );
     },
   );
 

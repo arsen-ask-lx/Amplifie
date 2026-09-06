@@ -105,6 +105,26 @@ async function send(
   return post(`/v1/conversations/${conversationId}/messages`, { body, clientMsgId }, person);
 }
 
+interface Feed {
+  items: Array<{ body: string; seq: number }>;
+  hasMore: boolean;
+}
+
+/** Листает назад от уже полученной страницы и возвращает всё, что собрал. */
+async function pageBackwards(person: Person, channelId: string, first: Feed["items"]) {
+  const collected = [...first];
+  let oldest = collected[0]?.seq;
+  for (let page = 0; page < 10 && oldest !== undefined; page++) {
+    const url = `/v1/conversations/${channelId}/messages?limit=3&before=${oldest}`;
+    const next = (await (await get(url, person)).json()) as Feed;
+    if (next.items.length === 0) break;
+    collected.unshift(...next.items);
+    oldest = next.items[0]?.seq;
+    if (!next.hasMore) break;
+  }
+  return collected;
+}
+
 describe("чат", () => {
   beforeAll(async () => {
     const health = await get("/health");
@@ -246,6 +266,26 @@ describe("чат", () => {
 
       expect(body.messages.map((m) => m.body)).toEqual(["третье", "четвёртое"]);
       expect(body.seq).toBeGreaterThan(cursor);
+    });
+
+    it("история листается назад и не теряет ни одного сообщения", async () => {
+      // Без этого экран чата невозможен: лента умеет только «последние N»,
+      // и всё, что старше, недостижимо.
+      const person = await newPerson("Листающий");
+      const channel = await channelOf(person);
+      const texts = Array.from({ length: 7 }, (_, i) => `с${i + 1}`);
+      for (const text of texts) await send(person, channel.id, text);
+
+      // Первая страница — самые свежие.
+      const first = (await (
+        await get(`/v1/conversations/${channel.id}/messages?limit=3`, person)
+      ).json()) as { items: Array<{ body: string; seq: number }>; hasMore: boolean };
+      expect(first.items.map((m) => m.body)).toEqual(["с5", "с6", "с7"]);
+      expect(first.hasMore).toBe(true);
+
+      // Дальше — назад, от самого старого из уже показанных.
+      const collected = await pageBackwards(person, channel.id, first.items);
+      expect(collected.map((m) => m.body)).toEqual(texts);
     });
 
     it("догон не перепрыгивает через то, чего не отдал", async () => {
