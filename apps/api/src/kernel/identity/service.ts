@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
-import { db, withTransaction } from "../../platform/db.js";
+import { db, type Tx, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import * as repo from "./repo.js";
 
@@ -57,10 +57,25 @@ export interface RegisterInput {
 }
 
 /**
+ * Что ещё нужно сделать в ТОЙ ЖЕ транзакции, что и регистрация.
+ *
+ * Так модуль identity не узнаёт про существование чата: кто и что довешивает
+ * к регистрации, решает слой сборки (app/), а не ядро. Полурегистрация
+ * невозможна — либо всё, либо ничего.
+ */
+export type RegisterHook = (
+  tx: Tx,
+  created: { workspaceId: string; participantId: string; accountId: string },
+) => Promise<void>;
+
+/**
  * Регистрация: аккаунт + пространство + лицо владельца + сессия.
  * Всё в одной транзакции — полурегистрация хуже отсутствующей.
  */
-export async function register(input: RegisterInput): Promise<{ actor: Actor; token: string }> {
+export async function register(
+  input: RegisterInput,
+  alsoInSameTransaction?: RegisterHook,
+): Promise<{ actor: Actor; token: string }> {
   const email = normalizeEmail(input.email);
   const passwordHash = await argonHash(input.password, ARGON_OPTIONS);
   const { token, tokenHash } = newSessionToken();
@@ -103,6 +118,12 @@ export async function register(input: RegisterInput): Promise<{ actor: Actor; to
       subjectType: "participant",
       subjectId: createdParticipant.id,
       payload: { role: "owner", kind: "human" },
+    });
+
+    await alsoInSameTransaction?.(tx, {
+      workspaceId: createdWorkspace.id,
+      participantId: createdParticipant.id,
+      accountId: createdAccount.id,
     });
 
     return {

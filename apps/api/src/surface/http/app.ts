@@ -2,6 +2,7 @@ import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance } from "fastify";
 import { config } from "../../platform/config.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -20,6 +21,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   registerHealthRoutes(app);
   registerAuthRoutes(app);
+  registerChatRoutes(app);
 
   return app;
 }

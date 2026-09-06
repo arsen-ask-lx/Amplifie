@@ -1,0 +1,211 @@
+import { db, type Executor, withTransaction } from "../../platform/db.js";
+import { appendEvent } from "../journal/index.js";
+import * as repo from "./repo.js";
+
+/** Разговора нет ЛИБО он тебе не виден — снаружи это одно и то же. */
+export class ConversationNotVisibleError extends Error {}
+
+export interface Viewer {
+  participantId: string;
+  workspaceId: string;
+}
+
+export interface MessageView {
+  id: string;
+  conversationId: string;
+  body: string;
+  kind: string;
+  seq: number;
+  createdAt: Date;
+  editedAt: Date | null;
+  author: { id: string; name: string; kind: string };
+}
+
+function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[number]): MessageView {
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    body: row.body,
+    kind: row.kind,
+    seq: Number(row.seq),
+    createdAt: row.createdAt,
+    editedAt: row.editedAt,
+    author: { id: row.authorId, name: row.authorName, kind: row.authorKind },
+  };
+}
+
+/**
+ * Проверка доступа. Единственная точка, где решается «видно или нет».
+ *
+ * Право читается у КОРНЯ дерева разговоров: у ветки своих участников нет
+ * (dock/06-разбор-мессенджеров.md). Не найдено и не видно — одна и та же
+ * ошибка, чтобы по ответу нельзя было перебрать существующие разговоры.
+ */
+async function requireVisible(tx: Executor, viewer: Viewer, conversationId: string) {
+  const found = await repo.findConversationWithRoot(tx, conversationId);
+  if (!found || found.workspaceId !== viewer.workspaceId) {
+    throw new ConversationNotVisibleError();
+  }
+  if (!(await repo.isMemberOfRoot(tx, found.rootId, viewer.participantId))) {
+    throw new ConversationNotVisibleError();
+  }
+  return found;
+}
+
+export async function listConversations(viewer: Viewer) {
+  const rows = await repo.listConversationsFor(db, viewer.participantId);
+  return rows.map((r) => ({ id: r.id, kind: r.kind, title: r.title, parentId: r.parentId }));
+}
+
+export async function listMessages(viewer: Viewer, conversationId: string, limit: number) {
+  await requireVisible(db, viewer, conversationId);
+  const rows = await repo.listMessages(db, conversationId, limit);
+  return rows.map(presentMessage);
+}
+
+export interface SendResult {
+  message: MessageView;
+  /** true — сообщение уже было: клиент повторил отправку после разрыва. */
+  replayed: boolean;
+}
+
+/**
+ * Отправка сообщения.
+ *
+ * Идемпотентность доменная: ключ `clientMsgId` генерирует клиент в момент
+ * набора. Повтор — не ошибка, а нормальная работа клиента после разрыва:
+ * возвращаем то же самое сообщение и тот же номер.
+ */
+export async function sendMessage(
+  viewer: Viewer,
+  conversationId: string,
+  input: { body: string; clientMsgId: string },
+): Promise<SendResult> {
+  return withTransaction(async (tx) => {
+    const target = await requireVisible(tx, viewer, conversationId);
+
+    const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
+    if (already) {
+      const rows = await repo.listMessages(tx, conversationId, 1);
+      const view = rows.find((r) => r.id === already.id);
+      return {
+        replayed: true,
+        message: view
+          ? presentMessage(view)
+          : {
+              id: already.id,
+              conversationId: already.conversationId,
+              body: already.body,
+              kind: already.kind,
+              seq: Number(already.seq),
+              createdAt: already.createdAt,
+              editedAt: already.editedAt,
+              author: { id: already.authorParticipantId, name: "", kind: "" },
+            },
+      };
+    }
+
+    // Номер берётся ТОЛЬКО так и только внутри этой же транзакции.
+    const seq = await repo.nextSeq(tx, target.workspaceId);
+
+    const created = await repo.insertMessage(tx, {
+      workspaceId: target.workspaceId,
+      conversationId,
+      authorParticipantId: viewer.participantId,
+      body: input.body,
+      clientMsgId: input.clientMsgId,
+      seq,
+    });
+
+    // Состояние и событие — в одной транзакции. Всегда (Р-2).
+    await appendEvent(tx, {
+      kind: "message.sent",
+      workspaceId: target.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "message",
+      subjectId: created.id,
+      payload: { conversationId, seq },
+    });
+
+    const rows = await repo.listMessages(tx, conversationId, 1);
+    const view = rows[0];
+    if (!view) throw new Error("сообщение записано, но не читается обратно");
+    return { replayed: false, message: presentMessage(view) };
+  });
+}
+
+export async function createThread(viewer: Viewer, parentId: string, title: string) {
+  return withTransaction(async (tx) => {
+    const parent = await requireVisible(tx, viewer, parentId);
+    if (parent.parentId) {
+      // Ветка от ветки не заводится: дерево ровно двухуровневое, иначе
+      // «корень» перестаёт быть однозначным.
+      throw new ConversationNotVisibleError();
+    }
+
+    const created = await repo.insertConversation(tx, {
+      workspaceId: parent.workspaceId,
+      kind: "thread",
+      title,
+      parentId,
+    });
+
+    // ⚠️ Участников ветке НЕ заводим: право наследуется от канала.
+    // База это и не позволит — триггер conversation_member_root_only.
+
+    await appendEvent(tx, {
+      kind: "thread.created",
+      workspaceId: parent.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "conversation",
+      subjectId: created.id,
+      payload: { parentId, title },
+    });
+
+    return { id: created.id, kind: created.kind, title: created.title, parentId };
+  });
+}
+
+/** Догон: что появилось после номера, и текущая верхняя граница. */
+export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
+  const [rows, seq] = await Promise.all([
+    repo.listMessagesAfter(db, viewer.workspaceId, viewer.participantId, afterSeq, limit),
+    repo.currentSeq(db, viewer.workspaceId),
+  ]);
+  return { messages: rows.map(presentMessage), seq };
+}
+
+/**
+ * Первый канал пространства. Заводится при регистрации, а не миграцией:
+ * миграция не знает идентификатор пространства.
+ */
+export async function createDefaultChannel(
+  tx: Executor,
+  input: { workspaceId: string; participantId: string; title: string },
+) {
+  const channel = await repo.insertConversation(tx, {
+    workspaceId: input.workspaceId,
+    kind: "channel",
+    title: input.title,
+  });
+  await repo.insertMember(tx, {
+    conversationId: channel.id,
+    participantId: input.participantId,
+    workspaceId: input.workspaceId,
+    role: "owner",
+  });
+
+  // Изменение состояния и событие — в одной транзакции. Без исключений (Р-2):
+  // первая же «мелочь без события» превращает журнал в тот, которому нельзя
+  // доверять. Эта строка была пропущена и найдена проверкой журнала.
+  await appendEvent(tx, {
+    kind: "conversation.created",
+    workspaceId: input.workspaceId,
+    actorParticipantId: input.participantId,
+    subjectType: "conversation",
+    subjectId: channel.id,
+    payload: { kind: "channel", title: channel.title },
+  });
+
+  return channel;
+}

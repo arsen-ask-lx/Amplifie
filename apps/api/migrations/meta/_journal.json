@@ -8,6 +8,13 @@
       "when": 1788682248219,
       "tag": "0000_flawless_titanium_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788685107288,
+      "tag": "0001_third_marten_broadcloak",
+      "breakpoints": true
     }
   ]
 }

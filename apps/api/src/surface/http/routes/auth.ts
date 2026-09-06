@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
+import { signUp } from "../../../app/signUp.js";
 import {
   type Actor,
   EmailTakenError,
   InvalidCredentialsError,
   login,
   logout,
-  register,
   resolveActor,
 } from "../../../kernel/identity/index.js";
 import { config } from "../../../platform/config.js";
@@ -68,7 +68,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (!input) return reply;
 
     try {
-      const { actor, token } = await register(input);
+      const { actor, token } = await signUp(input);
       setSessionCookie(reply, token);
       return reply.code(201).send(present(actor));
     } catch (error) {

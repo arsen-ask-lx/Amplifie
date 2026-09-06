@@ -68,6 +68,45 @@ module.exports = {
       from: { path: "^apps/api/src/surface/" },
       to: { path: "^apps/api/src/kernel/[^/]+/(repo|schema).ts$" },
     },
+    // --- Порядок модулей ядра: space → identity → talk → work ---
+    // Нижний НЕ знает про верхний. Запрещаем ровно обратные рёбра.
+    // ⚠️ no-circular это НЕ ловит: он смотрит на файлы, а взаимная зависимость
+    // возникает на уровне модулей (инцидент 2026-09-06 — identity позвал talk).
+    // Нужно довесить работу соседа сверху — это делает слой сборки src/app/,
+    // передав операцию в ту же транзакцию.
+    {
+      name: "space-ничего-не-знает",
+      severity: "error",
+      comment: "space — самый низ ядра: арендатор не знает ни про людей, ни про разговоры.",
+      from: { path: "^apps/api/src/kernel/space/" },
+      to: { path: "^apps/api/src/kernel/(identity|talk|work)/" },
+    },
+    {
+      name: "identity-не-знает-разговоров",
+      severity: "error",
+      comment:
+        "identity ниже talk: кто существует — не зависит от того, где говорят. " +
+        "Обратное делает пару взаимно зависимой, и ни один модуль нельзя " +
+        "ни выбросить, ни понять отдельно.",
+      from: { path: "^apps/api/src/kernel/identity/" },
+      to: { path: "^apps/api/src/kernel/(talk|work)/" },
+    },
+    {
+      name: "talk-не-знает-работы",
+      severity: "error",
+      comment: "talk ниже work: разговор существует сам по себе, задача — нет.",
+      from: { path: "^apps/api/src/kernel/talk/" },
+      to: { path: "^apps/api/src/kernel/work/" },
+    },
+    {
+      name: "app-зовут-только-витрины",
+      severity: "error",
+      comment:
+        "Слой сборки src/app/ видит все модули — поэтому его не должно быть " +
+        "видно снизу. Импорт app из ядра вернёт ту же взаимную зависимость.",
+      from: { path: "^apps/api/src/(kernel|platform)/" },
+      to: { path: "^apps/api/src/app/" },
+    },
     {
       name: "чужие-внутренности-закрыты",
       severity: "error",
