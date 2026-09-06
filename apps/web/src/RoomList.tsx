@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Conversation } from "./api.js";
+import { Icon } from "./Icon.js";
 
 /**
  * Список разговоров с поиском (Р-011).
@@ -93,7 +94,8 @@ export function RoomList({
               aria-current={channel.id === currentId ? "page" : undefined}
               onClick={() => onSelect(channel.id)}
             >
-              {channel.title}
+              <Icon name="хэш" />
+              <span className="room-title">{channel.title}</span>
             </button>
             {threads
               .filter((thread) => thread.parentId === channel.id)
@@ -105,7 +107,8 @@ export function RoomList({
                   aria-current={thread.id === currentId ? "page" : undefined}
                   onClick={() => onSelect(thread.id)}
                 >
-                  {thread.title}
+                  <Icon name="ветка" />
+                  <span className="room-title">{thread.title}</span>
                 </button>
               ))}
           </div>

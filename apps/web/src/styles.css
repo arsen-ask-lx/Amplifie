@@ -1,44 +1,138 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   ЗАМЫСЕЛ ВИДА — «журнал»
+   ЗАМЫСЕЛ ВИДА — ШКАЛА ИЗ 12 СТУПЕНЕЙ (Р-014)
 
-   Продукт записывает то, о чём договорились. Не мессенджер-игрушка,
-   а рабочая тетрадь: тёплая бумага, графитные чернила, плотный набор.
-   Подробно — dock/decisions/007-вид-интерфейса.md.
+   Цвет задаётся не набором оттенков, а ДВУМЯ ШКАЛАМИ, где у каждой
+   ступени своя работа. Роли ниже — псевдонимы ступеней, и менять надо
+   их, а не значения по месту.
 
-   Значения живут здесь и только здесь (правило .temper/rules/frontend.md).
-   Пары «что на чём лежит» объявлены в scripts/check-contrast.mjs, и
-   `make contrast` считает их числом, а не на глаз.
+     1–2    фон приложения и подложка
+     3–5    поверхности: обычная · наведение · выбрано
+     6–8    границы: разделитель · граница · активная граница и фокус
+     9–10   сплошной цвет: акцент и его наведение
+     11–12  текст: приглушённый и основной
+
+   Ступени посчитаны так, что 11-я и 12-я читаются на 2-й. Подбирая
+   руками, мы промахнулись девять раз — и узнали об этом только гейтом.
+   Значения — Radix Colors; это числа, а не зависимость.
+
+   Ориентир — ночная тема Телеграма (Р-008): холодный сине-серый фон
+   и ПЛОТНЫЙ свой пузырь. У них разница пузыря с фоном 2.0; было 1.24,
+   стало 2.24. Именно она делает ленту живой.
+
+   Значения живут здесь и только здесь (.temper/rules/frontend.md).
+   Роли проверяет `make contrast` — числом, а не на глаз.
    ═══════════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* Бумага, не кремовый #F4F1EA: тот входит в список примет. */
-  --bg: #fbfaf7;
-  --panel: #f1efe9;
-  --raised: #e5e2d9;
-  --selected: #d8d3c6;
+  /* нейтральная шкала — светлая тема */
+  --n1: #fcfcfd;
+  --n2: #f9f9fb;
+  --n3: #f0f0f3;
+  --n4: #e8e8ec;
+  --n5: #e0e1e6;
+  --n6: #d9d9e0;
+  --n7: #cdced6;
+  --n8: #b9bbc6;
+  --n9: #8b8d98;
+  --n10: #80838d;
+  --n11: #60646c;
+  --n12: #1c2024;
 
-  --ink: #1c1b18;
-  --muted: #5c584f;
+  /* акцентная шкала — светлая тема */
+  --a1: #fbfefd;
+  --a2: #f4fbf7;
+  --a3: #e6f7ed;
+  --a4: #d6f1e3;
+  --a5: #c3e9d7;
+  --a6: #acdec8;
+  --a7: #8bceb6;
+  --a8: #56ba9f;
+  --a9: #29a383;
+  --a10: #26997b;
+  --a11: #208368;
+  --a12: #1d3b31;
+
+  /* тревожная шкала — нужны только текст и сплошной */
+  --d9: #e5484d;
+  --d11: #ce2c31;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* нейтральная шкала — тёмная тема */
+    --n1: #111113;
+    --n2: #18191b;
+    --n3: #212225;
+    --n4: #272a2d;
+    --n5: #2e3135;
+    --n6: #363a3f;
+    --n7: #43484e;
+    --n8: #5a6169;
+    --n9: #696e77;
+    --n10: #777b84;
+    --n11: #b0b4ba;
+    --n12: #edeef0;
+
+    /* акцентная шкала — тёмная тема */
+    --a1: #0d1512;
+    --a2: #121c18;
+    --a3: #0f2e22;
+    --a4: #0b3b2c;
+    --a5: #114837;
+    --a6: #1b5745;
+    --a7: #246854;
+    --a8: #2a7e68;
+    --a9: #29a383;
+    --a10: #27b08b;
+    --a11: #1fd8a4;
+    --a12: #adf0d4;
+
+    --d9: #e5484d;
+    --d11: #ff9592;
+  }
+}
+
+/* ── роли: единственное, чем пользуются компоненты ─────────────────── */
+
+:root {
+  --bg: var(--n1);
+  --panel: var(--n3);
+  --raised: var(--n4);
+  --selected: var(--n5);
+
+  --ink: var(--n12);
+  --muted: var(--n11);
 
   /* Разделитель — декорация, порога не имеет. */
-  --line: #ddd9cf;
-  /* Граница интерактивного: поля, кнопки. Порог 3:1, считается гейтом. */
-  --edge: #8d8574;
+  --line: var(--n6);
+  /* Граница интерактивного. Порог 3:1, считается гейтом. */
+  --edge: var(--n10);
 
-  /* Единственный акцент. Тратится на «здесь сейчас идёт разговор»,
-     а позже — на найденную договорённость. Больше нигде. */
-  --accent: #0b5f52;
-  --on-accent: #fbfaf7;
-  /* Свой пузырь — не заливка акцентом: сплошной цвет на половине ленты
-     сжёг бы единственный акцент. Только намёк на него. */
-  --accent-soft: #e4efec;
-  --accent-soft-edge: #c2d9d3;
+  /* Единственный акцент. В светлой теме сплошной берётся с 11-й ступени:
+     на 9-й белый текст даёт 3.15 и по порогу не проходит. */
+  --accent: var(--a11);
+  --on-accent: #ffffff;
+  /* Акцент КАК ТЕКСТ — отдельная роль. Сплошной и текстовый акцент
+     не совпадают: ступень, годная под заливку, на белом не читается.
+     Гейт поймал это на 11-й ступени: 4.10 против нужных 4.5. */
+  --accent-ink: var(--a12);
+  /* Свой пузырь. Не заливка акцентом: сплошной цвет на половине ленты
+     сжёг бы единственный акцент — но и не намёк, как было раньше. */
+  --accent-soft: var(--a4);
+  /* Граница своего пузыря — почти он сам. У Телеграма её нет вовсе;
+     в светлой теме без неё пузырь растворяется на белом, поэтому
+     берём соседнюю ступень, а не контрастную. */
+  --accent-soft-edge: var(--a5);
+  /* Тихий текст ВНУТРИ своего пузыря: на цветном фоне обычный
+     приглушённый недотягивает (в тёмной теме 4.04). */
+  --muted-on-soft: var(--n11);
 
-  --danger: #9c2418;
+  --danger: var(--d11);
 
-  /* Полоса прокрутки: видна, но не спорит с содержимым. */
-  --scroll: #cbc6b8;
-  --scroll-hot: #a8a294;
+  --scroll: var(--n7);
+  --scroll-hot: var(--n9);
 
   --step: 4px;
 
@@ -49,32 +143,33 @@
      чтобы у продукта было своё лицо хотя бы в одной точке (Р-008). */
   --sans: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
   --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
-
-  color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14130f;
-    --panel: #1c1b17;
-    --raised: #26251f;
-    --selected: #33312a;
+    /* Роли, у которых в тёмной теме ДРУГАЯ ступень. Остальные совпадают
+       и здесь не повторяются: повтор разъедется при первой же правке. */
+    --panel: var(--n2);
+    --raised: var(--n3);
+    --edge: var(--n9);
 
-    --ink: #eceae3;
-    --muted: #a49e91;
+    /* На светлой сплошной берётся с 11-й, на тёмной — с 9-й: 11-я там
+       неоново-яркая, а текст на 9-й читается с запасом (5.88). */
+    --accent: var(--a9);
+    --on-accent: var(--a1);
+    --accent-ink: var(--a11);
+    /* Плотный пузырь: разница с фоном 2.24 против прежних 1.24. */
+    --accent-soft: var(--a6);
+    /* В тёмной теме границы нет: пузырь и так отделён от фона (2.24),
+       а яркая рамка превращала ленту в стену зелёных плашек. Видно
+       только глазами — числа этого не показывали. */
+    --accent-soft-edge: var(--a6);
+    /* Бледная мята, а не неон: 11-я ступень в тёмной теме светится
+       и перетягивает взгляд на время вместо текста. 12-я — тихая. */
+    --muted-on-soft: var(--a12);
 
-    --line: #302e28;
-    --edge: #6d685c;
-
-    --accent: #4fbaa3;
-    --on-accent: #10130f;
-    --accent-soft: #1b2a26;
-    --accent-soft-edge: #2a423b;
-
-    --danger: #e78075;
-
-    --scroll: #3a3831;
-    --scroll-hot: #55524a;
+    --scroll: var(--n7);
+    --scroll-hot: var(--n9);
   }
 }
 
@@ -166,18 +261,18 @@ h1 {
 
 label {
   display: block;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 label span {
   display: block;
   font-size: 13px;
   color: var(--muted);
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 
 input {
   width: 100%;
-  padding: 9px 11px;
+  padding: 8px 12px;
   border: 1px solid var(--edge);
   border-radius: 8px;
   background: transparent;
@@ -192,7 +287,7 @@ input:focus {
 
 button {
   width: 100%;
-  padding: 10px;
+  padding: 8px;
   border: 0;
   border-radius: 8px;
   background: var(--accent);
@@ -215,18 +310,18 @@ button:disabled {
   padding: 0;
   width: auto;
   font: inherit;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 .err {
   color: var(--danger);
   font-size: 13px;
-  margin: -9px 0 12px;
+  margin: -8px 0 12px;
 }
 .err-top {
   color: var(--danger);
   font-size: 13px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .who {
@@ -254,7 +349,7 @@ button:disabled {
 .rail {
   display: flex;
   flex-direction: column;
-  padding: 22px 14px 18px;
+  padding: 24px 16px 16px;
   background: var(--panel);
   border-right: 1px solid var(--line);
   min-height: 0;
@@ -266,20 +361,20 @@ button:disabled {
   line-height: 1.2;
 }
 .rail .who {
-  margin: 0 8px 22px;
+  margin: 0 8px 24px;
   font-size: 13px;
   color: var(--muted);
 }
 
 .rail-search {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   font-size: 13px;
-  padding: 5px 9px;
+  padding: 4px 8px;
   background: var(--bg);
 }
 
 .rooms-empty {
-  margin: 8px 9px;
+  margin: 8px 8px;
   font-size: 13px;
   color: var(--muted);
 }
@@ -302,8 +397,8 @@ button:disabled {
   color: var(--muted);
   border: 0;
   border-left: 2px solid transparent;
-  border-radius: 0 7px 7px 0;
-  padding: 5px 9px;
+  border-radius: 0 8px 8px 0;
+  padding: 4px 8px;
   font: inherit;
   font-size: 14px;
   cursor: pointer;
@@ -327,7 +422,7 @@ button:disabled {
 /* Отступ ВНУТРЕННИЙ, не внешний: при width:100% внешний прибавляется
    к ширине и рождает горизонтальную полосу прокрутки. Так и было. */
 .room-sub {
-  padding-left: 25px;
+  padding-left: 24px;
   font-size: 13px;
 }
 
@@ -345,8 +440,8 @@ button:disabled {
   background: none;
   border: 0;
   border-left: 2px solid transparent;
-  border-radius: 0 7px 7px 0;
-  padding: 5px 9px;
+  border-radius: 0 8px 8px 0;
+  padding: 4px 8px;
   font: inherit;
   font-size: 13px;
   color: var(--muted);
@@ -362,19 +457,19 @@ button:disabled {
 }
 
 .rail-new {
-  padding: 2px 9px 2px 11px;
+  padding: 2px 8px 2px 12px;
 }
 .rail-new input {
   font-size: 13px;
-  padding: 5px 8px;
+  padding: 4px 8px;
 }
 .rail-err {
-  padding: 0 9px;
+  padding: 0 8px;
 }
 
 .rail-foot {
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: 16px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -385,24 +480,24 @@ button:disabled {
   width: 100%;
   background: var(--raised);
   border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 10px;
+  border-radius: 8px;
+  padding: 8px;
 }
 .invite-note {
-  margin: 0 0 7px;
+  margin: 0 0 8px;
   font-size: 12px;
   color: var(--muted);
   line-height: 1.4;
 }
 .invite-link {
   font-size: 12px;
-  padding: 6px 8px;
+  padding: 8px 8px;
   background: var(--bg);
 }
 .invite-row {
   display: flex;
-  gap: 6px;
-  margin-top: 7px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .rail-out {
@@ -417,7 +512,7 @@ button:disabled {
 }
 
 .room-head {
-  padding: 15px 30px 13px;
+  padding: 16px 32px 12px;
   border-bottom: 1px solid var(--line);
 }
 .room-head h2 {
@@ -429,7 +524,7 @@ button:disabled {
    не должен висеть текстом под потолком над пустотой в пол-экрана. */
 .feed {
   overflow-y: auto;
-  padding: 18px 22px 10px;
+  padding: 16px 24px 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -441,7 +536,7 @@ button:disabled {
 
 .feed-empty {
   margin: auto 0 0;
-  padding: 0 24px 26px;
+  padding: 0 24px 24px;
   color: var(--muted);
   max-width: 46ch;
   font-size: 15px;
@@ -452,20 +547,20 @@ button:disabled {
   align-self: center;
   color: var(--muted);
   font-size: 13px;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
 }
 
 /* День — плашка по центру, как в Телеграме: она делит поток, но не
    притворяется заголовком раздела. */
 .feed-day {
   align-self: center;
-  margin: 14px 0 10px;
+  margin: 16px 0 8px;
 }
 .feed-day span {
   background: var(--raised);
   color: var(--muted);
   font-size: 12px;
-  padding: 3px 11px;
+  padding: 3px 12px;
   border-radius: 999px;
 }
 
@@ -483,7 +578,7 @@ button:disabled {
   margin-top: 2px;
 }
 .msg-first {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 .msg-mine {
   flex-direction: row-reverse;
@@ -508,8 +603,8 @@ button:disabled {
 .bubble {
   position: relative;
   max-width: min(62ch, 74%);
-  padding: 6px 11px 6px;
-  border-radius: 14px;
+  padding: 8px 12px 8px;
+  border-radius: 16px;
   background: var(--panel);
   border: 1px solid var(--line);
   line-height: 1.45;
@@ -531,14 +626,44 @@ button:disabled {
   border-top-right-radius: 5px;
 }
 .msg-mine:not(.msg-last) .bubble {
-  border-bottom-right-radius: 5px;
+  border-bottom-right-radius: 4px;
+}
+
+/*
+ * Хвостик у последнего пузыря группы.
+ *
+ * Мелочь, которой держится узнавание: без него это карточка, с ним —
+ * реплика. Рисуется псевдоэлементом, а не картинкой: цвет обязан
+ * совпадать с пузырём, включая обе темы и выделение.
+ */
+.msg-last .bubble::before {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  background: inherit;
+  border: inherit;
+  border-top: 0;
+}
+.msg-theirs.msg-last .bubble::before {
+  left: -4px;
+  border-right: 0;
+  border-bottom-left-radius: 8px 8px;
+  clip-path: polygon(0 100%, 100% 100%, 100% 0);
+}
+.msg-mine.msg-last .bubble::before {
+  right: -4px;
+  border-left: 0;
+  border-bottom-right-radius: 8px 8px;
+  clip-path: polygon(0 0, 0 100%, 100% 100%);
 }
 
 .msg-author {
   display: block;
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-ink);
   margin-bottom: 1px;
 }
 
@@ -554,7 +679,7 @@ button:disabled {
   font-size: 0.9em;
   background: var(--raised);
   border-radius: 4px;
-  padding: 1px 5px;
+  padding: 1px 4px;
 }
 .msg-mine .msg-text code {
   background: color-mix(in srgb, var(--accent-soft-edge) 55%, transparent);
@@ -578,21 +703,26 @@ button:disabled {
 }
 .msg-time {
   position: absolute;
-  right: 10px;
-  bottom: 5px;
+  right: 8px;
+  bottom: 4px;
   font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* В своём пузыре обычный приглушённый недотягивает по контрасту
+   (в тёмной теме 4.04). Берём тихую ступень той же шкалы. */
+.msg-mine .msg-time {
+  color: var(--muted-on-soft);
+}
 
 .composer {
   border-top: 1px solid var(--line);
-  padding: 13px 30px 17px;
+  padding: 12px 32px 16px;
   background: var(--panel);
 }
 .composer-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-end;
 }
 .composer textarea {
@@ -602,7 +732,7 @@ button:disabled {
   color: inherit;
   font: inherit;
   line-height: 1.45;
-  padding: 9px 11px;
+  padding: 8px 12px;
   border: 1px solid var(--edge);
   border-radius: 8px;
   resize: none;
@@ -616,7 +746,7 @@ button:disabled {
 }
 .composer button {
   width: auto;
-  padding: 9px 19px;
+  padding: 8px 20px;
   white-space: nowrap;
 }
 .composer button:disabled {
@@ -629,9 +759,9 @@ button:disabled {
   background: none;
   border: 1px solid var(--edge);
   color: var(--muted);
-  padding: 5px 12px;
+  padding: 4px 12px;
   font-size: 13px;
-  border-radius: 7px;
+  border-radius: 8px;
   transition: color 90ms linear;
 }
 .quiet:hover {
@@ -650,13 +780,13 @@ button:disabled {
     border-bottom: 1px solid var(--line);
   }
   .rail-out {
-    margin-top: 14px;
+    margin-top: 16px;
   }
   .feed,
   .composer,
   .room-head {
-    padding-left: 17px;
-    padding-right: 17px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
   /* На узком экране левого поля нет — время показываем в потоке. */
   .msg-aside {
@@ -697,14 +827,14 @@ button:disabled {
   flex: 1;
   background: none;
   color: var(--muted);
-  border-radius: 7px;
-  padding: 6px 8px;
+  border-radius: 8px;
+  padding: 8px 8px;
   font-size: 13px;
   font-weight: 500;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
 }
 .part:hover {
   background: var(--raised);
@@ -740,7 +870,7 @@ button:disabled {
 .listen {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
 }
 .listen-said {
   color: var(--muted);
@@ -751,19 +881,21 @@ button:disabled {
 
 .work {
   overflow-y: auto;
-  padding: 20px 26px 30px;
+  padding: 20px 24px 32px;
   min-height: 0;
 }
 .work-part {
   max-width: 62ch;
-  margin-bottom: 30px;
+  margin-bottom: 32px;
 }
+/* Без мелких прописных вразрядку: это одна из самых узнаваемых примет
+   сгенерированного интерфейса. Заголовок отличается размером и весом,
+   а не растянутыми заглавными. */
 .work-part h3 {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--muted);
+  letter-spacing: -0.01em;
+  color: var(--ink);
   margin: 0 0 12px;
 }
 /* Внутри экрана работы пустая строка не прижимается к низу, как в ленте:
@@ -776,9 +908,9 @@ button:disabled {
 .deal {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 14px 16px;
-  margin-bottom: 10px;
+  border-radius: 8px;
+  padding: 16px 16px;
+  margin-bottom: 8px;
 }
 .deal-text {
   margin: 0;
@@ -786,13 +918,13 @@ button:disabled {
   line-height: 1.5;
 }
 .deal-where {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
 .deal-done,
 .deal-off {
-  padding: 11px 16px;
+  padding: 12px 16px;
 }
 .deal-off .deal-text {
   font-size: 14px;
@@ -802,11 +934,11 @@ button:disabled {
 /* Цитата — то единственное, чем человек может поймать выдумку агента.
    Поэтому она видна всегда и стоит рядом с кнопками, а не за раскрытием. */
 .cite {
-  margin: 11px 0 0;
-  padding: 9px 12px;
+  margin: 12px 0 0;
+  padding: 8px 12px;
   background: var(--raised);
   border-left: 2px solid var(--accent);
-  border-radius: 0 7px 7px 0;
+  border-radius: 0 8px 8px 0;
 }
 .cite-text {
   margin: 0;
@@ -814,10 +946,10 @@ button:disabled {
   line-height: 1.5;
 }
 .cite-who {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--muted);
   font-size: 12px;
 }
@@ -831,7 +963,7 @@ button:disabled {
   background: none;
 }
 .cite-none {
-  margin: 11px 0 0;
+  margin: 12px 0 0;
   color: var(--danger);
   font-size: 13px;
 }
@@ -840,16 +972,16 @@ button:disabled {
 .deal-do {
   display: flex;
   gap: 8px;
-  margin-top: 13px;
+  margin-top: 12px;
 }
 .deal-do button {
   width: auto;
   background: none;
   border: 1px solid var(--edge);
   color: var(--ink);
-  padding: 6px 15px;
+  padding: 8px 16px;
   font-size: 13px;
-  border-radius: 7px;
+  border-radius: 8px;
 }
 .deal-do button:hover:not(:disabled) {
   background: var(--raised);
@@ -900,4 +1032,48 @@ button:disabled {
 }
 .dot-on {
   background: var(--accent);
+}
+
+/* ── значки ───────────────────────────────────────────────────────────
+   Значок никогда не остаётся один: рядом всегда слово. Он второй
+   признак, а не замена подписи, — иначе интерфейс приходится
+   разгадывать. Цвет наследуется от текста, поэтому состояния
+   работают сами. */
+
+.icon {
+  flex: 0 0 auto;
+  color: currentColor;
+  opacity: 0.75;
+}
+.room-on .icon,
+.part-on .icon,
+button:hover .icon {
+  opacity: 1;
+}
+
+/* Строка разговора: значок, название, обрезка длинного. */
+.room {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.room-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Нажатие — отдельное состояние, а не «наведение погромче». Без него
+   интерфейс не отвечает на касание, и это читается как картинка. */
+.room:active,
+.part:active,
+.rail-add:active {
+  background: var(--selected);
+}
+
+.rail-add,
+.rail-out {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

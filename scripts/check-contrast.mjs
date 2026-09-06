@@ -14,6 +14,17 @@
  * ГДЕ ЖИВУТ ЗНАЧЕНИЯ. В apps/web/src/styles.css, по правилу проекта.
  * Здесь только ПАРЫ: что на чём лежит. Пара — это факт замысла, его
  * из CSS не вывести, поэтому он объявлен явно и один раз.
+ *
+ * ЧТО ИЗМЕНИЛОСЬ С Р-014. Проверяются две вещи, а не одна:
+ *   ① ПРАВИЛА ШКАЛЫ — 11-я и 12-я ступени читаются на 1–3, 9-я и 10-я
+ *      держат границу. Это переживает смену значений: подставил другую
+ *      палитру — правило то же;
+ *   ② ПАРЫ РОЛЕЙ — что на чём лежит на самом деле. Роль это псевдоним
+ *      ступени (`--ink: var(--n12)`), поэтому ссылки разворачиваются.
+ *
+ * Одних правил шкалы мало: ошибиться можно и назначением роли — взять
+ * на границу ступень 8 вместо 10. Одних пар мало: они не заметят, что
+ * сама шкала испортилась там, куда пара не смотрит.
  */
 import { readFileSync } from "node:fs";
 
@@ -22,6 +33,35 @@ const CSS = "apps/web/src/styles.css";
 /** Порог WCAG AA: текст 4.5:1, крупный текст и границы элементов 3:1. */
 const TEXT = 4.5;
 const EDGE = 3;
+
+/**
+ * Правила шкалы. Проверяются в обеих шкалах — нейтральной и акцентной.
+ *
+ * Пороги WCAG, а не APCA: у нас порог 4.5:1 записан в правиле проекта
+ * и в Р-005. Radix считает свои ступени по APCA, поэтому совпадение
+ * не гарантировано — и именно поэтому проверяем сами, а не верим.
+ */
+const SCALES = [
+  {
+    prefix: "--n",
+    what: "нейтральная",
+    rules: [
+      { fg: 12, on: [1, 2, 3], need: TEXT, what: "основной текст" },
+      { fg: 11, on: [1, 2, 3], need: TEXT, what: "приглушённый текст" },
+      { fg: 10, on: [1, 2], need: EDGE, what: "ступень границы" },
+    ],
+  },
+  {
+    // У акцентной шкалы проверяется только текстовая ступень. 11-я
+    // на своём фоне даёт 4.19–4.43 — Radix считает ступени по APCA,
+    // а у нас порог WCAG, и совпадения нет. Поэтому текстом служит 12-я,
+    // а 11-я используется только там, где под ней тёмный фон. Это поймал
+    // сам гейт на первом же прогоне.
+    prefix: "--a",
+    what: "акцентная",
+    rules: [{ fg: 12, on: [1, 2, 3], need: TEXT, what: "текстовая ступень" }],
+  },
+];
 
 /** Что на чём лежит. Изменил замысел — правь здесь, иначе гейт врёт. */
 const PAIRS = [
@@ -36,9 +76,10 @@ const PAIRS = [
   { fg: "--danger", bg: "--panel", need: TEXT, what: "текст ошибки на панели" },
   { fg: "--on-accent", bg: "--accent", need: TEXT, what: "текст на акценте" },
   { fg: "--ink", bg: "--accent-soft", need: TEXT, what: "текст в своём пузыре" },
-  { fg: "--muted", bg: "--accent-soft", need: TEXT, what: "время в своём пузыре" },
+  { fg: "--muted-on-soft", bg: "--accent-soft", need: TEXT, what: "время в своём пузыре" },
   { fg: "--ink", bg: "--panel", need: TEXT, what: "текст в чужом пузыре" },
-  { fg: "--accent", bg: "--panel", need: TEXT, what: "имя автора в чужом пузыре" },
+  { fg: "--accent-ink", bg: "--panel", need: TEXT, what: "имя автора в чужом пузыре" },
+  { fg: "--accent-ink", bg: "--bg", need: TEXT, what: "акцент как текст на фоне" },
   { fg: "--accent", bg: "--bg", need: EDGE, what: "акцент как граница на фоне" },
   { fg: "--edge", bg: "--bg", need: EDGE, what: "граница поля ввода на фоне" },
   { fg: "--edge", bg: "--panel", need: EDGE, what: "граница поля ввода на панели" },
@@ -79,31 +120,135 @@ function ratio(a, b) {
  */
 function varsIn(block) {
   const found = {};
-  for (const line of block.matchAll(/(--[a-z-]+)\s*:\s*([^;]+);/giu)) {
-    const colour = parseHex(line[2]);
-    if (colour) found[line[1]] = { hex: line[2].trim(), rgb: colour };
+  for (const line of block.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/giu)) {
+    found[line[1]] = line[2].trim();
   }
   return found;
 }
 
+/**
+ * Развернуть ссылки `var(--x)` до цвета.
+ *
+ * Роли объявлены псевдонимами ступеней — иначе значение пришлось бы
+ * повторять дважды, и при первой же правке темы разъехались бы.
+ * Ограничение по глубине: кольцо ссылок иначе повесило бы гейт.
+ */
+function resolve(raw, table, depth = 0) {
+  if (raw === undefined || depth > 8) return null;
+  const link = /^var\(\s*(--[a-z0-9-]+)\s*\)$/iu.exec(raw);
+  if (link) return resolve(table[link[1]], table, depth + 1);
+  const rgb = parseHex(raw);
+  return rgb ? { hex: raw, rgb } : null;
+}
+
+/** Таблица «имя → цвет» одной темы, со всеми развёрнутыми ссылками. */
+function paletteOf(table) {
+  const out = {};
+  for (const name of Object.keys(table)) {
+    const colour = resolve(table[name], table);
+    if (colour) out[name] = colour;
+  }
+  return out;
+}
+
 const css = readFileSync(CSS, "utf8");
 
-/** Светлая тема — первый :root. Тёмная — :root внутри prefers-color-scheme. */
-const lightBlock = /:root\s*\{([\s\S]*?)\}/u.exec(css)?.[1] ?? "";
-const darkBlock =
-  /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([\s\S]*?)\}/u.exec(css)?.[1] ?? "";
+/**
+ * Блоков объявлений теперь несколько: шкала и роли объявлены раздельно.
+ * Собираем все, иначе роль ссылалась бы на ступень, которой «нет».
+ */
+function allBlocks(source, pattern) {
+  const table = {};
+  for (const block of source.matchAll(pattern)) Object.assign(table, varsIn(block[1]));
+  return table;
+}
 
-const light = varsIn(lightBlock);
+/**
+ * Вырезать всё внутри @media.
+ *
+ * Без этого в светлую тему затекают значения тёмной: `:root` объявлен
+ * и там, и там. Поймано первым же прогоном гейта — он сообщил о нарушении
+ * в светлой теме, показав тёмные значения.
+ */
+/** Конец блока в фигурных скобках, начиная от позиции `from`. -1 — не закрыт. */
+function blockEnd(source, from) {
+  const opened = source.indexOf("{", from);
+  if (opened < 0) return -1;
+  let depth = 0;
+  for (let cursor = opened; cursor < source.length; cursor++) {
+    if (source[cursor] === "{") depth++;
+    else if (source[cursor] === "}" && --depth === 0) return cursor;
+  }
+  return -1;
+}
+
+function withoutMedia(source) {
+  let out = "";
+  let at = 0;
+  for (;;) {
+    const start = source.indexOf("@media", at);
+    if (start < 0) return out + source.slice(at);
+    out += source.slice(at, start);
+    const end = blockEnd(source, start);
+    if (end < 0) return out;
+    at = end + 1;
+  }
+}
+
+const rawLight = allBlocks(withoutMedia(css), /:root\s*\{([^{}]*)\}/gu);
 // В тёмной теме переопределены не все переменные — остальные наследуются.
-const dark = { ...light, ...varsIn(darkBlock) };
+const rawDark = {
+  ...rawLight,
+  ...allBlocks(css, /prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^{}]*)\}/gu),
+};
+
+const light = paletteOf(rawLight);
+const dark = paletteOf(rawDark);
 
 const problems = [];
 let checked = 0;
+
+/** Одно правило шкалы на одной ступени-подложке. Возвращает жалобу или null. */
+function scaleProblem(theme, scale, rule, step, palette) {
+  const fg = palette[`${scale.prefix}${rule.fg}`];
+  const bg = palette[`${scale.prefix}${step}`];
+  if (!fg || !bg) {
+    return (
+      `${theme}: в ${scale.what} шкале нет ступени ${fg ? step : rule.fg}.
+` +
+      `  ПОЧИНИТЬ: объяви ${scale.prefix}1…${scale.prefix}12 целиком.
+` +
+      "  Неполная шкала — это дыра, о которой никто не узнает."
+    );
+  }
+  checked++;
+  const got = ratio(fg.rgb, bg.rgb);
+  if (got >= rule.need) return null;
+  return (
+    `${theme}: ${scale.what} шкала, ${rule.what} — ${got.toFixed(2)}:1, нужно ${rule.need}:1
+` +
+    `  ${scale.prefix}${rule.fg} (${fg.hex}) на ${scale.prefix}${step} (${bg.hex})
+` +
+    "  ПОЧИНИТЬ: ступень взята не из согласованной шкалы либо правлена по месту.\n" +
+    "  Правь шкалу, а не роль: роль — псевдоним, и правка по месту вернётся."
+  );
+}
 
 for (const [theme, palette] of [
   ["светлая", light],
   ["тёмная", dark],
 ]) {
+  // ① правила шкалы
+  for (const scale of SCALES) {
+    for (const rule of scale.rules) {
+      for (const step of rule.on) {
+        const problem = scaleProblem(theme, scale, rule, step, palette);
+        if (problem) problems.push(problem);
+      }
+    }
+  }
+
+  // ② пары ролей
   for (const pair of PAIRS) {
     const fg = palette[pair.fg];
     const bg = palette[pair.bg];

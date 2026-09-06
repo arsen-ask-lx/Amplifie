@@ -3,6 +3,7 @@ import type { Me } from "./api.js";
 import { api } from "./api.js";
 import { Composer } from "./Composer.js";
 import { Feed } from "./Feed.js";
+import { Icon } from "./Icon.js";
 import { InvitePanel } from "./InvitePanel.js";
 import { ModelScreen } from "./ModelScreen.js";
 import { NewRoom } from "./NewRoom.js";
@@ -131,6 +132,7 @@ function Parts({
         aria-current={section === "talk" ? "page" : undefined}
         onClick={() => onSwitch("talk")}
       >
+        <Icon name="хэш" />
         Разговоры
       </button>
       <button
@@ -139,6 +141,7 @@ function Parts({
         aria-current={section === "work" ? "page" : undefined}
         onClick={() => onSwitch("work")}
       >
+        <Icon name="работа" />
         Работа
         {/* Счётчик только у ждущих решения: подтверждённое внимания не
             требует, а метка на нём учит эту метку не замечать. */}
@@ -206,10 +209,12 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
             className={section === "model" ? "rail-add rail-add-on" : "rail-add"}
             onClick={() => setSection("model")}
           >
+            <Icon name="модель" />
             Своя нейросеть
           </button>
           <InvitePanel />
           <button type="button" className="quiet rail-out" onClick={onLeave}>
+            <Icon name="выход" />
             Выйти
           </button>
         </div>
