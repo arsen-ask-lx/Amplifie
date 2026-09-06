@@ -1,6 +1,7 @@
 export {
   type Actor,
   EmailTakenError,
+  ensureAgent,
   InvalidCredentialsError,
   InviteNotUsableError,
   issueInvite,

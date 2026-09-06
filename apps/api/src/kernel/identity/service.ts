@@ -412,3 +412,41 @@ export async function joinByInvite(
     };
   });
 }
+
+/**
+ * Участник-агент пространства. Заводится при первой надобности.
+ *
+ * Лениво, а не миграцией: миграция не знает, у каких пространств агент
+ * уже есть, а засеять всех разом значит завести агента там, где им
+ * никогда не воспользуются.
+ */
+export async function ensureAgent(workspaceId: string): Promise<{ id: string }> {
+  const existing = await repo.findAgent(db, workspaceId);
+  if (existing) return existing;
+
+  return withTransaction(async (tx) => {
+    // Проверяем ещё раз внутри транзакции: два одновременных разбора
+    // разговора не должны завести двух агентов.
+    const again = await repo.findAgent(tx, workspaceId);
+    if (again) return again;
+
+    const created = await repo.insertParticipant(tx, {
+      workspaceId,
+      accountId: null,
+      displayName: "Сводка",
+      role: "member",
+      kind: "agent",
+    });
+
+    await appendEvent(tx, {
+      kind: "participant.joined",
+      workspaceId,
+      actorParticipantId: created.id,
+      subjectType: "participant",
+      subjectId: created.id,
+      payload: { role: "member", kind: "agent" },
+    });
+
+    return created;
+  });
+}

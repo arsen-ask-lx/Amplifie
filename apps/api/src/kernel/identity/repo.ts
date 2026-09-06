@@ -27,13 +27,26 @@ export async function insertWorkspace(tx: Executor, name: string) {
   return row;
 }
 
+/**
+ * Участник пространства: человек ИЛИ агент, одна сущность (Р-1).
+ *
+ * У агента аккаунта нет — он не входит по паролю. База это и стережёт:
+ * `participant_account_matches_kind_ck` не даст завести человека
+ * без аккаунта и агента с аккаунтом.
+ */
 export async function insertParticipant(
   tx: Executor,
-  input: { workspaceId: string; accountId: string; displayName: string; role: string },
+  input: {
+    workspaceId: string;
+    accountId: string | null;
+    displayName: string;
+    role: string;
+    kind?: string;
+  },
 ) {
   const rows = await tx
     .insert(participant)
-    .values({ ...input, kind: "human" })
+    .values({ ...input, kind: input.kind ?? "human" })
     .returning();
   const row = rows[0];
   if (!row) throw new Error("не удалось создать участника");
@@ -175,5 +188,15 @@ export async function revokeInvite(tx: Executor, inviteId: string, workspaceId: 
 /** Пространство по идентификатору — нужно, чтобы вернуть его имя вошедшему. */
 export async function findWorkspaceById(tx: Executor, workspaceId: string) {
   const rows = await tx.select().from(workspace).where(eq(workspace.id, workspaceId)).limit(1);
+  return rows[0] ?? null;
+}
+
+/** Участник-агент пространства, если он уже заведён. */
+export async function findAgent(tx: Executor, workspaceId: string) {
+  const rows = await tx
+    .select()
+    .from(participant)
+    .where(and(eq(participant.workspaceId, workspaceId), eq(participant.kind, "agent")))
+    .limit(1);
   return rows[0] ?? null;
 }

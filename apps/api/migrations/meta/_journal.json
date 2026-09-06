@@ -36,6 +36,13 @@
       "when": 1788701929539,
       "tag": "0004_channel_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788704708266,
+      "tag": "0005_work_core",
+      "breakpoints": true
     }
   ]
 }

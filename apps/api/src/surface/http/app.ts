@@ -8,6 +8,7 @@ import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerInviteRoutes } from "./routes/invites.js";
 import { registerStreamRoutes } from "./routes/stream.js";
+import { registerWorkRoutes } from "./routes/work.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -37,6 +38,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerChatRoutes(app);
   registerInviteRoutes(app);
   registerStreamRoutes(app);
+  registerWorkRoutes(app);
 
   return app;
 }
