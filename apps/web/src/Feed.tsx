@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Message } from "./api.js";
+import { RichText } from "./RichText.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).
@@ -108,7 +109,9 @@ function Bubble({ row }: { row: Row }) {
         {row.first && !row.mine ? (
           <span className="msg-author">{row.message.author.name}</span>
         ) : null}
-        <span className="msg-text">{forDisplay(row.message.body)}</span>
+        <span className="msg-text">
+          <RichText body={forDisplay(row.message.body)} />
+        </span>
         <time className="msg-time" dateTime={row.message.createdAt}>
           {time.format(at)}
         </time>
@@ -141,16 +144,50 @@ export function Feed({
     wasThereAtFirst.current = newest;
   }
 
-  // Прокручиваем САМ контейнер, а не якорь в его конце. scrollIntoView
-  // на якоре не сработал ни разу: он отрабатывает до того, как встанут
-  // высоты пузырей, и лента остаётся наверху. Найдено живым прогоном.
+  /**
+   * Открытие разговора: сразу конец ленты, БЕЗ видимой прокрутки.
+   *
+   * useLayoutEffect отрабатывает до того, как браузер нарисует кадр,
+   * поэтому «сверху, а потом поехали вниз» человек не увидит вовсе.
+   * Так открывается чат в Телеграме, и это правильно: разговор читают
+   * с конца, а начало — это то, куда листают намеренно.
+   *
+   * Работает как «при открытии», потому что ChatScreen пересоздаёт ленту
+   * при смене разговора (key по его идентификатору).
+   */
+  useLayoutEffect(() => {
+    const node = box.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, []);
+
+  /**
+   * Кто листает назад — того не дёргает вниз новое сообщение.
+   *
+   * Это тоже из Телеграма и это важнее, чем кажется: человек читает
+   * старое, приходит чужая реплика, и лента уезжает у него из-под глаз.
+   */
+  const stuckToBottom = useRef(true);
+  const onScroll = () => {
+    const node = box.current;
+    if (!node) return;
+    stuckToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+  };
+
+  // Догон после открытия дорисовывает ленту: доводим до низа мгновенно,
+  // и только последующие сообщения приезжают плавно.
+  const settled = useRef(false);
   useEffect(() => {
     const node = box.current;
     if (!node || newest === 0) return;
+    if (!stuckToBottom.current) return;
+
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // Ждём кадр: к этому моменту разметка уже посчитана.
+    const instant = !settled.current || still;
+    settled.current = true;
+
     const frame = requestAnimationFrame(() => {
-      node.scrollTo({ top: node.scrollHeight, behavior: still ? "auto" : "smooth" });
+      if (instant) node.scrollTop = node.scrollHeight;
+      else node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
     });
     return () => cancelAnimationFrame(frame);
   }, [newest]);
@@ -161,7 +198,14 @@ export function Feed({
 
   return (
     // role="log" — новые сообщения читаются вслух программой чтения экрана.
-    <div className="feed" role="log" aria-live="polite" aria-relevant="additions" ref={box}>
+    <div
+      className="feed"
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions"
+      ref={box}
+      onScroll={onScroll}
+    >
       {hasOlder ? (
         <button type="button" className="quiet feed-older" onClick={onLoadOlder}>
           Показать более раннее

@@ -64,6 +64,12 @@ decisions: ## решения приняты с источниками, а не �
 contrast: ## контраст пар цветов в обеих темах (WCAG)
 > npm run contrast
 
+unit: ## быстрые проверки чистых функций (без стека)
+> npm run unit
+
+no-raw-html: ## запрет вставки сырого HTML в интерфейс (Р-002)
+> npm run no-raw-html
+
 gates: ## вшитые записи каталога AQK (размер файла, TODO, ссылки, версии)
 > npm run gates
 
@@ -82,7 +88,7 @@ aqk: ## ступень соответствия AQK и что до следую�
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
-check: lint typecheck arch decisions contrast gates arbiter-check ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast unit no-raw-html gates arbiter-check ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions contrast gates arbiter-check arbiter label aqk test check
+.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions contrast unit no-raw-html gates arbiter-check arbiter label aqk test check

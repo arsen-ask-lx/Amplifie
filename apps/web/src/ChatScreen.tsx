@@ -34,6 +34,9 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
   return (
     <>
       <Feed
+        // Смена разговора пересоздаёт ленту: тогда «прыгнуть в конец
+        // до отрисовки» работает как «при открытии», без лишнего состояния.
+        key={chat.current?.id ?? "пусто"}
         messages={chat.messages}
         hasOlder={chat.hasOlder}
         onLoadOlder={() => void chat.loadOlder()}

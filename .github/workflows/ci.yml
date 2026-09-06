@@ -30,6 +30,10 @@ jobs:
         run: npm run decisions
       - name: Контраст интерфейса
         run: npm run contrast
+      - name: Быстрые проверки
+        run: npm run unit
+      - name: Запрет сырого HTML
+        run: npm run no-raw-html
       - name: Записи каталога AQK
         run: npm run gates
       - name: Счётчик согласия арбитра К2

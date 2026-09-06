@@ -534,6 +534,28 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+/* Разметка внутри сообщения. Скромно: выделение служит смыслу,
+   а не привлекает внимание к себе. */
+.msg-text code {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 0.9em;
+  background: var(--raised);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.msg-mine .msg-text code {
+  background: color-mix(in srgb, var(--accent-soft-edge) 55%, transparent);
+}
+.msg-text a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, currentcolor 45%, transparent);
+}
+.msg-text a:hover {
+  text-decoration-color: currentcolor;
+}
+
 /* Время висит в конце последней строки: пузырь резервирует под него
    место отступом справа, поэтому текст на него не наезжает. */
 .msg-text::after {
