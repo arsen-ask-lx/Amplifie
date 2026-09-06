@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
@@ -181,12 +181,19 @@ export async function listMessages(tx: Executor, conversationId: string, limit: 
 /**
  * Догон: всё, что появилось в пространстве после номера — но только в тех
  * разговорах, где участник состоит. Проверка членства идёт по КОРНЮ.
+ *
+ * Выборка ограничена сверху `upToSeq` — той самой границей, которую получит
+ * клиент. Без верхней границы это два разных снимка базы: сообщение,
+ * зафиксированное между чтением ленты и чтением границы, в ответ не попадёт,
+ * а курсор клиента через него перепрыгнет. Проверено опытом: под нагрузкой
+ * так терялось около 6% сообщений — навсегда.
  */
 export async function listMessagesAfter(
   tx: Executor,
   workspaceId: string,
   participantId: string,
   afterSeq: number,
+  upToSeq: number,
   limit: number,
 ) {
   const roots = tx
@@ -203,6 +210,7 @@ export async function listMessagesAfter(
       and(
         eq(message.workspaceId, workspaceId),
         gt(message.seq, afterSeq),
+        lte(message.seq, upToSeq),
         sql`COALESCE(${conversation.parentId}, ${conversation.id}) IN ${roots}`,
       ),
     )

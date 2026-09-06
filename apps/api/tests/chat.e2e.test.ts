@@ -247,6 +247,41 @@ describe("чат", () => {
       expect(body.messages.map((m) => m.body)).toEqual(["третье", "четвёртое"]);
       expect(body.seq).toBeGreaterThan(cursor);
     });
+
+    it("догон не перепрыгивает через то, чего не отдал", async () => {
+      // Главное свойство догона: клиент двигает курсор на присланный seq.
+      // Значит seq НИКОГДА не смеет обогнать последнее отданное сообщение —
+      // иначе всё, что между ними, клиент не увидит уже никогда.
+      const person = await newPerson("Курсор");
+      const channel = await channelOf(person);
+      for (const text of ["1", "2", "3", "4", "5"]) await send(person, channel.id, text);
+
+      const response = await get("/v1/sync?after=0&limit=2", person);
+      const body = (await response.json()) as {
+        messages: Array<{ body: string; seq: number }>;
+        seq: number;
+        hasMore: boolean;
+      };
+
+      expect(body.messages).toHaveLength(2);
+      expect(body.hasMore).toBe(true);
+      // Вот эта строка и ловит ошибку: раньше seq был верхней границей
+      // пространства (5), а отдано было только два сообщения.
+      expect(body.seq).toBe(body.messages[1]?.seq);
+
+      // И по протоколу клиент обязан дойти до конца без потерь.
+      const seen = [...body.messages.map((m) => m.body)];
+      let cursor = body.seq;
+      for (let step = 0; step < 10 && seen.length < 5; step++) {
+        const next = (await (await get(`/v1/sync?after=${cursor}&limit=2`, person)).json()) as {
+          messages: Array<{ body: string; seq: number }>;
+          seq: number;
+        };
+        seen.push(...next.messages.map((m) => m.body));
+        cursor = next.seq;
+      }
+      expect(seen).toEqual(["1", "2", "3", "4", "5"]);
+    });
   });
 
   describe("② членство читается у корня дерева", () => {

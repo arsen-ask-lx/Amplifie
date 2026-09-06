@@ -175,13 +175,42 @@ export async function createThread(viewer: Viewer, parentId: string, title: stri
   });
 }
 
-/** Догон: что появилось после номера, и текущая верхняя граница. */
+/**
+ * Догон: что появилось после номера, и куда клиенту двигать курсор.
+ *
+ * Единственное свойство, которое здесь обязано выполняться всегда:
+ * **`seq` не смеет обогнать последнее отданное сообщение.** Клиент двигает
+ * курсор ровно на него, поэтому всё, что осталось между отданным и `seq`,
+ * он не увидит уже никогда. Обе дыры, через которые это происходило:
+ *
+ * ① граница читалась ОТДЕЛЬНЫМ запросом одновременно с лентой — два разных
+ *    снимка базы. Теперь граница читается первой, и лента ограничена ею;
+ * ② при обрезке по `limit` отдавалась граница пространства, а не последнее
+ *    отданное сообщение. Теперь при обрезке `seq` — последнее отданное.
+ *
+ * `hasMore` избавляет клиента от угадывания: пришло true — идти за следующей
+ * страницей немедленно, а не ждать звонка.
+ */
 export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
-  const [rows, seq] = await Promise.all([
-    repo.listMessagesAfter(db, viewer.workspaceId, viewer.participantId, afterSeq, limit),
-    repo.currentSeq(db, viewer.workspaceId),
-  ]);
-  return { messages: rows.map(presentMessage), seq };
+  // Порядок важен. Граница — первой: всё, что зафиксируется после её чтения,
+  // просто придёт следующим догоном. Наоборот было бы потерей.
+  const bound = await repo.currentSeq(db, viewer.workspaceId);
+  const rows = await repo.listMessagesAfter(
+    db,
+    viewer.workspaceId,
+    viewer.participantId,
+    afterSeq,
+    bound,
+    limit,
+  );
+
+  const hasMore = rows.length === limit;
+  const last = rows.at(-1);
+  return {
+    messages: rows.map(presentMessage),
+    seq: hasMore && last ? Number(last.seq) : bound,
+    hasMore,
+  };
 }
 
 /**
