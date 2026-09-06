@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AuthScreen } from "./AuthScreen.js";
 import { api, type Me } from "./api.js";
-import { HomeScreen } from "./HomeScreen.js";
+import { ChatScreen } from "./ChatScreen.js";
 
 type State =
   | { status: "loading" }
@@ -33,7 +33,7 @@ export function App() {
   }
 
   return (
-    <HomeScreen
+    <ChatScreen
       me={state.me}
       onLeave={async () => {
         // Выйти локально обязаны в любом случае: человек нажал «выйти», и

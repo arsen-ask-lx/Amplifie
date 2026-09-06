@@ -28,6 +28,8 @@ jobs:
         run: npm run arch
       - name: Решения со ссылками на источники
         run: npm run decisions
+      - name: Контраст интерфейса
+        run: npm run contrast
       - name: Записи каталога AQK
         run: npm run gates
       - name: Счётчик согласия арбитра К2
@@ -66,7 +68,7 @@ jobs:
           cp .env.example .env
           docker compose up -d --build
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/health >/dev/null; then echo "стек живой"; exit 0; fi
+            if curl -fsS http://localhost:8477/health >/dev/null; then echo "стек живой"; exit 0; fi
             sleep 2
           done
           echo "стек не поднялся"; exit 1

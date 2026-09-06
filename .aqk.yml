@@ -31,6 +31,7 @@ gates:
   arch: "npm run arch"
   decisions: "npm run decisions"
   arbiter-check: "npm run arbiter:check"
+  contrast: "npm run contrast"
 
   # Из каталога AQK. Каждый проверен подсаженным нарушением в НАШЕМ коде,
   # а не только на своих образцах.

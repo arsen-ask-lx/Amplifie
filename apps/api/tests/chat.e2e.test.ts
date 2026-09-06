@@ -13,7 +13,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 // ⚠️ Имя переменной НЕ BASE_URL: Vite (а значит и Vitest) владеет этим именем
 // и подставляет туда свой `base`, то есть "/".
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8080";
+const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 
 const PASSWORD = "правильный-конский-скотч-батарейка";
 

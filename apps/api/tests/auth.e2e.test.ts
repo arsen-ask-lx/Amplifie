@@ -11,7 +11,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 // ⚠️ Имя переменной НЕ BASE_URL: Vite (а значит и Vitest) владеет этим именем
 // и подставляет туда свой `base`, то есть "/". Час отладки на ровном месте.
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8080";
+const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 
 /** Уникальная почта на прогон: тест не должен зависеть от состояния базы. */
 function freshEmail(tag: string): string {

@@ -15,7 +15,7 @@ up: env ## поднять весь стек
 > docker compose up -d --build
 > @echo "ждём здоровья api..."
 > @for i in $$(seq 1 30); do \
->   if docker compose ps api --format '{{.Health}}' | grep -q healthy; then echo "готово: http://localhost:$${HTTP_PORT:-8080}/health"; exit 0; fi; \
+>   if docker compose ps api --format '{{.Health}}' | grep -q healthy; then echo "готово: http://localhost:$${HTTP_PORT:-8477}/health"; exit 0; fi; \
 >   sleep 2; \
 > done; echo "api не стал здоровым за 60с — смотри 'make logs'"; exit 1
 
@@ -32,7 +32,7 @@ ps: ## что запущено
 > docker compose ps
 
 health: ## дёрнуть /health как пользователь (не test client)
-> curl -fsS http://localhost:$${HTTP_PORT:-8080}/health && echo
+> curl -fsS http://localhost:$${HTTP_PORT:-8477}/health && echo
 
 psql: ## консоль базы
 > docker compose exec postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie}
@@ -41,7 +41,7 @@ install: ## поставить зависимости локально (для �
 > npm install
 
 migrate: ## применить миграции к базе
-> cd apps/api && DATABASE_URL="postgres://$${POSTGRES_USER:-amplifie}:$${POSTGRES_PASSWORD:-amplifie_dev_only}@127.0.0.1:$${POSTGRES_HOST_PORT:-55432}/$${POSTGRES_DB:-amplifie}" npx drizzle-kit migrate
+> cd apps/api && DATABASE_URL="postgres://$${POSTGRES_USER:-amplifie}:$${POSTGRES_PASSWORD:-amplifie_dev_only}@127.0.0.1:$${POSTGRES_HOST_PORT:-54477}/$${POSTGRES_DB:-amplifie}" npx drizzle-kit migrate
 
 migrate-new: ## сгенерировать миграцию из схемы (SQL потом читать и править руками)
 > cd apps/api && npx drizzle-kit generate
@@ -61,6 +61,9 @@ arch: ## архитектурные границы (запреты импорт�
 decisions: ## решения приняты с источниками, а не по памяти
 > npm run decisions
 
+contrast: ## контраст пар цветов в обеих темах (WCAG)
+> npm run contrast
+
 gates: ## вшитые записи каталога AQK (размер файла, TODO, ссылки, версии)
 > npm run gates
 
@@ -79,7 +82,7 @@ aqk: ## ступень соответствия AQK и что до следую�
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
-check: lint typecheck arch decisions gates arbiter-check ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast gates arbiter-check ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions gates arbiter-check arbiter label aqk test check
+.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions contrast gates arbiter-check arbiter label aqk test check

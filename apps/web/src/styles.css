@@ -1,20 +1,66 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   ЗАМЫСЕЛ ВИДА — «журнал»
+
+   Продукт записывает то, о чём договорились. Не мессенджер-игрушка,
+   а рабочая тетрадь: тёплая бумага, графитные чернила, плотный набор.
+   Подробно — dock/decisions/007-вид-интерфейса.md.
+
+   Значения живут здесь и только здесь (правило .temper/rules/frontend.md).
+   Пары «что на чём лежит» объявлены в scripts/check-contrast.mjs, и
+   `make contrast` считает их числом, а не на глаз.
+   ═══════════════════════════════════════════════════════════════════════ */
+
 :root {
-  --ink: #16181d;
-  --muted: #6b7280;
-  --line: #e5e7eb;
-  --bg: #fbfbfc;
-  --accent: #1f2937;
-  --danger: #b42318;
+  /* Бумага, не кремовый #F4F1EA: тот входит в список примет. */
+  --bg: #fbfaf7;
+  --panel: #f1efe9;
+  --raised: #e5e2d9;
+  --selected: #d8d3c6;
+
+  --ink: #1c1b18;
+  --muted: #5c584f;
+
+  /* Разделитель — декорация, порога не имеет. */
+  --line: #ddd9cf;
+  /* Граница интерактивного: поля, кнопки. Порог 3:1, считается гейтом. */
+  --edge: #8d8574;
+
+  /* Единственный акцент. Тратится на «здесь сейчас идёт разговор»,
+     а позже — на найденную договорённость. Больше нигде. */
+  --accent: #0b5f52;
+  --on-accent: #fbfaf7;
+
+  --danger: #9c2418;
+
+  --step: 4px;
+
+  /* Две гарнитуры, явно различные. Ни Inter, ни Roboto: они и есть
+     типовой набор из обучающих данных. Засечная стоит на структуре
+     (пространство, канал, дата) — она отделяет каркас от речи.
+     Ничего не скачиваем: обе есть на всех машинах. */
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink: #e8eaed;
-    --muted: #9aa1ab;
-    --line: #2b2f36;
-    --bg: #141619;
-    --accent: #e8eaed;
+    --bg: #14130f;
+    --panel: #1c1b17;
+    --raised: #26251f;
+    --selected: #33312a;
+
+    --ink: #eceae3;
+    --muted: #a49e91;
+
+    --line: #302e28;
+    --edge: #6d685c;
+
+    --accent: #4fbaa3;
+    --on-accent: #10130f;
+
+    --danger: #e78075;
   }
 }
 
@@ -26,12 +72,15 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font:
-    15px / 1.5 system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
+  font: 15px / 1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2 {
+  font-family: var(--serif);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .screen {
@@ -57,7 +106,7 @@ body {
 }
 
 h1 {
-  font-size: 20px;
+  font-size: 21px;
   margin: 0 0 4px;
 }
 .sub {
@@ -80,7 +129,7 @@ label span {
 input {
   width: 100%;
   padding: 9px 11px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 8px;
   background: transparent;
   color: inherit;
@@ -89,6 +138,7 @@ input {
 input:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+  border-color: var(--accent);
 }
 
 button {
@@ -97,7 +147,7 @@ button {
   border: 0;
   border-radius: 8px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   font: inherit;
   font-weight: 500;
   cursor: pointer;
@@ -130,31 +180,257 @@ button:disabled {
   margin-bottom: 14px;
 }
 
-.main {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 40px 24px;
-}
-.row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-}
 .who {
   color: var(--muted);
   font-size: 14px;
 }
-.panel {
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  padding: 20px;
-  margin-top: 24px;
-  color: var(--muted);
-  font-size: 14px;
+
+/* ─────────────────────────────────────────────────────────────────────
+   ЭКРАН РАЗГОВОРА
+
+   Замысел — «журнал»: плотная запись того, о чём договорились.
+   Разрежаем между группами, уплотняем внутри.
+
+   Акцент тратится в ОДНОМ месте: полоса у выбранного разговора.
+   Позже туда же встанет найденная договорённость — потому он и не
+   размазан по кнопкам.
+   ───────────────────────────────────────────────────────────────────── */
+
+.workspace {
+  display: grid;
+  grid-template-columns: 244px 1fr;
+  height: 100dvh;
 }
-.out {
-  width: auto;
-  padding: 7px 13px;
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  padding: 22px 14px 18px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  min-height: 0;
+}
+
+.rail h1 {
+  font-size: 19px;
+  margin: 0 8px 1px;
+  line-height: 1.2;
+}
+.rail .who {
+  margin: 0 8px 22px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+/* Строка навигации, а не призыв к действию: тихая, во всю ширину.
+   Полоса слева прозрачная всегда — так выбор не сдвигает текст. */
+.room {
+  width: 100%;
+  text-align: left;
+  background: none;
+  color: var(--muted);
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 7px 7px 0;
+  padding: 5px 9px;
+  font: inherit;
   font-size: 14px;
+  cursor: pointer;
+  transition: background-color 90ms linear;
+}
+.room:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
+.room:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.room-on,
+.room-on:hover {
+  background: var(--selected);
+  border-left-color: var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+}
+/* Отступ ВНУТРЕННИЙ, не внешний: при width:100% внешний прибавляется
+   к ширине и рождает горизонтальную полосу прокрутки. Так и было. */
+.room-sub {
+  padding-left: 25px;
+  font-size: 13px;
+}
+
+.rail-out {
+  margin-top: auto;
+  align-self: flex-start;
+}
+
+.room-view {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.room-head {
+  padding: 15px 30px 13px;
+  border-bottom: 1px solid var(--line);
+}
+.room-head h2 {
+  font-size: 17px;
+  margin: 0;
+}
+
+/* Лента прижата к низу: разговор читают снизу вверх, и пустой канал
+   не должен висеть текстом под потолком над пустотой в пол-экрана. */
+.feed {
+  overflow-y: auto;
+  padding: 22px 30px 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.feed > :first-child {
+  margin-top: auto;
+}
+
+.feed-empty {
+  margin: auto 0 0;
+  padding: 0 30px 26px;
+  color: var(--muted);
+  max-width: 46ch;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* Дата — структура, а не украшение: она делит запись на дни. */
+.feed-day {
+  font-family: var(--serif);
+  color: var(--muted);
+  font-size: 13px;
+  margin: 26px 0 12px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+}
+
+.feed-older {
+  align-self: center;
+  margin-bottom: 20px;
+}
+
+.msg {
+  max-width: 72ch;
+}
+.msg-head {
+  margin-top: 15px;
+}
+.msg + .msg:not(.msg-head) {
+  margin-top: 1px;
+}
+
+.msg-who {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 3px;
+}
+.msg-author {
+  font-weight: 650;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+}
+.msg-who time {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.composer {
+  border-top: 1px solid var(--line);
+  padding: 13px 30px 17px;
+  background: var(--panel);
+}
+.composer-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.composer input {
+  background: var(--bg);
+}
+.composer button {
+  width: auto;
+  padding: 9px 19px;
+  white-space: nowrap;
+}
+.composer button:disabled {
+  opacity: 0.45;
+}
+
+/* Тихая кнопка: действие есть, громкости не заслуживает. */
+.quiet {
+  width: auto;
+  background: none;
+  border: 1px solid var(--edge);
+  color: var(--muted);
+  padding: 5px 12px;
+  font-size: 13px;
+  border-radius: 7px;
+  transition: color 90ms linear;
+}
+.quiet:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+@media (max-width: 760px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100dvh;
+  }
+  .rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .rail-out {
+    margin-top: 14px;
+  }
+  .feed,
+  .composer,
+  .room-head {
+    padding-left: 17px;
+    padding-right: 17px;
+  }
+}
+
+/* Движение уместно, когда отвечает на действие и показывает, что
+   изменилось. Одно место — приход нового сообщения. */
+@media (prefers-reduced-motion: no-preference) {
+  .msg-fresh {
+    animation: settle 220ms ease-out;
+  }
+}
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
 }
