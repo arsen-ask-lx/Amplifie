@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
 import type { Executor } from "../../platform/db.js";
 import { workspace } from "../space/schema.js";
-import { account, participant, session } from "./schema.js";
+import { account, invite, participant, session } from "./schema.js";
 
 /**
  * Слой хранилища модуля identity. Только запросы, никакой логики.
@@ -101,4 +101,79 @@ export async function touchSession(tx: Executor, sessionId: string, now: Date) {
         or(isNull(session.lastSeenAt), lt(session.lastSeenAt, staleBefore)),
       ),
     );
+}
+
+/* ── Приглашения (Р-009) ──────────────────────────────────────────────── */
+
+export async function insertInvite(
+  tx: Executor,
+  input: { workspaceId: string; createdBy: string; tokenHash: string; expiresAt: Date },
+) {
+  const rows = await tx.insert(invite).values(input).returning();
+  const row = rows[0];
+  if (!row) throw new Error("не удалось выпустить приглашение");
+  return row;
+}
+
+/**
+ * Погасить приглашение — атомарно.
+ *
+ * Одноразовость держится ЗДЕСЬ, условием в самом изменении, а не проверкой
+ * «а не занято ли» отдельным запросом: та была бы гонкой. Два устройства
+ * одновременно — ровно одно получит строку, второе ноль строк.
+ *
+ * Ни срок, ни отзыв, ни повтор наружу не различаются: вызывающий видит
+ * только «получилось или нет», и отвечает одинаково (Р-009).
+ *
+ * Оба поля погашения ставятся ОДНИМ запросом: «погашено, но неизвестно кем»
+ * не должно существовать даже на миг внутри транзакции. Отложить проверку
+ * до фиксации нельзя — Postgres не умеет DEFERRABLE для CHECK.
+ */
+export async function redeemInvite(tx: Executor, tokenHash: string, redeemedBy: string, now: Date) {
+  const rows = await tx
+    .update(invite)
+    .set({ redeemedAt: now, redeemedBy })
+    .where(
+      and(
+        eq(invite.tokenHash, tokenHash),
+        isNull(invite.redeemedAt),
+        isNull(invite.revokedAt),
+        gt(invite.expiresAt, now),
+      ),
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
+/**
+ * Пространство приглашения по токену — быстрый отказ до всякой работы.
+ *
+ * Это НЕ проверка права: право проверяет `redeemInvite` своим условием.
+ * Здесь только «есть ли вообще смысл заводить аккаунт».
+ */
+export async function peekInvite(tx: Executor, tokenHash: string) {
+  const rows = await tx
+    .select({ id: invite.id, workspaceId: invite.workspaceId, role: invite.role })
+    .from(invite)
+    .where(eq(invite.tokenHash, tokenHash))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Отзыв. Чужое приглашение отозвать нельзя: пространство проверяется здесь же. */
+export async function revokeInvite(tx: Executor, inviteId: string, workspaceId: string, now: Date) {
+  const rows = await tx
+    .update(invite)
+    .set({ revokedAt: now })
+    .where(
+      and(eq(invite.id, inviteId), eq(invite.workspaceId, workspaceId), isNull(invite.revokedAt)),
+    )
+    .returning({ id: invite.id });
+  return rows[0] ?? null;
+}
+
+/** Пространство по идентификатору — нужно, чтобы вернуть его имя вошедшему. */
+export async function findWorkspaceById(tx: Executor, workspaceId: string) {
+  const rows = await tx.select().from(workspace).where(eq(workspace.id, workspaceId)).limit(1);
+  return rows[0] ?? null;
 }

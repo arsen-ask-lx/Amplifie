@@ -267,3 +267,35 @@ export async function createDefaultChannel(
 
   return channel;
 }
+
+/**
+ * Посадить нового участника в корневой канал пространства.
+ *
+ * Право читается у корня дерева, поэтому одной записи хватает: ветки
+ * канала станут видны сами собой.
+ */
+export async function addToRootChannel(
+  tx: Executor,
+  input: { workspaceId: string; participantId: string },
+) {
+  const channel = await repo.findRootChannel(tx, input.workspaceId);
+  if (!channel) throw new Error(`в пространстве ${input.workspaceId} нет канала`);
+
+  await repo.insertMember(tx, {
+    conversationId: channel.id,
+    participantId: input.participantId,
+    workspaceId: input.workspaceId,
+    role: "member",
+  });
+
+  await appendEvent(tx, {
+    kind: "conversation.joined",
+    workspaceId: input.workspaceId,
+    actorParticipantId: input.participantId,
+    subjectType: "conversation",
+    subjectId: channel.id,
+    payload: { role: "member" },
+  });
+
+  return channel;
+}

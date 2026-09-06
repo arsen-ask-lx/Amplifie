@@ -233,3 +233,182 @@ export async function resolveActor(token: string | undefined): Promise<Actor | n
   });
   return actor;
 }
+
+/* ── Приглашения (Р-009) ──────────────────────────────────────────────── */
+
+/**
+ * Приглашения нет, оно просрочено, отозвано или уже использовано —
+ * снаружи это ОДНО И ТО ЖЕ. Различать нельзя: по разнице ответов
+ * перебирают живые приглашения.
+ */
+export class InviteNotUsableError extends Error {}
+
+/** По умолчанию неделя: ссылку передаёт человек, а не почтовый сервер. */
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Верхняя граница — чтобы «вечная ссылка» не заводилась по недосмотру. */
+const INVITE_MAX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Выпустить приглашение.
+ *
+ * Сырой токен возвращается ОДИН РАЗ и больше не восстановим: в базе лежит
+ * только его хеш. Потерял ссылку — выпусти новую, это дешевле, чем хранить
+ * значение, которым можно войти.
+ */
+export async function issueInvite(
+  by: { workspaceId: string; participantId: string; accountId: string },
+  lifetimeMs: number = INVITE_TTL_MS,
+): Promise<{ id: string; token: string; expiresAt: Date }> {
+  const live = Math.min(Math.max(lifetimeMs, 1000), INVITE_MAX_TTL_MS);
+  // Те же 256 бит, что и у токена сессии: это тоже вход в пространство.
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + live);
+
+  return withTransaction(async (tx) => {
+    const created = await repo.insertInvite(tx, {
+      workspaceId: by.workspaceId,
+      createdBy: by.participantId,
+      tokenHash: hashToken(token),
+      expiresAt,
+    });
+
+    await appendEvent(tx, {
+      kind: "invite.issued",
+      workspaceId: by.workspaceId,
+      actorParticipantId: by.participantId,
+      originatorAccountId: by.accountId,
+      accountableAccountId: by.accountId,
+      subjectType: "invite",
+      subjectId: created.id,
+      // Ни токена, ни его хеша в журнале: журнал читают, и он вечен.
+      payload: { expiresAt: expiresAt.toISOString() },
+    });
+
+    return { id: created.id, token, expiresAt };
+  });
+}
+
+/** Отозвать. Чужое отозвать нельзя — пространство проверяется в запросе. */
+export async function revokeInvite(
+  by: { workspaceId: string; participantId: string; accountId: string },
+  inviteId: string,
+): Promise<boolean> {
+  return withTransaction(async (tx) => {
+    const revoked = await repo.revokeInvite(tx, inviteId, by.workspaceId, new Date());
+    if (!revoked) return false;
+
+    await appendEvent(tx, {
+      kind: "invite.revoked",
+      workspaceId: by.workspaceId,
+      actorParticipantId: by.participantId,
+      originatorAccountId: by.accountId,
+      accountableAccountId: by.accountId,
+      subjectType: "invite",
+      subjectId: inviteId,
+      payload: {},
+    });
+    return true;
+  });
+}
+
+export interface JoinInput {
+  token: string;
+  email: string;
+  password: string;
+  displayName: string;
+}
+
+/**
+ * Что ещё сделать в ТОЙ ЖЕ транзакции, что и вход по приглашению.
+ * Через этот шов `app/` заводит новичку членство в канале, а identity
+ * по-прежнему ничего не знает про разговоры.
+ */
+export type JoinHook = (
+  tx: Tx,
+  created: { workspaceId: string; participantId: string; accountId: string },
+) => Promise<void>;
+
+/**
+ * Войти по приглашению — ЕДИНСТВЕННЫЙ путь присоединиться к чужому
+ * пространству.
+ *
+ * Регистрация приглашений не принимает никогда. Это не осторожность,
+ * а вывод из опубликованного разбора чужой уязвимости: тот же токен,
+ * поданный через другой поток входа, обходил там проверку доступа.
+ * Один путь — один набор проверок.
+ */
+export async function joinByInvite(
+  input: JoinInput,
+  alsoInSameTransaction?: JoinHook,
+): Promise<{ actor: Actor; token: string }> {
+  const email = normalizeEmail(input.email);
+  const passwordHash = await argonHash(input.password, ARGON_OPTIONS);
+  const { token, tokenHash } = newSessionToken();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  const now = new Date();
+
+  const tokenHashOfInvite = hashToken(input.token);
+
+  return withTransaction(async (tx) => {
+    // Быстрый отказ: если такого токена нет вовсе, не заводим аккаунт зря.
+    // Это НЕ проверка права — право проверит захват ниже своим условием.
+    const seen = await repo.peekInvite(tx, tokenHashOfInvite);
+    if (!seen) throw new InviteNotUsableError();
+
+    if (await repo.findAccountByEmail(tx, email)) throw new EmailTakenError();
+
+    const createdAccount = await repo.insertAccount(tx, email, passwordHash);
+    const createdParticipant = await repo.insertParticipant(tx, {
+      workspaceId: seen.workspaceId,
+      accountId: createdAccount.id,
+      displayName: input.displayName.trim(),
+      role: seen.role,
+    });
+
+    // ЗАХВАТ. Единственное место, где решается, состоялся ли вход.
+    // Оба поля погашения ставятся одним запросом; проигравший получает
+    // ноль строк, и вся работа выше откатывается вместе с транзакцией.
+    const claimed = await repo.redeemInvite(tx, tokenHashOfInvite, createdParticipant.id, now);
+    if (!claimed) throw new InviteNotUsableError();
+
+    const createdSession = await repo.insertSession(tx, {
+      accountId: createdAccount.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    await appendEvent(tx, {
+      kind: "participant.joined",
+      workspaceId: claimed.workspaceId,
+      actorParticipantId: createdParticipant.id,
+      originatorAccountId: createdAccount.id,
+      accountableAccountId: createdAccount.id,
+      subjectType: "participant",
+      subjectId: createdParticipant.id,
+      payload: { role: claimed.role, kind: "human", viaInvite: claimed.id },
+    });
+
+    await alsoInSameTransaction?.(tx, {
+      workspaceId: claimed.workspaceId,
+      participantId: createdParticipant.id,
+      accountId: createdAccount.id,
+    });
+
+    const space = await repo.findWorkspaceById(tx, claimed.workspaceId);
+
+    return {
+      token,
+      actor: {
+        sessionId: createdSession.id,
+        accountId: createdAccount.id,
+        email: createdAccount.email,
+        participantId: createdParticipant.id,
+        displayName: createdParticipant.displayName,
+        kind: createdParticipant.kind,
+        role: createdParticipant.role,
+        workspaceId: claimed.workspaceId,
+        workspaceName: space?.name ?? "",
+      },
+    };
+  });
+}

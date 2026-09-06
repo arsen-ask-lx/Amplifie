@@ -66,3 +66,34 @@ export const session = pgTable(
   },
   (t) => [index("session_account_idx").on(t.accountId)],
 );
+
+/**
+ * Приглашение в пространство (Р-009).
+ *
+ * ТОКЕН ЗДЕСЬ НЕ ХРАНИТСЯ. Лежит только его SHA-256: токен — это пароль,
+ * и утечка дампа не должна давать входа. Сырое значение показывается
+ * ровно один раз, в ответе на выпуск.
+ *
+ * Одноразовость держится не проверкой в коде, а условием в самом UPDATE
+ * (см. repo.redeemInvite): два устройства одновременно — входит один.
+ */
+export const invite = pgTable(
+  "invite",
+  {
+    id: uuid("id").primaryKey().default(sql`uuidv7()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => participant.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    role: text("role").notNull().default("member"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+    redeemedBy: uuid("redeemed_by").references(() => participant.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("invite_workspace_idx").on(table.workspaceId, table.createdAt)],
+);

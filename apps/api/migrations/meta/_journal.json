@@ -15,6 +15,20 @@
       "when": 1788685107288,
       "tag": "0001_third_marten_broadcloak",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788700856258,
+      "tag": "0002_dark_shinko_yamashiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788701309724,
+      "tag": "0003_deferrable_invite_pair",
+      "breakpoints": true
     }
   ]
 }
