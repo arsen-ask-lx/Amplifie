@@ -40,6 +40,12 @@ psql: ## консоль базы
 install: ## поставить зависимости локально (для типов и линтера)
 > npm install
 
+migrate: ## применить миграции к базе
+> cd apps/api && DATABASE_URL="postgres://$${POSTGRES_USER:-amplifie}:$${POSTGRES_PASSWORD:-amplifie_dev_only}@127.0.0.1:$${POSTGRES_HOST_PORT:-55432}/$${POSTGRES_DB:-amplifie}" npx drizzle-kit migrate
+
+migrate-new: ## сгенерировать миграцию из схемы (SQL потом читать и править руками)
+> cd apps/api && npx drizzle-kit generate
+
 typecheck: ## проверка типов
 > npm run typecheck
 
@@ -52,10 +58,10 @@ format: ## формат + линтер (с исправлением)
 arch: ## архитектурные границы (запреты импортов)
 > npm run arch
 
-test: ## тесты
+test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
 check: lint typecheck arch ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install typecheck lint format arch test check
+.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch test check

@@ -1,8 +1,8 @@
-import { buildApp } from "./app.js";
-import { config } from "./config.js";
-import { pool } from "./db.js";
+import { config } from "./platform/config.js";
+import { pool } from "./platform/db.js";
+import { buildApp } from "./surface/http/app.js";
 
-const app = buildApp();
+const app = await buildApp();
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "останавливаюсь");

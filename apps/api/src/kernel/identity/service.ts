@@ -1,0 +1,190 @@
+import { createHash, randomBytes } from "node:crypto";
+import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
+import { db, withTransaction } from "../../platform/db.js";
+import { appendEvent } from "../journal/index.js";
+import * as repo from "./repo.js";
+
+/** Сколько живёт сессия. Продлевать будем позже — сейчас проще некуда. */
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Хеш пароля. Argon2id — то, что рекомендуют вместо bcrypt с 2015 года.
+ * Параметры по умолчанию @node-rs/argon2 соответствуют OWASP.
+ */
+const ARGON_OPTIONS = { algorithm: 2 } as const;
+
+/**
+ * Заглушка для выравнивания времени ответа. Когда почты нет в базе, мы всё
+ * равно проверяем пароль против неё — иначе по времени ответа перебирают,
+ * кто зарегистрирован.
+ */
+const DUMMY_HASH = await argonHash("несуществующий-пароль-для-выравнивания", ARGON_OPTIONS);
+
+export class EmailTakenError extends Error {}
+export class InvalidCredentialsError extends Error {}
+
+export interface Actor {
+  sessionId: string;
+  accountId: string;
+  email: string;
+  participantId: string;
+  displayName: string;
+  kind: string;
+  role: string;
+  workspaceId: string;
+  workspaceName: string;
+}
+
+/** Почта приводится к одному виду ровно здесь, на границе домена. */
+export function normalizeEmail(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function newSessionToken(): { token: string; tokenHash: string } {
+  const token = randomBytes(32).toString("base64url");
+  return { token, tokenHash: hashToken(token) };
+}
+
+export interface RegisterInput {
+  email: string;
+  password: string;
+  displayName: string;
+  workspaceName: string;
+}
+
+/**
+ * Регистрация: аккаунт + пространство + лицо владельца + сессия.
+ * Всё в одной транзакции — полурегистрация хуже отсутствующей.
+ */
+export async function register(input: RegisterInput): Promise<{ actor: Actor; token: string }> {
+  const email = normalizeEmail(input.email);
+  const passwordHash = await argonHash(input.password, ARGON_OPTIONS);
+  const { token, tokenHash } = newSessionToken();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+  return withTransaction(async (tx) => {
+    if (await repo.findAccountByEmail(tx, email)) throw new EmailTakenError();
+
+    const createdAccount = await repo.insertAccount(tx, email, passwordHash);
+    const createdWorkspace = await repo.insertWorkspace(tx, input.workspaceName.trim());
+    const createdParticipant = await repo.insertParticipant(tx, {
+      workspaceId: createdWorkspace.id,
+      accountId: createdAccount.id,
+      displayName: input.displayName.trim(),
+      role: "owner",
+    });
+    const createdSession = await repo.insertSession(tx, {
+      accountId: createdAccount.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    // Изменение состояния и событие — в одной транзакции. Всегда (Р-2).
+    await appendEvent(tx, {
+      kind: "workspace.created",
+      workspaceId: createdWorkspace.id,
+      actorParticipantId: createdParticipant.id,
+      originatorAccountId: createdAccount.id,
+      accountableAccountId: createdAccount.id,
+      subjectType: "workspace",
+      subjectId: createdWorkspace.id,
+      payload: { name: createdWorkspace.name },
+    });
+    await appendEvent(tx, {
+      kind: "participant.joined",
+      workspaceId: createdWorkspace.id,
+      actorParticipantId: createdParticipant.id,
+      originatorAccountId: createdAccount.id,
+      accountableAccountId: createdAccount.id,
+      subjectType: "participant",
+      subjectId: createdParticipant.id,
+      payload: { role: "owner", kind: "human" },
+    });
+
+    return {
+      token,
+      actor: {
+        sessionId: createdSession.id,
+        accountId: createdAccount.id,
+        email: createdAccount.email,
+        participantId: createdParticipant.id,
+        displayName: createdParticipant.displayName,
+        kind: createdParticipant.kind,
+        role: createdParticipant.role,
+        workspaceId: createdWorkspace.id,
+        workspaceName: createdWorkspace.name,
+      },
+    };
+  });
+}
+
+export async function login(
+  rawEmail: string,
+  password: string,
+): Promise<{ actor: Actor; token: string }> {
+  const email = normalizeEmail(rawEmail);
+  const found = await repo.findAccountByEmail(db, email);
+
+  // Пароль проверяется ВСЕГДА, даже если аккаунта нет: иначе по времени
+  // ответа видно, какие почты зарегистрированы.
+  const ok = await argonVerify(found?.passwordHash ?? DUMMY_HASH, password).catch(() => false);
+  if (!found || !ok) throw new InvalidCredentialsError();
+
+  const { token, tokenHash } = newSessionToken();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+  return withTransaction(async (tx) => {
+    await repo.insertSession(tx, { accountId: found.id, tokenHash, expiresAt });
+    const actor = await repo.findLiveSession(tx, tokenHash, new Date());
+    if (!actor) throw new InvalidCredentialsError();
+
+    await appendEvent(tx, {
+      kind: "session.opened",
+      workspaceId: actor.workspaceId,
+      actorParticipantId: actor.participantId,
+      originatorAccountId: actor.accountId,
+      accountableAccountId: actor.accountId,
+      subjectType: "session",
+      subjectId: actor.sessionId,
+    });
+
+    return { token, actor };
+  });
+}
+
+export async function logout(token: string): Promise<void> {
+  const tokenHash = hashToken(token);
+  await withTransaction(async (tx) => {
+    const actor = await repo.findLiveSession(tx, tokenHash, new Date());
+    await repo.deleteSessionByTokenHash(tx, tokenHash);
+    if (actor) {
+      await appendEvent(tx, {
+        kind: "session.closed",
+        workspaceId: actor.workspaceId,
+        actorParticipantId: actor.participantId,
+        originatorAccountId: actor.accountId,
+        accountableAccountId: actor.accountId,
+        subjectType: "session",
+        subjectId: actor.sessionId,
+      });
+    }
+  });
+}
+
+/** Кто пришёл. Возвращает null, если сессии нет, она протухла или подделана. */
+export async function resolveActor(token: string | undefined): Promise<Actor | null> {
+  if (!token) return null;
+
+  // Сравнение с равным временем здесь НЕ нужно и было бы театром: мы не
+  // сличаем строки в коде, а ищем по индексу в базе. Утечки по времени
+  // на поиске по хешу нет — сам хеш случаен и неугадываем.
+  const actor = await repo.findLiveSession(db, hashToken(token), new Date());
+  if (!actor) return null;
+
+  void repo.touchSession(db, actor.sessionId, new Date()).catch(() => {});
+  return actor;
+}

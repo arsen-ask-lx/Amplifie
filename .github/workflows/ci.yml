@@ -45,19 +45,29 @@ jobs:
       - name: Уязвимости в зависимостях
         run: npm audit --audit-level=high
 
+  # Живой стек + приёмочные тесты через настоящий порт, не test client.
   stack:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Поднять стек и дёрнуть health как пользователь
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Поднять стек
         run: |
           cp .env.example .env
           docker compose up -d --build
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/health; then echo; echo "стек живой"; exit 0; fi
+            if curl -fsS http://localhost:8080/health >/dev/null; then echo "стек живой"; exit 0; fi
             sleep 2
           done
-          echo "стек не поднялся"; docker compose logs; exit 1
+          echo "стек не поднялся"; exit 1
+      - name: Миграции
+        run: make migrate
+      - name: Приёмочные тесты
+        run: npm test
       - name: Логи при падении
         if: failure()
-        run: docker compose logs
+        run: docker compose logs --tail=200

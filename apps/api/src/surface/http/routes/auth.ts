@@ -1,0 +1,112 @@
+import type { FastifyInstance, FastifyReply } from "fastify";
+import { z } from "zod";
+import {
+  type Actor,
+  EmailTakenError,
+  InvalidCredentialsError,
+  login,
+  logout,
+  register,
+  resolveActor,
+} from "../../../kernel/identity/index.js";
+import { config } from "../../../platform/config.js";
+
+export const SESSION_COOKIE = "amplifie_session";
+
+const registerSchema = z.object({
+  email: z.email("нужен корректный адрес почты"),
+  password: z.string().min(12, "пароль короче 12 символов"),
+  displayName: z.string().trim().min(1, "как вас зовут?").max(80),
+  workspaceName: z.string().trim().min(1, "название пространства пустое").max(120),
+});
+
+const loginSchema = z.object({
+  email: z.string().min(1),
+  password: z.string().min(1),
+});
+
+/** Разбор на границе: 400 — не смог прочитать, 422 — прочитал, но поля не годятся. */
+function parse<T>(schema: z.ZodType<T>, body: unknown, reply: FastifyReply): T | null {
+  const result = schema.safeParse(body);
+  if (result.success) return result.data;
+
+  const fields: Record<string, string> = {};
+  for (const issue of result.error.issues) {
+    const key = issue.path.join(".") || "_";
+    fields[key] ??= issue.message;
+  }
+  reply.code(422).send({ error: "validation_failed", fields });
+  return null;
+}
+
+function setSessionCookie(reply: FastifyReply, token: string): void {
+  reply.setCookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: config.isProduction,
+    path: "/",
+    maxAge: 30 * 24 * 60 * 60,
+  });
+}
+
+function present(actor: Actor) {
+  return {
+    account: { id: actor.accountId, email: actor.email },
+    participant: {
+      id: actor.participantId,
+      displayName: actor.displayName,
+      kind: actor.kind,
+      role: actor.role,
+    },
+    workspace: { id: actor.workspaceId, name: actor.workspaceName },
+  };
+}
+
+export function registerAuthRoutes(app: FastifyInstance): void {
+  app.post("/v1/auth/register", async (request, reply) => {
+    const input = parse(registerSchema, request.body, reply);
+    if (!input) return reply;
+
+    try {
+      const { actor, token } = await register(input);
+      setSessionCookie(reply, token);
+      return reply.code(201).send(present(actor));
+    } catch (error) {
+      if (error instanceof EmailTakenError) {
+        return reply.code(409).send({ error: "email_taken" });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/v1/auth/login", async (request, reply) => {
+    const input = parse(loginSchema, request.body, reply);
+    if (!input) return reply;
+
+    try {
+      const { actor, token } = await login(input.email, input.password);
+      setSessionCookie(reply, token);
+      return reply.code(200).send(present(actor));
+    } catch (error) {
+      if (error instanceof InvalidCredentialsError) {
+        // Один и тот же ответ на «нет такой почты» и «неверный пароль».
+        // Иначе по ответу перебирают, кто зарегистрирован.
+        return reply.code(401).send({ error: "invalid_credentials" });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/v1/auth/logout", async (request, reply) => {
+    const token = request.cookies[SESSION_COOKIE];
+    if (token) await logout(token);
+    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    return reply.code(204).send();
+  });
+
+  app.get("/v1/me", async (request, reply) => {
+    const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
+    if (!actor) return reply.code(401).send({ error: "not_authenticated" });
+    return present(actor);
+  });
+}
