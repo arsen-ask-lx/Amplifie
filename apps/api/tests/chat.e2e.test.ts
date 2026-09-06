@@ -160,6 +160,53 @@ describe("чат", () => {
       expect(items).toHaveLength(1);
     });
 
+    it("повтор возвращает полное сообщение, даже когда оно уже не последнее", async () => {
+      const person = await newPerson("Автор");
+      const channel = await channelOf(person);
+      const clientMsgId = crypto.randomUUID();
+
+      const first = (await (await send(person, channel.id, "первое", clientMsgId)).json()) as {
+        author: { id: string; name: string; kind: string };
+      };
+      // Между отправкой и повтором приходит другое сообщение — теперь повторяемое
+      // уже НЕ последнее в ленте. Ровно тут ломалась наивная реализация.
+      await send(person, channel.id, "второе");
+
+      const replayed = (await (await send(person, channel.id, "первое", clientMsgId)).json()) as {
+        author: { id: string; name: string; kind: string };
+      };
+
+      expect(replayed.author).toEqual(first.author);
+      expect(replayed.author.name).not.toBe("");
+    });
+
+    it("одновременный повтор одного ключа не роняет запрос и не оставляет дыру", async () => {
+      const person = await newPerson("Гонка");
+      const channel = await channelOf(person);
+      const clientMsgId = crypto.randomUUID();
+
+      // Двойной клик: два запроса с одним ключом уходят одновременно.
+      const [a, b] = await Promise.all([
+        send(person, channel.id, "один раз", clientMsgId),
+        send(person, channel.id, "один раз", clientMsgId),
+      ]);
+
+      // Один создал, второй получил тот же результат. Пятисотки быть не должно.
+      expect([a.status, b.status].sort()).toEqual([200, 201]);
+
+      const bodies = (await Promise.all([a.json(), b.json()])) as Array<{
+        id: string;
+        seq: number;
+      }>;
+      expect(bodies[0]?.id).toBe(bodies[1]?.id);
+
+      const feed = await get(`/v1/conversations/${channel.id}/messages`, person);
+      const items = ((await feed.json()) as { items: Array<{ seq: number }> }).items;
+      expect(items).toHaveLength(1);
+      // Откат транзакции обязан вернуть номер обратно: дыры быть не должно.
+      expect(items[0]?.seq).toBe(1);
+    });
+
     it("одновременная отправка не теряет ни одного сообщения и не даёт дыр в нумерации", async () => {
       const person = await newPerson("Параллель");
       const channel = await channelOf(person);
