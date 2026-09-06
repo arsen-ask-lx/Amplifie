@@ -31,6 +31,8 @@ export interface Chat {
   select: (id: string) => void;
   loadOlder: () => Promise<void>;
   send: (body: string, clientMsgId: string) => Promise<void>;
+  addChannel: (title: string) => Promise<void>;
+  addThread: (title: string) => Promise<void>;
 }
 
 export function useChat(): Chat {
@@ -140,6 +142,39 @@ export function useChat(): Chat {
     [currentId],
   );
 
+  /**
+   * Новый разговор появляется в списке и сразу открывается.
+   *
+   * Список перечитывается целиком, а не дополняется ответом: в нём мог
+   * появиться и чужой канал, пока мы набирали название. Один запрос
+   * дешевле, чем два источника правды о списке.
+   */
+  const openNew = useCallback(async (make: () => Promise<Conversation>) => {
+    const created = await make();
+    const { items } = await api.conversations();
+    setConversations(items);
+    setCurrentId(created.id);
+  }, []);
+
+  const addChannel = useCallback(
+    async (title: string) => {
+      await openNew(() => api.createChannel(title));
+    },
+    [openNew],
+  );
+
+  const addThread = useCallback(
+    async (title: string) => {
+      // Ветка заводится у КОРНЯ: ветка от ветки не бывает (дерево
+      // ровно двухуровневое), и сервер такое всё равно отклонит.
+      const room = conversations.find((c) => c.id === currentId);
+      const rootId = room?.parentId ?? room?.id;
+      if (!rootId) return;
+      await openNew(() => api.createThread(rootId, title));
+    },
+    [conversations, currentId, openNew],
+  );
+
   const select = useCallback((id: string) => {
     setFailure(null);
     setCurrentId(id);
@@ -155,5 +190,7 @@ export function useChat(): Chat {
     select,
     loadOlder,
     send,
+    addChannel,
+    addThread,
   };
 }

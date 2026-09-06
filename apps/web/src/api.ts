@@ -83,6 +83,30 @@ export const api = {
       body: JSON.stringify({ body, clientMsgId }),
     }),
 
+  /** Новый канал. Виден всему пространству, если не сказано иначе (Р-010). */
+  createChannel: (title: string) =>
+    request<Conversation>("/v1/conversations", {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
+
+  /** Ветка внутри канала. Своих участников не имеет — наследует канал. */
+  createThread: (channelId: string, title: string) =>
+    request<Conversation>(`/v1/conversations/${channelId}/threads`, {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
+
+  /**
+   * Выпустить приглашение. Токен приходит ОДИН раз и больше не
+   * восстановим: в базе лежит только его хеш (Р-009).
+   */
+  createInvite: () =>
+    request<{ id: string; token: string; expiresAt: string }>("/v1/invites", {
+      method: "POST",
+      body: "{}",
+    }),
+
   /** Догон по номеру — им же клиент и живёт, и восстанавливается (Р-006). */
   sync: (after: number) =>
     request<{ messages: Message[]; seq: number; hasMore: boolean }>(`/v1/sync?after=${after}`),
@@ -93,6 +117,9 @@ export const api = {
     displayName: string;
     workspaceName: string;
   }) => request<Me>("/v1/auth/register", { method: "POST", body: JSON.stringify(input) }),
+  /** Единственный путь присоединиться к чужому пространству (Р-009). */
+  join: (input: { token: string; email: string; password: string; displayName: string }) =>
+    request<Me>("/v1/auth/join", { method: "POST", body: JSON.stringify(input) }),
   login: (input: { email: string; password: string }) =>
     request<Me>("/v1/auth/login", { method: "POST", body: JSON.stringify(input) }),
   logout: () => request<void>("/v1/auth/logout", { method: "POST", body: "{}" }),

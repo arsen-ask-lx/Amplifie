@@ -279,8 +279,81 @@ button:disabled {
   font-size: 13px;
 }
 
-.rail-out {
+/* Заведение — сразу под списком: действие живёт там, где его итог. */
+.rail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+}
+
+.rail-add {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 7px 7px 0;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rail-add:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--ink);
+}
+.rail-add:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.rail-new {
+  padding: 2px 9px 2px 11px;
+}
+.rail-new input {
+  font-size: 13px;
+  padding: 5px 8px;
+}
+.rail-err {
+  padding: 0 9px;
+}
+
+.rail-foot {
   margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.invite {
+  width: 100%;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px;
+}
+.invite-note {
+  margin: 0 0 7px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.invite-link {
+  font-size: 12px;
+  padding: 6px 8px;
+  background: var(--bg);
+}
+.invite-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.rail-out {
   align-self: flex-start;
 }
 

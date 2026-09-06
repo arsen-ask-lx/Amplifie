@@ -1,6 +1,8 @@
 import type { Me } from "./api.js";
 import { Composer } from "./Composer.js";
 import { Feed } from "./Feed.js";
+import { InvitePanel } from "./InvitePanel.js";
+import { NewRoom } from "./NewRoom.js";
 import { type Chat, useChat } from "./useChat.js";
 
 /**
@@ -84,9 +86,19 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
           ))}
         </nav>
 
-        <button type="button" className="quiet rail-out" onClick={onLeave}>
-          Выйти
-        </button>
+        <div className="rail-actions">
+          <NewRoom label="+ Канал" placeholder="Название канала" onCreate={chat.addChannel} />
+          {chat.current ? (
+            <NewRoom label="+ Ветка" placeholder="О чём ветка" onCreate={chat.addThread} />
+          ) : null}
+        </div>
+
+        <div className="rail-foot">
+          <InvitePanel />
+          <button type="button" className="quiet rail-out" onClick={onLeave}>
+            Выйти
+          </button>
+        </div>
       </aside>
 
       <main className="room-view">
