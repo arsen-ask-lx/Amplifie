@@ -18,6 +18,7 @@
     "contrast": "node scripts/check-contrast.mjs",
     "unit": "vitest run --config vitest.unit.config.ts",
     "no-raw-html": "node scripts/check-no-raw-html.mjs",
+    "model": "node scripts/check-model.mjs",
     "gates": "node scripts/run-gates.mjs",
     "arbiter:check": "node --test arbiter/*.test.mjs",
     "arbiter": "node arbiter/report.mjs",
