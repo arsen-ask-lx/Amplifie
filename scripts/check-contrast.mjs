@@ -182,6 +182,11 @@ function blockEnd(source, from) {
   return -1;
 }
 
+/** Блоки тёмной темы не должны попасть в светлую: она — значения по умолчанию. */
+function withoutDark(source) {
+  return source.replaceAll(/:root\[data-theme="dark"\]\s*\{[^{}]*\}/gu, "");
+}
+
 function withoutMedia(source) {
   let out = "";
   let at = 0;
@@ -195,11 +200,11 @@ function withoutMedia(source) {
   }
 }
 
-const rawLight = allBlocks(withoutMedia(css), /:root\s*\{([^{}]*)\}/gu);
+const rawLight = allBlocks(withoutDark(withoutMedia(css)), /:root\s*\{([^{}]*)\}/gu);
 // В тёмной теме переопределены не все переменные — остальные наследуются.
 const rawDark = {
   ...rawLight,
-  ...allBlocks(css, /prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^{}]*)\}/gu),
+  ...allBlocks(css, /:root\[data-theme="dark"\]\s*\{([^{}]*)\}/gu),
 };
 
 const light = paletteOf(rawLight);

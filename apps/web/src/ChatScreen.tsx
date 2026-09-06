@@ -8,6 +8,7 @@ import { InvitePanel } from "./InvitePanel.js";
 import { ModelScreen } from "./ModelScreen.js";
 import { NewRoom } from "./NewRoom.js";
 import { RoomList } from "./RoomList.js";
+import { ThemeSwitch } from "./ThemeSwitch.js";
 import { type Chat, useChat } from "./useChat.js";
 import { useWork, type Work } from "./useWork.js";
 import { type GoTo, WorkScreen } from "./WorkScreen.js";
@@ -212,6 +213,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
             <Icon name="модель" />
             Своя нейросеть
           </button>
+          <ThemeSwitch />
           <InvitePanel />
           <button type="button" className="quiet rail-out" onClick={onLeave}>
             <Icon name="выход" />

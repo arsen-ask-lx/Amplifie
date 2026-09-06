@@ -21,7 +21,10 @@ export type IconName =
   | "плюс"
   | "выход"
   | "приглашение"
-  | "точка";
+  | "точка"
+  | "солнце"
+  | "луна"
+  | "система";
 
 /** Контуры Lucide: hash, git-branch, check-square, cpu, search, plus, log-out, user-plus, circle. */
 const PATHS: Record<IconName, string[]> = {
@@ -44,6 +47,19 @@ const PATHS: Record<IconName, string[]> = {
     "M22 11h-6",
   ],
   точка: ["M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z"],
+  солнце: [
+    "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z",
+    "M12 1v2",
+    "M12 21v2",
+    "M4.2 4.2l1.4 1.4",
+    "M18.4 18.4l1.4 1.4",
+    "M1 12h2",
+    "M21 12h2",
+    "M4.2 19.8l1.4-1.4",
+    "M18.4 5.6l1.4-1.4",
+  ],
+  луна: ["M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"],
+  система: ["M4 4h16v12H4z", "M8 20h8", "M12 16v4"],
 };
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
