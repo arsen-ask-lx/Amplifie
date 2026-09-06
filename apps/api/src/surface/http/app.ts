@@ -1,5 +1,6 @@
 import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance } from "fastify";
+import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
 import { config } from "../../platform/config.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChatRoutes } from "./routes/chat.js";
@@ -18,6 +19,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(cookie);
+
+  // Ядро не знает, чем логирует витрина — поэтому получает не логгер,
+  // а функцию (SOLID-D).
+  setSessionTouchFailureReporter((error) => {
+    app.log.warn({ err: error }, "не удалось обновить отметку сессии");
+  });
 
   registerHealthRoutes(app);
   registerAuthRoutes(app);

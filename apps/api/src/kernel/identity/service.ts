@@ -196,6 +196,17 @@ export async function logout(token: string): Promise<void> {
   });
 }
 
+/**
+ * Куда сообщать о неудачной отметке «сессия жива». Ставится один раз при
+ * сборке приложения. Зависимость от абстракции, а не от конкретного логгера
+ * (SOLID-D): ядро не знает, чем логирует витрина.
+ */
+let onTouchFailed: (error: unknown) => void = () => {};
+
+export function setSessionTouchFailureReporter(report: (error: unknown) => void): void {
+  onTouchFailed = report;
+}
+
 /** Кто пришёл. Возвращает null, если сессии нет, она протухла или подделана. */
 export async function resolveActor(token: string | undefined): Promise<Actor | null> {
   if (!token) return null;
@@ -206,6 +217,10 @@ export async function resolveActor(token: string | undefined): Promise<Actor | n
   const actor = await repo.findLiveSession(db, hashToken(token), new Date());
   if (!actor) return null;
 
-  void repo.touchSession(db, actor.sessionId, new Date()).catch(() => {});
+  // Не ждём: отметка «жив» не должна задерживать ответ. Но и не глотаем
+  // молча — проглоченная ошибка это ошибка, которой нет в логах.
+  void repo.touchSession(db, actor.sessionId, new Date()).catch((error: unknown) => {
+    onTouchFailed(error);
+  });
   return actor;
 }

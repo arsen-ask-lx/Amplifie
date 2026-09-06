@@ -26,6 +26,8 @@ jobs:
         run: npm run typecheck
       - name: Архитектурные границы
         run: npm run arch
+      - name: Решения со ссылками на источники
+        run: npm run decisions
 
   security:
     runs-on: ubuntu-latest

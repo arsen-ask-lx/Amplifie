@@ -1,4 +1,4 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
 import type { Executor } from "../../platform/db.js";
 import { workspace } from "../space/schema.js";
 import { account, participant, session } from "./schema.js";
@@ -77,6 +77,28 @@ export async function findLiveSession(tx: Executor, tokenHash: string, now: Date
   return rows[0] ?? null;
 }
 
+/**
+ * Отметка «сессия жива».
+ *
+ * ⚠️ Пишется НЕ на каждый запрос. Наивная версия делала UPDATE при каждом
+ * обращении: на чате с догоном это запись на каждое чтение — раздувание
+ * таблицы, работа автоочистке и лишняя нагрузка ради поля, точность
+ * которого никому не нужна до минуты.
+ *
+ * Условие в самом запросе: строка обновляется, только если отметка старее
+ * порога. Гонки не боимся — идемпотентно по построению.
+ */
+const TOUCH_EVERY_MS = 5 * 60 * 1000;
+
 export async function touchSession(tx: Executor, sessionId: string, now: Date) {
-  await tx.update(session).set({ lastSeenAt: now }).where(eq(session.id, sessionId));
+  const staleBefore = new Date(now.getTime() - TOUCH_EVERY_MS);
+  await tx
+    .update(session)
+    .set({ lastSeenAt: now })
+    .where(
+      and(
+        eq(session.id, sessionId),
+        or(isNull(session.lastSeenAt), lt(session.lastSeenAt, staleBefore)),
+      ),
+    );
 }

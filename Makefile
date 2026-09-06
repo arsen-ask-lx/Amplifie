@@ -58,10 +58,13 @@ format: ## формат + линтер (с исправлением)
 arch: ## архитектурные границы (запреты импортов)
 > npm run arch
 
+decisions: ## решения приняты с источниками, а не по памяти
+> npm run decisions
+
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
-check: lint typecheck arch ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch test check
+.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions test check

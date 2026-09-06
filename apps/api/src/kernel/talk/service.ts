@@ -34,6 +34,22 @@ function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[numbe
   };
 }
 
+/** Вид сообщения по идентификатору. Одно место, где он собирается. */
+async function viewOf(tx: Executor, messageId: string): Promise<MessageView> {
+  const row = await repo.findMessageViewById(tx, messageId);
+  if (!row) throw new Error(`сообщение ${messageId} записано, но не читается обратно`);
+  return presentMessage(row);
+}
+
+/** Нарушение UNIQUE(conversation_id, client_msg_id) — тот же ключ пришёл дважды. */
+function isDuplicateClientMsgId(error: unknown): boolean {
+  const candidate = error as { code?: unknown; constraint?: unknown; cause?: unknown };
+  const code = candidate?.code ?? (candidate?.cause as { code?: unknown } | undefined)?.code;
+  const constraint =
+    candidate?.constraint ?? (candidate?.cause as { constraint?: unknown } | undefined)?.constraint;
+  return code === "23505" && constraint === "message_conversation_client_msg_uq";
+}
+
 /**
  * Проверка доступа. Единственная точка, где решается «видно или нет».
  *
@@ -42,11 +58,11 @@ function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[numbe
  * ошибка, чтобы по ответу нельзя было перебрать существующие разговоры.
  */
 async function requireVisible(tx: Executor, viewer: Viewer, conversationId: string) {
-  const found = await repo.findConversationWithRoot(tx, conversationId);
+  const found = await repo.findVisibleConversation(tx, conversationId, viewer.participantId);
+  // Проверка арендатора остаётся, хотя членство её почти всегда покрывает:
+  // это последний рубеж на случай, если участник когда-нибудь окажется
+  // в разговоре чужого пространства.
   if (!found || found.workspaceId !== viewer.workspaceId) {
-    throw new ConversationNotVisibleError();
-  }
-  if (!(await repo.isMemberOfRoot(tx, found.rootId, viewer.participantId))) {
     throw new ConversationNotVisibleError();
   }
   return found;
@@ -81,57 +97,50 @@ export async function sendMessage(
   conversationId: string,
   input: { body: string; clientMsgId: string },
 ): Promise<SendResult> {
-  return withTransaction(async (tx) => {
-    const target = await requireVisible(tx, viewer, conversationId);
+  try {
+    return await withTransaction(async (tx) => {
+      const target = await requireVisible(tx, viewer, conversationId);
 
-    const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
-    if (already) {
-      const rows = await repo.listMessages(tx, conversationId, 1);
-      const view = rows.find((r) => r.id === already.id);
-      return {
-        replayed: true,
-        message: view
-          ? presentMessage(view)
-          : {
-              id: already.id,
-              conversationId: already.conversationId,
-              body: already.body,
-              kind: already.kind,
-              seq: Number(already.seq),
-              createdAt: already.createdAt,
-              editedAt: already.editedAt,
-              author: { id: already.authorParticipantId, name: "", kind: "" },
-            },
-      };
-    }
+      const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
+      if (already) return { replayed: true, message: await viewOf(tx, already.id) };
 
-    // Номер берётся ТОЛЬКО так и только внутри этой же транзакции.
-    const seq = await repo.nextSeq(tx, target.workspaceId);
+      // Номер берётся ТОЛЬКО так и только внутри этой же транзакции.
+      // Важно, что это UPDATE строки, а не последовательность: при откате
+      // номер возвращается обратно и дыры не остаётся.
+      const seq = await repo.nextSeq(tx, target.workspaceId);
 
-    const created = await repo.insertMessage(tx, {
-      workspaceId: target.workspaceId,
-      conversationId,
-      authorParticipantId: viewer.participantId,
-      body: input.body,
-      clientMsgId: input.clientMsgId,
-      seq,
+      const created = await repo.insertMessage(tx, {
+        workspaceId: target.workspaceId,
+        conversationId,
+        authorParticipantId: viewer.participantId,
+        body: input.body,
+        clientMsgId: input.clientMsgId,
+        seq,
+      });
+
+      // Состояние и событие — в одной транзакции. Всегда (Р-2).
+      await appendEvent(tx, {
+        kind: "message.sent",
+        workspaceId: target.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "message",
+        subjectId: created.id,
+        payload: { conversationId, seq },
+      });
+
+      return { replayed: false, message: await viewOf(tx, created.id) };
     });
+  } catch (error) {
+    // Гонка: два запроса с одним ключом ушли одновременно и оба прошли
+    // проверку «уже есть». Проигравший откатывается — номер возвращается
+    // счётчику, дыры не остаётся, — и получает то же сообщение.
+    // Без этой ветки двойной клик давал бы пятисотку.
+    if (!isDuplicateClientMsgId(error)) throw error;
 
-    // Состояние и событие — в одной транзакции. Всегда (Р-2).
-    await appendEvent(tx, {
-      kind: "message.sent",
-      workspaceId: target.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "message",
-      subjectId: created.id,
-      payload: { conversationId, seq },
-    });
-
-    const rows = await repo.listMessages(tx, conversationId, 1);
-    const view = rows[0];
-    if (!view) throw new Error("сообщение записано, но не читается обратно");
-    return { replayed: false, message: presentMessage(view) };
-  });
+    const existing = await repo.findMessageByClientId(db, conversationId, input.clientMsgId);
+    if (!existing) throw error;
+    return { replayed: true, message: await viewOf(db, existing.id) };
+  }
 }
 
 export async function createThread(viewer: Viewer, parentId: string, title: string) {

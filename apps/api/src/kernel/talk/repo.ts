@@ -25,10 +25,20 @@ export async function nextSeq(tx: Executor, workspaceId: string): Promise<number
 }
 
 /**
- * Корень дерева разговоров: у ветки это её канал, у канала — он сам.
- * Право читается у корня, а не у узла (dock/06-разбор-мессенджеров.md).
+ * Разговор, видимый данному участнику. Одним запросом, а не двумя.
+ *
+ * Право читается у КОРНЯ дерева: у ветки своих участников нет
+ * (dock/06-разбор-мессенджеров.md). Соединение по COALESCE(parent_id, id)
+ * и есть «подняться к корню».
+ *
+ * Не найдено и не видно — оба случая дают null: наружу это одна и та же
+ * ошибка, иначе по ответу перебирают существующие разговоры.
  */
-export async function findConversationWithRoot(tx: Executor, conversationId: string) {
+export async function findVisibleConversation(
+  tx: Executor,
+  conversationId: string,
+  participantId: string,
+) {
   const rows = await tx
     .select({
       id: conversation.id,
@@ -38,30 +48,16 @@ export async function findConversationWithRoot(tx: Executor, conversationId: str
       title: conversation.title,
     })
     .from(conversation)
-    .where(eq(conversation.id, conversationId))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
-  return { ...row, rootId: row.parentId ?? row.id };
-}
-
-/** Состоит ли участник в разговоре — проверяется по КОРНЮ. */
-export async function isMemberOfRoot(
-  tx: Executor,
-  rootId: string,
-  participantId: string,
-): Promise<boolean> {
-  const rows = await tx
-    .select({ one: sql<number>`1` })
-    .from(conversationMember)
-    .where(
+    .innerJoin(
+      conversationMember,
       and(
-        eq(conversationMember.conversationId, rootId),
+        sql`${conversationMember.conversationId} = COALESCE(${conversation.parentId}, ${conversation.id})`,
         eq(conversationMember.participantId, participantId),
       ),
     )
+    .where(eq(conversation.id, conversationId))
     .limit(1);
-  return rows.length > 0;
+  return rows[0] ?? null;
 }
 
 export async function insertConversation(
@@ -152,6 +148,23 @@ const MESSAGE_VIEW = {
   authorName: participant.displayName,
   authorKind: participant.kind,
 } as const;
+
+/**
+ * Вид одного сообщения по идентификатору.
+ *
+ * Нужен там, где сообщение уже записано или уже существовало: строить вид,
+ * выбирая «последние N» и разыскивая среди них нужное, — ошибка, из-за
+ * которой у повтора терялся автор (найдено 2026-09-06).
+ */
+export async function findMessageViewById(tx: Executor, messageId: string) {
+  const rows = await tx
+    .select(MESSAGE_VIEW)
+    .from(message)
+    .innerJoin(participant, eq(participant.id, message.authorParticipantId))
+    .where(eq(message.id, messageId))
+    .limit(1);
+  return rows[0] ?? null;
+}
 
 /** Лента разговора: последние N, отдаются по возрастанию номера. */
 export async function listMessages(tx: Executor, conversationId: string, limit: number) {

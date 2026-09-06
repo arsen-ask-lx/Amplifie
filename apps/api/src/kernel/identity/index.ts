@@ -7,4 +7,5 @@ export {
   type RegisterInput,
   register,
   resolveActor,
+  setSessionTouchFailureReporter,
 } from "./service.js";
