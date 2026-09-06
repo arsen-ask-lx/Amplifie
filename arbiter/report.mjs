@@ -13,13 +13,32 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import { AGREEMENT, CHATTER, ceiling, scoreAgainst } from "./kappa.mjs";
+import { parseSheet } from "./sheet.mjs";
 
 const CORPUS = "arbiter/corpus.jsonl";
-const SECOND = "arbiter/labels-b.json";
+const SECOND = "arbiter/labels-b.txt";
 const AGENT = "arbiter/labels-agent.json";
 
 const num = (v) => (v === null ? "—" : v.toFixed(3));
 const readJson = (path) => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {});
+
+/**
+ * Вторая разметка из листа. О непонятных строках говорим вслух: опечатка,
+ * принятая за «не отвечено», молча уменьшает выборку, и каппа считается
+ * по меньшему числу строк, чем думает человек.
+ */
+function readSheet(path) {
+  if (!existsSync(path)) return {};
+  const { answers, broken } = parseSheet(readFileSync(path, "utf8"));
+  if (broken.length > 0) {
+    console.log(`\n⚠ В листе ${path} непонятных строк: ${broken.length}`);
+    for (const item of broken.slice(0, 5)) {
+      console.log(`   строка ${item.line}: ${item.why} — «${item.text}»`);
+    }
+    console.log("   Эти ответы НЕ учтены. Поправь и запусти снова.");
+  }
+  return answers;
+}
 
 function loadCorpus() {
   return readFileSync(CORPUS, "utf8")
@@ -45,8 +64,10 @@ function printCeiling(rows) {
   console.log(`  размечено вторым разметчиком: ${labelled.length} из ${rows.length}`);
   if (labelled.length === 0) {
     console.log("\n  ВТОРОЙ РАЗМЕТКИ НЕТ — потолка нет, мерить агента нечем.");
-    console.log("  Сделать: make label  (показывает реплики по одной, ответы");
-    console.log(`  ложатся в ${SECOND}; своя разметка и пояснения скрыты).`);
+    console.log("  Сделать: make label — выпустит лист, правится в редакторе.");
+    console.log(`  Заменить ? на д/н в ${SECOND}, сохранить, вернуться сюда.`);
+    console.log("  Первая разметка в листе НЕ показана: иначе вторая");
+    console.log("  перестала бы быть независимой.");
     return null;
   }
   const kappa = ceiling(labelled);
@@ -90,7 +111,7 @@ function printAgent(rows, ceilingKappa) {
 }
 
 const corpus = loadCorpus();
-const rows = rowsOf(corpus, readJson(SECOND), readJson(AGENT));
+const rows = rowsOf(corpus, readSheet(SECOND), readJson(AGENT));
 
 // Проверка до счёта, а не после: чужая метка — молчаливая порча измерения.
 // Первая редакция этого файла ставила проверку после process.exit — то есть
