@@ -1,8 +1,9 @@
-import type { Agreement, Citation } from "./api.js";
+import { useMatch } from "react-router";
+import type { Agreement, Citation } from "../data/api.js";
+import type { Work } from "../data/useWork.js";
+import { awaiting, quoteAddsNothing, refused, strays } from "../data/work.js";
+import { деньИЧас } from "../shared/when.js";
 import { Board } from "./Board.js";
-import { деньИЧас } from "./shared/when.js";
-import type { Work } from "./useWork.js";
-import { awaiting, quoteAddsNothing, refused, strays } from "./work.js";
 
 /**
  * Экран работы: что агент услышал и что из этого стало задачей.
@@ -164,6 +165,10 @@ function Refused({ item, work }: { item: Agreement; work: Work }) {
  * они снова заставляли искать глазами, что здесь моё.
  */
 export function BoardScreen({ work, meId }: { work: Work; meId: string }) {
+  // `/board/:taskId` — ссылка на конкретную задачу (Р-019). Через `useMatch`,
+  // а не `useParams`: экран живёт выше любого `<Route>`.
+  const named = useMatch("/board/:taskId")?.params.taskId ?? null;
+
   return (
     <div className="work">
       <section className="work-part board-part" aria-label="Доска">
@@ -171,6 +176,7 @@ export function BoardScreen({ work, meId }: { work: Work; meId: string }) {
           tasks={work.tasks}
           people={work.people}
           meId={meId}
+          namedId={named}
           onPatched={work.applyTask}
           onListChanged={work.reloadTasks}
         />

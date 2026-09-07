@@ -1,10 +1,11 @@
-import type { Me } from "./api.js";
-import { Icon } from "./Icon.js";
+import { Link } from "react-router";
+import type { Me } from "../data/api.js";
+import type { Chat } from "../data/useChat.js";
+import { Icon } from "../shared/Icon.js";
 import { InvitePanel } from "./InvitePanel.js";
 import { NewRoom } from "./NewRoom.js";
 import { RoomList } from "./RoomList.js";
 import { ThemeSwitch } from "./ThemeSwitch.js";
-import type { Chat } from "./useChat.js";
 
 /**
  * Боковая панель: где я и куда могу пойти.
@@ -24,35 +25,53 @@ import type { Chat } from "./useChat.js";
  */
 export type Section = "talk" | "board" | "deals" | "agents";
 
-/** Что написано на кнопке раздела и каким значком помечено. */
-const PARTS: Array<{ id: Section; label: string; icon: "хэш" | "работа" | "модель" | "точка" }> = [
-  { id: "talk", label: "Разговоры", icon: "хэш" },
-  { id: "board", label: "Доска", icon: "работа" },
+/**
+ * Раздел, его адрес, подпись и значок.
+ *
+ * ⚠️ АДРЕС ЗДЕСЬ — ЕДИНСТВЕННЫЙ ИСТОЧНИК ПРАВДЫ О ТОМ, ГДЕ ЧЕЛОВЕК (Р-019).
+ * До task-012 раздел жил в `useState` у экрана: ссылку дать было нечем,
+ * «назад» выкидывал из приложения, а F5 возвращал в «Разговоры».
+ */
+const PARTS: Array<{
+  id: Section;
+  path: string;
+  label: string;
+  icon: "хэш" | "работа" | "модель" | "точка";
+}> = [
+  { id: "talk", path: "/", label: "Разговоры", icon: "хэш" },
+  { id: "board", path: "/board", label: "Доска", icon: "работа" },
   // Счётчик висит здесь, а не на доске: он про то, что ЖДЁТ человека,
   // а доска показывает то, что уже в работе. Разные вопросы.
-  { id: "deals", label: "Договорённости", icon: "точка" },
-  { id: "agents", label: "Агенты", icon: "модель" },
+  { id: "deals", path: "/deals", label: "Договорённости", icon: "точка" },
+  { id: "agents", path: "/agents", label: "Агенты", icon: "модель" },
 ];
 
-/** Переключатель разделов. Счётчик — только у того, что ждёт человека. */
-function Parts({
-  section,
-  onSwitch,
-  pending,
-}: {
-  section: Section;
-  onSwitch: (to: Section) => void;
-  pending: number;
-}) {
+/**
+ * Какой раздел открыт — по адресу.
+ *
+ * Разговоры остаются ответом по умолчанию: и «/», и «/c/…» — это они.
+ */
+export function sectionOf(pathname: string): Section {
+  const found = PARTS.find((part) => part.path !== "/" && pathname.startsWith(part.path));
+  return found?.id ?? "talk";
+}
+
+/**
+ * Переключатель разделов. Счётчик — только у того, что ждёт человека.
+ *
+ * Ссылки, а не кнопки: по ним работает средняя кнопка мыши, «открыть
+ * в новой вкладке» и копирование адреса. Кнопка этого не умеет и молча
+ * притворяется ссылкой.
+ */
+function Parts({ section, pending }: { section: Section; pending: number }) {
   return (
     <nav className="parts" aria-label="Разделы">
       {PARTS.map((part) => (
-        <button
+        <Link
           key={part.id}
-          type="button"
+          to={part.path}
           className={section === part.id ? "part part-on" : "part"}
           aria-current={section === part.id ? "page" : undefined}
-          onClick={() => onSwitch(part.id)}
         >
           <Icon name={part.icon} />
           {part.label}
@@ -61,7 +80,7 @@ function Parts({
           {part.id === "deals" && pending > 0 ? (
             <span className="part-count">{pending}</span>
           ) : null}
-        </button>
+        </Link>
       ))}
     </nav>
   );
@@ -71,14 +90,12 @@ export function Rail({
   me,
   chat,
   section,
-  onSwitch,
   pending,
   onLeave,
 }: {
   me: Me;
   chat: Chat;
   section: Section;
-  onSwitch: (to: Section) => void;
   pending: number;
   onLeave: () => void;
 }) {
@@ -87,7 +104,7 @@ export function Rail({
       <h1>{me.workspace.name}</h1>
       <p className="who">{me.participant.displayName}</p>
 
-      <Parts section={section} onSwitch={onSwitch} pending={pending} />
+      <Parts section={section} pending={pending} />
 
       {/* Содержимое ТЕКУЩЕГО раздела. Список каналов — навигация внутри
         «Разговоров», а не общая: в «Работе» и «Агентах» ему нечего

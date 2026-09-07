@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useMatch, useNavigate } from "react-router";
+import { troubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Message } from "./api.js";
-import { troubleOf } from "./shared/trouble.js";
 
 /**
  * Лента разговора: загрузка, догон и живые обновления.
@@ -8,6 +9,12 @@ import { troubleOf } from "./shared/trouble.js";
  * Живое и восстановление после разрыва идут ОДНИМ путём — через `/v1/sync`
  * по номеру (Р-006). Поток `/v1/stream` только звонит: «что-то изменилось».
  * Второй путь доставки разошёлся бы с первым, и разошёлся бы молча.
+ *
+ * ⚠️ КАКОЙ РАЗГОВОР ОТКРЫТ — ЖИВЁТ В АДРЕСЕ, А НЕ ЗДЕСЬ (Р-019). До task-012
+ * это был `useState`, и потому ссылку на разговор дать было нечем, «назад»
+ * не работало, а обновление страницы выкидывало в первый канал. Держать
+ * ещё и копию в состоянии нельзя: два источника правды о том, где человек
+ * находится, — это ровно тот случай, когда они разойдутся молча.
  */
 
 const PAGE = 50;
@@ -26,6 +33,9 @@ const maxSeq = (messages: Message[]) => messages.reduce((top, m) => Math.max(top
  * Куда смотреть в ленте. Каждый переход рождает НОВЫЙ объект, даже если
  * поля те же: по его смене лента понимает, что надо подсветить реплику
  * ещё раз. Сравнение по значению здесь молча съело бы повторный переход.
+ *
+ * Новизну теперь даёт сам маршрутизатор: у каждого перехода свой `key`,
+ * даже если адрес тот же. Раньше её приходилось изображать вручную.
  */
 export interface Focus {
   conversationId: string;
@@ -99,12 +109,43 @@ export function useChat(): Chat {
   const [asking, setAsking] = useState(false);
   const [agentFailure, setAgentFailure] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentId, setCurrentId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasOlder, setHasOlder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
-  const [focus, setFocus] = useState<Focus | null>(null);
+
+  // Где человек находится — читается из адреса, а не хранится рядом с ним.
+  //
+  // `useMatch`, а не `useParams`: параметры адреса нужны ЗДЕСЬ, в хуке,
+  // который зовётся выше любого `<Route>`. `useParams` в таком месте
+  // молча вернул бы пустоту — и разговор не открывался бы вовсе.
+  const atSeq = useMatch("/c/:conversationId/:seq");
+  const atRoom = useMatch("/c/:conversationId");
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const currentId = atSeq?.params.conversationId ?? atRoom?.params.conversationId ?? null;
+  const wanted = atSeq?.params.seq === undefined ? null : Number(atSeq.params.seq);
+
+  // Список разговоров читается один раз при входе, и внутри того эффекта
+  // нужно знать, назвал ли адрес разговор. Через ссылку, а не через
+  // зависимость: иначе эффект перезапускался бы на каждом переходе
+  // и перечитывал список без повода.
+  const currentIdRef = useRef(currentId);
+  currentIdRef.current = currentId;
+
+  /** Мы на голом «/» — только там уместно подставить разговор по умолчанию. */
+  const atRootRef = useRef(location.pathname === "/");
+  atRootRef.current = location.pathname === "/";
+
+  // Ключ перехода в зависимостях НАМЕРЕННО «лишний»: повторный переход
+  // к ТОЙ ЖЕ реплике обязан подсветить её ещё раз, а по значению он
+  // неотличим от предыдущего и был бы съеден молча.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: новизна перехода и есть смысл
+  const focus = useMemo<Focus | null>(
+    () => (currentId && wanted !== null ? { conversationId: currentId, seq: wanted } : null),
+    [currentId, wanted, location.key],
+  );
 
   // Курсор догона живёт в ref, а не в состоянии: он меняется чаще, чем экран,
   // и перерисовывать ленту ради него незачем.
@@ -122,13 +163,26 @@ export function useChat(): Chat {
     }
   }, []);
 
-  // Список разговоров — один раз при входе.
+  // Список разговоров — один раз при входе. `navigate` в зависимостях
+  // стоит честно, хотя маршрутизатор и обещает его неизменность: обещание
+  // чужой библиотеки — не то, на чём стоит держать единственную загрузку.
   useEffect(() => {
     api
       .conversations()
       .then(({ items }) => {
         setConversations(items);
-        setCurrentId((chosen) => chosen ?? items[0]?.id ?? null);
+        // Адрес «/» — это «покажи что-нибудь»: подставляем первый разговор
+        // ЗАМЕНОЙ записи в истории, чтобы «назад» не возвращал на «/»
+        // и не отправлял человека в бесконечную петлю.
+        //
+        // ⚠️ ТОЛЬКО С «/», И ЭТО НЕ ПРИДИРКА. Первая редакция подставляла
+        // разговор всегда, когда адрес его не назвал, — и потому «/board»,
+        // набранный руками, немедленно уезжал в первый канал. Поймано
+        // живым прогоном: типы были зелёные, экран — нет.
+        const first = items[0]?.id;
+        if (first && !currentIdRef.current && atRootRef.current) {
+          navigate(`/c/${first}`, { replace: true });
+        }
         // Выбирать нечего — значит и грузить нечего. Без этой строки экран
         // пустого пространства висел на «Загружаем…» вечно: следующий шаг
         // ждал выбранного разговора, которого нет. Найдено живым прогоном.
@@ -138,12 +192,11 @@ export function useChat(): Chat {
         setFailure("Не удалось загрузить список каналов");
         setLoading(false);
       });
-  }, []);
+  }, [navigate]);
 
   // Лента выбранного разговора — с нуля при каждом переключении.
   // `wanted` в зависимостях: переход по цитате в УЖЕ открытый разговор
   // обязан долистать до реплики, а идентификатор при этом не меняется.
-  const wanted = focus?.conversationId === currentId ? focus.seq : null;
   useEffect(() => {
     if (!currentId) return;
     let cancelled = false;
@@ -244,12 +297,15 @@ export function useChat(): Chat {
    * появиться и чужой канал, пока мы набирали название. Один запрос
    * дешевле, чем два источника правды о списке.
    */
-  const openNew = useCallback(async (make: () => Promise<Conversation>) => {
-    const created = await make();
-    const { items } = await api.conversations();
-    setConversations(items);
-    setCurrentId(created.id);
-  }, []);
+  const openNew = useCallback(
+    async (make: () => Promise<Conversation>) => {
+      const created = await make();
+      const { items } = await api.conversations();
+      setConversations(items);
+      navigate(`/c/${created.id}`);
+    },
+    [navigate],
+  );
 
   const addChannel = useCallback(
     async (title: string) => {
@@ -270,17 +326,21 @@ export function useChat(): Chat {
     [conversations, currentId, openNew],
   );
 
-  const select = useCallback((id: string) => {
-    setFailure(null);
-    setFocus(null);
-    setCurrentId(id);
-  }, []);
+  const select = useCallback(
+    (id: string) => {
+      setFailure(null);
+      navigate(`/c/${id}`);
+    },
+    [navigate],
+  );
 
-  const openAt = useCallback((conversationId: string, seq: number) => {
-    setFailure(null);
-    setCurrentId(conversationId);
-    setFocus({ conversationId, seq });
-  }, []);
+  const openAt = useCallback(
+    (conversationId: string, seq: number) => {
+      setFailure(null);
+      navigate(`/c/${conversationId}/${seq}`);
+    },
+    [navigate],
+  );
 
   return {
     conversations,

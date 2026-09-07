@@ -838,6 +838,10 @@ button:disabled {
 .part {
   width: 100%;
   background: none;
+  /* Разделы стали ссылками (Р-019): по ним работает средняя кнопка мыши
+     и «копировать адрес». Подчёркивание браузера при этом снимается —
+     вид остаётся ровно тем же, что был у кнопки. */
+  text-decoration: none;
   color: var(--muted);
   border-radius: 8px;
   padding: 8px 12px;

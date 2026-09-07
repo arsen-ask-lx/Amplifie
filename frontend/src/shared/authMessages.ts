@@ -1,5 +1,5 @@
-import { fieldsOf, statusOf } from "./shared/failure.js";
-import { authTroubleOf } from "./shared/trouble.js";
+import { fieldsOf, statusOf } from "./failure.js";
+import { authTroubleOf } from "./trouble.js";
 
 export interface FormProblem {
   fields: Record<string, string>;

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { api, type Me } from "./api.js";
-import { describeFailure, type FormProblem } from "./authMessages.js";
-import { Field } from "./Field.js";
+import { api, type Me } from "../data/api.js";
+import { describeFailure, type FormProblem } from "../shared/authMessages.js";
+import { Field } from "../shared/Field.js";
 
 /**
  * Вход по приглашению.

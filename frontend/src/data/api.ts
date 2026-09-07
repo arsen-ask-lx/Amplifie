@@ -1,4 +1,4 @@
-import { ApiError, type FieldErrors } from "./shared/failure.js";
+import { ApiError, type FieldErrors } from "../shared/failure.js";
 
 /**
  * Единственное место, где фронт ходит на сервер.

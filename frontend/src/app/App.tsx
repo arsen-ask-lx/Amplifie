@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { AuthScreen } from "./AuthScreen.js";
-import { api, type Me } from "./api.js";
+import { api, type Me } from "../data/api.js";
+import { AuthScreen } from "../screens/AuthScreen.js";
+import { JoinScreen } from "../screens/JoinScreen.js";
 import { ChatScreen } from "./ChatScreen.js";
-import { JoinScreen } from "./JoinScreen.js";
 
 type State =
   | { status: "loading" }
@@ -14,21 +14,24 @@ type State =
  * Токен приглашения из адреса. Читается ОДИН раз при запуске и тут же
  * убирается из адресной строки: ссылка не должна остаться в истории
  * браузера и уехать в закладки или в чужой скриншот.
+ *
+ * ⚠️ Зовётся из `main.tsx` ДО запуска маршрутизатора: `replaceState` мимо
+ * него разошёлся бы с его представлением об истории (task-012, шаг 4).
  */
-function takeInviteFromUrl(): string | null {
+export function takeInviteFromUrl(): string | null {
   const found = new URLSearchParams(window.location.search).get("invite");
   if (!found) return null;
   window.history.replaceState(null, "", window.location.pathname);
   return found;
 }
 
-export function App() {
+export function App({ invite: fromUrl }: { invite: string | null }) {
   const [state, setState] = useState<State>({ status: "loading" });
-  // Токен снимается со СТРАНИЦЫ один раз, но живёт в состоянии до тех пор,
+  // Токен снят со СТРАНИЦЫ в `main.tsx`, но живёт в состоянии до тех пор,
   // пока не применён. Не гасить его после успешного входа — значит сразу
   // после входа показать «приглашение не применилось» тому, кто только что
   // вошёл именно по нему. Так и было, поймано живым прогоном.
-  const [invite, setInvite] = useState(takeInviteFromUrl);
+  const [invite, setInvite] = useState(fromUrl);
 
   // Кто пришёл — спрашиваем у сервера, а не у localStorage: печенька
   // HttpOnly, и это единственный честный источник ответа.

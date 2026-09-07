@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Icon, type IconName } from "./Icon.js";
-import { apply, type Choice, chosen, next, remember, watchSystem } from "./theme.js";
+import { Icon, type IconName } from "../shared/Icon.js";
+import { apply, type Choice, chosen, next, remember, watchSystem } from "../shared/theme.js";
 
 /**
  * Переключатель темы: система → светлая → тёмная → система.

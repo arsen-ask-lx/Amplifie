@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { api, type Bridge } from "./api.js";
-import { NOT_COPIED, copy as toClipboard } from "./shared/clipboard.js";
-import { detailOf } from "./shared/failure.js";
-import { troubleOf } from "./shared/trouble.js";
-import { часы } from "./shared/when.js";
+import { api, type Bridge } from "../../data/api.js";
+import { NOT_COPIED, copy as toClipboard } from "../../shared/clipboard.js";
+import { detailOf } from "../../shared/failure.js";
+import { troubleOf } from "../../shared/trouble.js";
+import { часы } from "../../shared/when.js";
 
 /**
  * «Подключить свою нейросеть» (task-001).

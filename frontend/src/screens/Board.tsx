@@ -1,9 +1,9 @@
 import { BREAKER, HIDDEN_STAGE, STAGES, type Stage } from "@amplifie/contract";
-import { useState } from "react";
-import { api, type Participant, type Task } from "./api.js";
-import { Icon } from "./Icon.js";
-import { troubleOf } from "./shared/trouble.js";
-import { день } from "./shared/when.js";
+import { useEffect, useRef, useState } from "react";
+import { api, type Participant, type Task } from "../data/api.js";
+import { Icon } from "../shared/Icon.js";
+import { troubleOf } from "../shared/trouble.js";
+import { день } from "../shared/when.js";
 
 /**
  * Доска задач: колонки по стадиям (task-010).
@@ -94,15 +94,26 @@ function Run({ task, onDone }: { task: Task; onDone: () => void | Promise<void> 
 function Card({
   task,
   people,
+  named,
   onPatched,
   onRan,
 }: {
   task: Task;
   people: Participant[];
+  /** На эту задачу указывает адрес: `/board/:taskId` (Р-019). */
+  named: boolean;
   onPatched: (task: Task) => void;
   onRan: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLElement>(null);
+
+  // Пришли по ссылке на задачу — доводим до неё. Метки цветом здесь нет
+  // намеренно: вид этой задачей не меняется (task-012), а довести до
+  // карточки уже достаточно, чтобы ссылка не врала.
+  useEffect(() => {
+    if (named) box.current?.scrollIntoView({ block: "center", behavior: "auto" });
+  }, [named]);
   const { back, next } = neighbours(task.stage);
   const byAgent = task.assignedTo?.kind === "agent";
 
@@ -119,7 +130,7 @@ function Card({
   }
 
   return (
-    <article className="task-card">
+    <article className="task-card" ref={box} aria-current={named ? "true" : undefined}>
       <p className="task-card-title">{task.title}</p>
 
       <p className="task-card-who">
@@ -228,12 +239,15 @@ export function Board({
   tasks,
   people,
   meId,
+  namedId,
   onPatched,
   onListChanged,
 }: {
   tasks: Task[];
   people: Participant[];
   meId: string;
+  /** Задача из адреса `/board/:taskId`, если он её назвал. */
+  namedId: string | null;
   /** Одна задача изменилась, и сервер вернул её целиком. */
   onPatched: (task: Task) => void;
   /** Список изменился: завели новую либо прогон переставил стадию. */
@@ -259,6 +273,7 @@ export function Board({
                   key={task.id}
                   task={task}
                   people={people}
+                  named={task.id === namedId}
                   onPatched={onPatched}
                   onRan={onListChanged}
                 />

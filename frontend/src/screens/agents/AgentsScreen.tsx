@@ -1,9 +1,9 @@
 import { useCallback, useState } from "react";
-import { type AgentsView, api, type Bridge } from "./api.js";
-import { Icon } from "./Icon.js";
+import { type AgentsView, api, type Bridge } from "../../data/api.js";
+import { Icon } from "../../shared/Icon.js";
+import { usePolling } from "../../shared/usePolling.js";
 import { KeyPanel } from "./KeyPanel.js";
 import { ModelScreen } from "./ModelScreen.js";
-import { usePolling } from "./shared/usePolling.js";
 
 /**
  * Раздел «Агенты»: кто у меня есть и почему он молчит.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Conversation } from "./api.js";
-import { Icon } from "./Icon.js";
+import type { Conversation } from "../data/api.js";
+import { Icon } from "../shared/Icon.js";
 
 /**
  * Список разговоров с поиском (Р-011).

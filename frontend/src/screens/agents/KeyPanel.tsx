@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type ModelKey } from "./api.js";
-import { Icon } from "./Icon.js";
-import { detailOf, fieldsOf } from "./shared/failure.js";
-import { keyTroubleOf } from "./shared/trouble.js";
+import { api, type ModelKey } from "../../data/api.js";
+import { detailOf, fieldsOf } from "../../shared/failure.js";
+import { Icon } from "../../shared/Icon.js";
+import { keyTroubleOf } from "../../shared/trouble.js";
 
 /**
  * Ключ поставщика модели: ввести, увидеть, убрать.

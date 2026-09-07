@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { AgentsScreen } from "./AgentsScreen.js";
-import type { Me } from "./api.js";
-import { api } from "./api.js";
-import { Composer } from "./Composer.js";
-import { Feed } from "./Feed.js";
-import { Icon } from "./Icon.js";
-import { Rail, type Section } from "./Rail.js";
-import { type Chat, useChat } from "./useChat.js";
-import { useWork, type Work } from "./useWork.js";
-import { BoardScreen, type GoTo, WorkScreen } from "./WorkScreen.js";
-import { awaiting } from "./work.js";
+import { useLocation } from "react-router";
+import type { Me } from "../data/api.js";
+import { api } from "../data/api.js";
+import { type Chat, useChat } from "../data/useChat.js";
+import { useWork, type Work } from "../data/useWork.js";
+import { awaiting } from "../data/work.js";
+import { AgentsScreen } from "../screens/agents/AgentsScreen.js";
+import { Composer } from "../screens/talk/Composer.js";
+import { Feed } from "../screens/talk/Feed.js";
+import { BoardScreen, type GoTo, WorkScreen } from "../screens/WorkScreen.js";
+import { Icon } from "../shared/Icon.js";
+import { Rail, type Section, sectionOf } from "./Rail.js";
 
 /** Заголовок середины экрана. Разговор подписывается своим названием. */
 const TITLES: Partial<Record<Section, string>> = {
@@ -167,20 +168,15 @@ function Middle({
 export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
   const chat = useChat();
   const work = useWork();
-  const [section, setSection] = useState<Section>("talk");
+  // Раздел ВЫВОДИТСЯ из адреса, а не хранится рядом с ним (Р-019).
+  // Хранить копию значило бы завести второй ответ на вопрос «где я».
+  const section: Section = sectionOf(useLocation().pathname);
 
   const pending = awaiting(work.agreements).length;
 
   return (
     <div className="workspace">
-      <Rail
-        me={me}
-        chat={chat}
-        section={section}
-        onSwitch={setSection}
-        pending={pending}
-        onLeave={onLeave}
-      />
+      <Rail me={me} chat={chat} section={section} pending={pending} onLeave={onLeave} />
 
       <main className="room-view">
         <header className="room-head">
@@ -197,10 +193,9 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
           chat={chat}
           work={work}
           meId={me.participant.id}
-          onGoTo={(conversationId, seq) => {
-            setSection("talk");
-            chat.openAt(conversationId, seq);
-          }}
+          // Переход по цитате — это адрес: `/c/<разговор>/<номер>`.
+          // Раздел меняется сам, потому что выводится из адреса.
+          onGoTo={(conversationId, seq) => chat.openAt(conversationId, seq)}
         />
       </main>
     </div>

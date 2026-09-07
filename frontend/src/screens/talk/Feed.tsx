@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
-import type { Message } from "./api.js";
-import { RichText } from "./RichText.js";
-import { день as dayOf, часы } from "./shared/when.js";
-import type { Focus } from "./useChat.js";
+import type { Message } from "../../data/api.js";
+import type { Focus } from "../../data/useChat.js";
+import { RichText } from "../../shared/RichText.js";
+import { день as dayOf, часы } from "../../shared/when.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).

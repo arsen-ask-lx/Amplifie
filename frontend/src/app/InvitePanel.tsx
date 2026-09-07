@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { api } from "./api.js";
-import { NOT_COPIED, copy as toClipboard } from "./shared/clipboard.js";
+import { api } from "../data/api.js";
+import { NOT_COPIED, copy as toClipboard } from "../shared/clipboard.js";
 
 /**
  * Приглашение в пространство.
