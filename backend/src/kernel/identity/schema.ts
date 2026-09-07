@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { workspace } from "../space/schema.js";
 
 /**
@@ -138,4 +138,41 @@ export const bridge = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("bridge_workspace_participant_idx").on(table.workspaceId, table.participantId)],
+);
+
+/**
+ * Ключ поставщика модели: личный участника либо общий для пространства.
+ *
+ * ОДНА ТАБЛИЦА НА ОБА СЛУЧАЯ. `participant_id` назван — ключ личный;
+ * пуст — владелец само пространство. Это не полиморфизм: владелец
+ * либо участник, либо арендатор, третьего нет. Уникальность держат два
+ * ЧАСТИЧНЫХ индекса — по одному на случай (см. миграцию).
+ *
+ * ⚠️ САМОГО КЛЮЧА ЗДЕСЬ НЕТ. Лежит шифротекст (Р-016): AES-256-GCM,
+ * мастер-ключ в окружении, версия и привязка к строке. Наружу отдаётся
+ * только `hint` — последние четыре знака, чтобы человек узнал свой ключ
+ * и не смог им воспользоваться.
+ */
+export const modelKey = pgTable(
+  "model_key",
+  {
+    id: uuid("id").primaryKey().default(sql`uuidv7()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    // Пусто — ключ пространства. Каскад: ушёл участник — ушёл его ключ.
+    participantId: uuid("participant_id").references(() => participant.id, {
+      onDelete: "cascade",
+    }),
+    provider: text("provider").notNull(),
+    version: integer("version").notNull(),
+    iv: text("iv").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    tag: text("tag").notNull(),
+    /** Последние знаки ключа. Ровно столько, чтобы узнать, и не больше. */
+    hint: text("hint").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [index("model_key_workspace_idx").on(t.workspaceId, t.participantId)],
 );

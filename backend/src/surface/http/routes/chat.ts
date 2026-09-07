@@ -18,6 +18,7 @@ import {
 } from "../../../kernel/talk/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
 import { SESSION_COOKIE } from "./auth.js";
+import { parse } from "./parse.js";
 
 const MAX_PAGE = 200;
 const DEFAULT_PAGE = 50;
@@ -37,20 +38,6 @@ const channelSchema = z.object({
 const threadSchema = z.object({
   title: z.string().trim().min(1, "у ветки нужно название").max(200),
 });
-
-/** Разбор на границе: 422 — прочитал, но поля не годятся. */
-function parse<T>(schema: z.ZodType<T>, body: unknown, reply: FastifyReply): T | null {
-  const result = schema.safeParse(body);
-  if (result.success) return result.data;
-
-  const fields: Record<string, string> = {};
-  for (const issue of result.error.issues) {
-    const key = issue.path.join(".") || "_";
-    fields[key] ??= issue.message;
-  }
-  reply.code(422).send({ error: "validation_failed", fields });
-  return null;
-}
 
 /** Кто пришёл. Без сессии дальше не пускаем. */
 async function viewerOf(request: FastifyRequest, reply: FastifyReply): Promise<Viewer | null> {

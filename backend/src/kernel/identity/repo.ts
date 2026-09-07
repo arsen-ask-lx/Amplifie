@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
 import type { Executor } from "../../platform/db.js";
 import { workspace } from "../space/schema.js";
-import { account, bridge, invite, participant, session } from "./schema.js";
+import { account, bridge, invite, modelKey, participant, session } from "./schema.js";
 
 /**
  * Слой хранилища модуля identity. Только запросы, никакой логики.
@@ -280,4 +280,95 @@ export async function listBridgesOf(tx: Executor, participantId: string) {
     .from(bridge)
     .where(and(eq(bridge.participantId, participantId), isNull(bridge.revokedAt)))
     .orderBy(desc(bridge.createdAt));
+}
+
+/* ── ключи поставщиков модели (Р-016) ────────────────────────────────── */
+
+export async function insertModelKey(
+  tx: Executor,
+  input: {
+    workspaceId: string;
+    participantId: string | null;
+    provider: string;
+    version: number;
+    iv: string;
+    ciphertext: string;
+    tag: string;
+    hint: string;
+  },
+) {
+  const rows = await tx.insert(modelKey).values(input).returning();
+  const row = rows[0];
+  if (!row) throw new Error("ключ не записался");
+  return row;
+}
+
+/**
+ * Погасить прежние ключи того же владельца и поставщика.
+ *
+ * Нужно ДО вставки нового: частичный уникальный индекс разрешает ровно один
+ * живой. Без этого повторное сохранение падало бы нарушением индекса,
+ * а человек ждёт замены, а не ошибки.
+ */
+export async function revokeModelKeysOf(
+  tx: Executor,
+  workspaceId: string,
+  participantId: string | null,
+  provider: string,
+) {
+  await tx
+    .update(modelKey)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(modelKey.workspaceId, workspaceId),
+        participantId === null
+          ? isNull(modelKey.participantId)
+          : eq(modelKey.participantId, participantId),
+        eq(modelKey.provider, provider),
+        isNull(modelKey.revokedAt),
+      ),
+    );
+}
+
+/**
+ * Живые ключи, доступные участнику: его личные и общие пространства.
+ * Чужие личные не попадают сюда никогда — это и есть проверка видимости.
+ *
+ * Личные идут первыми: `keyFor` берёт первый подошедший.
+ */
+export async function listModelKeys(tx: Executor, workspaceId: string, participantId: string) {
+  return tx
+    .select()
+    .from(modelKey)
+    .where(
+      and(
+        eq(modelKey.workspaceId, workspaceId),
+        isNull(modelKey.revokedAt),
+        or(eq(modelKey.participantId, participantId), isNull(modelKey.participantId)),
+      ),
+    )
+    .orderBy(desc(modelKey.participantId), desc(modelKey.createdAt));
+}
+
+/** Убрать свой ключ или ключ пространства. Чужой личный не находится. */
+export async function revokeModelKeyById(
+  tx: Executor,
+  workspaceId: string,
+  participantId: string,
+  id: string,
+) {
+  const rows = await tx
+    .update(modelKey)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(modelKey.id, id),
+        eq(modelKey.workspaceId, workspaceId),
+        isNull(modelKey.revokedAt),
+        or(eq(modelKey.participantId, participantId), isNull(modelKey.participantId)),
+      ),
+    )
+    .returning();
+  return rows[0] ?? null;
 }

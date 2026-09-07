@@ -27,6 +27,30 @@ export interface KeyShape {
 
 const MAX_OUTPUT_TOKENS = 1024;
 
+/**
+ * Куда и чем ходить к известным поставщикам.
+ *
+ * Живёт здесь, а не в `choose.ts`, потому что нужно двоим: серверу
+ * с ключом из окружения и участнику с ключом из базы. Две копии этой
+ * таблицы разъехались бы по адресу или по имени модели — и один из двоих
+ * молча пошёл бы не туда.
+ */
+export const KNOWN_API: Record<
+  string,
+  { url: string; dialect: "anthropic" | "openai"; model: string }
+> = {
+  anthropic: {
+    url: "https://api.anthropic.com/v1/messages",
+    dialect: "anthropic",
+    model: "claude-sonnet-5",
+  },
+  openai: {
+    url: "https://api.openai.com/v1/responses",
+    dialect: "openai",
+    model: "gpt-5.4-mini",
+  },
+};
+
 function bodyFor(shape: KeyShape, input: Ask): unknown {
   if (shape.dialect === "anthropic") {
     return {

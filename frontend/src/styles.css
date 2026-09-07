@@ -1193,3 +1193,101 @@ button:hover .icon {
   border-color: var(--line);
   color: var(--muted);
 }
+
+/* Ключ поставщика: список, ввод, отказ. */
+.key-note,
+.key-why {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.key-why {
+  margin: 0;
+}
+
+.key-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+}
+
+/* Подсказка — не секрет, но и не заголовок: моноширинным и приглушённо,
+   чтобы её узнавали глазом и не принимали за сам ключ. */
+.key-hint {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  color: var(--muted);
+}
+
+.key-what {
+  flex: 1;
+  color: var(--ink);
+}
+
+.key-scope {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.key-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.key-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.key-field input,
+.key-field select {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.key-field input:focus-visible,
+.key-field select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.key-bad {
+  margin: 12px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Чем платим — рядом с состоянием моста, тем же приглушённым голосом. */
+.agent-via {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}

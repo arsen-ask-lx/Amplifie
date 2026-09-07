@@ -27,10 +27,22 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // ⚠️ content-type ТОЛЬКО там, где есть тело.
+  //
+  // Раньше заголовок ставился всегда, и запрос без тела — например, DELETE —
+  // сервер отвергал с FST_ERR_CTP_EMPTY_JSON_BODY: «тело не может быть
+  // пустым, если объявлен JSON». Кнопка «Убрать» молча ничего не делала.
+  //
+  // Приёмочный тест это пропустил: в нём заголовок ставился по правилу
+  // настоящего браузера, а не по правилу ЭТОГО клиента. Нашлось живым
+  // прогоном — см. лог task-008.
+  const headers: Record<string, string> = {};
+  if (init?.body !== undefined) headers["content-type"] = "application/json";
+
   const response = await fetch(path, {
     ...init,
     credentials: "include",
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers: { ...headers, ...(init?.headers ?? {}) },
   });
 
   if (response.status === 204) return undefined as T;
@@ -44,6 +56,17 @@ export interface AgentsView {
   items: Array<{ id: string; name: string; kind: string; answersOn: string }>;
   /** Мост СПРАШИВАЮЩЕГО: агент отвечает через его подписку, не через чужую. */
   bridge: { connected: boolean; online: boolean; name: string | null };
+  /** Чем будет оплачен вызов, если позвать агента прямо сейчас. */
+  answersVia: { kind: string; hint: string | null };
+}
+
+/** Ключ поставщика. Самого ключа здесь нет и не будет — только подсказка. */
+export interface ModelKey {
+  id: string;
+  provider: string;
+  hint: string;
+  scope: "участник" | "пространство";
+  createdAt: string;
 }
 
 export interface Conversation {
@@ -138,6 +161,18 @@ export const api = {
 
   /** Агенты пространства и состояние МОЕГО моста — через него они отвечают. */
   agents: () => request<AgentsView>("/v1/agents"),
+
+  /** Мои ключи и ключи пространства. Чужих личных здесь не бывает. */
+  modelKeys: () => request<{ items: ModelKey[] }>("/v1/model-keys"),
+
+  /**
+   * Сохранить ключ. Уходит один раз и обратно НЕ возвращается: в ответе
+   * только подсказка из последних знаков.
+   */
+  addModelKey: (input: { provider: string; key: string; scope: string }) =>
+    request<ModelKey>("/v1/model-keys", { method: "POST", body: JSON.stringify(input) }),
+
+  removeModelKey: (id: string) => request<void>(`/v1/model-keys/${id}`, { method: "DELETE" }),
 
   /**
    * Позвать агента разобрать разговор.

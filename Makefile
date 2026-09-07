@@ -10,6 +10,7 @@ help: ## показать этот список
 
 env: ## создать .env из шаблона, если его нет
 > @test -f .env || (cp .env.example .env && echo "создан .env из .env.example")
+> @node tools/checks/ensure-secret.mjs
 
 up: env ## поднять весь стек
 > docker compose up -d --build

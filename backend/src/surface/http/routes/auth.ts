@@ -12,6 +12,7 @@ import {
   resolveActor,
 } from "../../../kernel/identity/index.js";
 import { config } from "../../../platform/config.js";
+import { parse } from "./parse.js";
 
 export const SESSION_COOKIE = "amplifie_session";
 
@@ -37,20 +38,6 @@ const loginSchema = z.object({
   email: z.string().min(1),
   password: z.string().min(1),
 });
-
-/** Разбор на границе: 400 — не смог прочитать, 422 — прочитал, но поля не годятся. */
-function parse<T>(schema: z.ZodType<T>, body: unknown, reply: FastifyReply): T | null {
-  const result = schema.safeParse(body);
-  if (result.success) return result.data;
-
-  const fields: Record<string, string> = {};
-  for (const issue of result.error.issues) {
-    const key = issue.path.join(".") || "_";
-    fields[key] ??= issue.message;
-  }
-  reply.code(422).send({ error: "validation_failed", fields });
-  return null;
-}
 
 function setSessionCookie(reply: FastifyReply, token: string): void {
   reply.setCookie(SESSION_COOKIE, token, {

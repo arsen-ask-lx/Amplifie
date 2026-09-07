@@ -38,6 +38,11 @@ services:
       # и прогон не должен вставать колом. И не 12, как было сначала:
       # живой ответ занял 16.5 с и не доехал — вопрос протух раньше модели.
       AMPLIFIE_BRIDGE_WAIT_MS: ${AMPLIFIE_BRIDGE_WAIT_MS:-25000}
+      # Шифрование ключей участников (Р-016). Без него ключ сохранить
+      # нельзя — и это лучше, чем сохранить его открытым.
+      AMPLIFIE_SECRET_KEY: ${AMPLIFIE_SECRET_KEY}
+      AMPLIFIE_SECRET_KEY_VERSION: ${AMPLIFIE_SECRET_KEY_VERSION:-1}
+      AMPLIFIE_SECRET_KEY_PREV: ${AMPLIFIE_SECRET_KEY_PREV:-}
       LOG_LEVEL: ${LOG_LEVEL}
       NODE_ENV: ${NODE_ENV}
     depends_on:

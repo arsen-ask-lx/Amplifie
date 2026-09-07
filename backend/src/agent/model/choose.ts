@@ -4,7 +4,7 @@ import {
   type Provider,
   ProviderUnavailableError,
 } from "@amplifie/model";
-import { keyProvider } from "./http.js";
+import { KNOWN_API, keyProvider } from "./http.js";
 
 /**
  * Что настроено, то и берём (Р-012).
@@ -23,17 +23,13 @@ const MINUTE = 60_000;
  */
 const KNOWN_CLI = KNOWN_CLIENTS;
 
-const KNOWN_API: Record<string, { url: string; dialect: "anthropic" | "openai"; model: string }> = {
-  "anthropic-api": {
-    url: "https://api.anthropic.com/v1/messages",
-    dialect: "anthropic",
-    model: "claude-sonnet-5",
-  },
-  "openai-api": {
-    url: "https://api.openai.com/v1/responses",
-    dialect: "openai",
-    model: "gpt-5.4-mini",
-  },
+/**
+ * Имена настройки → поставщик. Сама карта адресов общая (`http.ts`):
+ * ходить к Anthropic из двух мест по двум разным адресам нельзя.
+ */
+const BY_SETTING: Record<string, keyof typeof KNOWN_API> = {
+  "anthropic-api": "anthropic",
+  "openai-api": "openai",
 };
 
 function number(raw: string | undefined, fallback: number): number {
@@ -64,7 +60,7 @@ export function chooseProvider(env: NodeJS.ProcessEnv = process.env): Provider |
     });
   }
 
-  const api = KNOWN_API[name];
+  const api = KNOWN_API[BY_SETTING[name] ?? ""];
   if (api) {
     const key = env.AMPLIFIE_MODEL_KEY?.trim();
     if (!key) {

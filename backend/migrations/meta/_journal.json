@@ -50,6 +50,13 @@
       "when": 1788714156139,
       "tag": "0006_groovy_tenebrous",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788768384316,
+      "tag": "0007_pale_baron_zemo",
+      "breakpoints": true
     }
   ]
 }

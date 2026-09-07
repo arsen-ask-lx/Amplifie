@@ -1,5 +1,6 @@
 import { listAgents, listBridges } from "../kernel/identity/index.js";
 import type { Viewer } from "../kernel/talk/index.js";
+import { type AnswersVia, answersVia } from "./answering.js";
 
 /**
  * Что показать в разделе «Агенты» (task-007).
@@ -33,6 +34,14 @@ interface MyBridge {
 export interface AgentsView {
   items: AgentView[];
   bridge: MyBridge;
+  /**
+   * Чем агент ответит, если позвать прямо сейчас.
+   *
+   * Отдельно от состояния моста: мост — это «моя машина на связи»,
+   * а здесь — «чем будет оплачен вызов». Человек, у которого подключены
+   * и мост, и ключ, обязан видеть, какой из них выиграл.
+   */
+  answersVia: AnswersVia;
 }
 
 /** Мост, по которому и пойдёт вопрос: свежий из подключённых. */
@@ -46,9 +55,10 @@ function mine(rows: Awaited<ReturnType<typeof listBridges>>): MyBridge {
 }
 
 export async function agentsFor(viewer: Viewer): Promise<AgentsView> {
-  const [found, bridges] = await Promise.all([
+  const [found, bridges, via] = await Promise.all([
     listAgents(viewer.workspaceId),
     listBridges(viewer.participantId),
+    answersVia(viewer),
   ]);
 
   return {
@@ -59,5 +69,6 @@ export async function agentsFor(viewer: Viewer): Promise<AgentsView> {
       answersOn: "обращение" as const,
     })),
     bridge: mine(bridges),
+    answersVia: via,
   };
 }

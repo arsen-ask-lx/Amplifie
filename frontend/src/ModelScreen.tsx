@@ -198,14 +198,6 @@ export function ModelScreen() {
           ) : null}
         </article>
       </section>
-
-      <section className="work-part" aria-labelledby="ключ">
-        <h3 id="ключ">Ключ API</h3>
-        <p className="feed-empty">
-          Второй путь — обычный ключ, целиком на сайте и без терминала. Появится следующей задачей;
-          сюда же, на этот экран.
-        </p>
-      </section>
     </div>
   );
 }

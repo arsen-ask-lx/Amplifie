@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { type AgentsView, api } from "./api.js";
 import { Icon } from "./Icon.js";
+import { KeyPanel } from "./KeyPanel.js";
 import { ModelScreen } from "./ModelScreen.js";
 
 /**
@@ -19,6 +20,23 @@ import { ModelScreen } from "./ModelScreen.js";
 
 /** Пока раздел открыт, состояние моста может измениться в другом окне. */
 const REFRESH_MS = 4000;
+
+/**
+ * Чем будет оплачен вызов, если позвать агента сейчас.
+ *
+ * Отдельно от состояния моста: мост — «моя машина на связи», а здесь —
+ * «чем платим». У кого подключены и мост, и ключ, обязан видеть, какой
+ * из них выиграл, иначе счёт приходит неожиданно.
+ */
+function Via({ via }: { via: AgentsView["answersVia"] }) {
+  if (via.kind === "нечем") return null;
+  return (
+    <p className="agent-via">
+      Платит: <b>{via.kind}</b>
+      {via.hint ? <span className="key-hint"> …{via.hint}</span> : null}
+    </p>
+  );
+}
 
 function State({ bridge }: { bridge: AgentsView["bridge"] }) {
   if (bridge.online) {
@@ -85,10 +103,12 @@ export function AgentsScreen() {
             тексте. Сам ничего не слушает.
           </p>
           <State bridge={view.bridge} />
+          <Via via={view.answersVia} />
         </section>
       ))}
 
       <ModelScreen />
+      <KeyPanel onChange={() => void refresh()} />
     </div>
   );
 }
