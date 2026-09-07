@@ -1,0 +1,10 @@
+intent: у каждого объявленного гейта есть красный и зелёный образец
+intent_en: every declared gate has a red and a green sample
+
+trigger:
+  has_gates: true
+
+recipes:
+  any: bash {gate}/check.sh {dir}
+
+proof: incidents/README.md — «2026-08-24 гейт краснел на том написании, которое сам предписывал»

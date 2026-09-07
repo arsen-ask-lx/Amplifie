@@ -46,6 +46,17 @@ gates:
   entry-links-exist: "bash tools/gates/entry-links-exist/check.sh ."
   deps-are-pinned: "bash tools/gates/deps-are-pinned/check.sh ."
   lesson-has-outcome: "bash tools/gates/lesson-has-outcome/check.sh ."
+  dead-code: "bash tools/gates/_native.sh . npx --yes knip@6 --directory ."
+  gates-are-runnable: "bash tools/gates/gates-are-runnable/check.sh ."
+  test-has-assertion: "bash tools/gates/test-has-assertion/check.sh ."
+  color-from-token: "AQK_COLOR_SOURCE=styles bash tools/gates/color-from-token/check.sh ."
+  gate-not-weakened: "bash tools/gates/gate-not-weakened/check.sh ."
+  ci-actually-fails: "bash tools/gates/ci-actually-fails/check.sh ."
+  gate-has-samples: "bash tools/gates/gate-has-samples/check.sh ."
+  promise-has-gate: "bash tools/gates/promise-has-gate/check.sh ."
+  commit-explains-itself: "bash tools/gates/commit-explains-itself/check.sh ."
+  duplicate-code: "npm run duplicates"
+  secrets-not-in-code: "bash tools/gates/secrets-not-in-code/check.sh ."
 
 # AQK-2 — образцы и реестры долга. Заполняется по мере установки записей.
 samples: tools/gates

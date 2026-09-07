@@ -6,9 +6,7 @@ export {
   createThread,
   listConversations,
   listMessages,
-  type MessageView,
   sendMessage,
   sync,
   type Viewer,
-  type Visibility,
 } from "./service.js";

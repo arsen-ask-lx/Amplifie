@@ -7,6 +7,6 @@
     "@amplifie/model": "*"
   },
   "devDependencies": {
-    "@types/node": "24.7.0"
+    "@types/node": "^26.4.1"
   }
 }

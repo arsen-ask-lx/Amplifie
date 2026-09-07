@@ -1,0 +1,10 @@
+intent: каждый гейт, объявленный в манифесте, существует и запускается
+intent_en: every gate declared in the manifest exists and runs
+
+trigger:
+  has_gates: true
+
+recipes:
+  any: bash {gate}/check.sh {dir}
+
+proof: incidents/README.md — «2026-08-24 правка конфига гейта не создавала конвейер вообще»

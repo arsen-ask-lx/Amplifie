@@ -155,8 +155,3 @@ export function deliver(
   );
   return "доставлено";
 }
-
-/** Сколько вопросов сейчас в полёте. Для диагностики, не для логики. */
-export function inFlight(): number {
-  return pending.size;
-}

@@ -15,12 +15,13 @@
     "typecheck": "tsc --build && tsc -p frontend --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "arch": "depcruise backend bridge --config tools/dependency-cruiser.cjs",
+    "arch": "node tools/checks/check-arch.mjs",
     "decisions": "node tools/checks/check-decisions.mjs",
     "contrast": "node tools/checks/check-contrast.mjs",
     "unit": "vitest run --config tools/vitest.unit.ts",
     "no-raw-html": "node tools/checks/check-no-raw-html.mjs",
     "model": "node tools/checks/check-model.mjs",
+    "duplicates": "node tools/checks/check-duplicates.mjs",
     "gates": "node tools/checks/run-gates.mjs",
     "arbiter:check": "node --test tools/arbiter/*.test.mjs",
     "arbiter": "node tools/arbiter/report.mjs",
@@ -29,10 +30,10 @@
     "bridge": "tsc --build bridge && node bridge/dist/main.js"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.11",
-    "dependency-cruiser": "17.0.1",
+    "@biomejs/biome": "^2.5.12",
+    "dependency-cruiser": "^18.2.0",
     "drizzle-kit": "0.31.10",
-    "typescript": "5.9.3",
-    "vitest": "3.2.7"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0"
   }
 }

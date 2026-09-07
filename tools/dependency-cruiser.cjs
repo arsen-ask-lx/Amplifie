@@ -30,7 +30,7 @@ module.exports = {
     },
     {
       name: "no-orphans",
-      severity: "warn",
+      severity: "error",
       comment: "Файл никто не импортирует — мёртвый код либо забыли подключить.",
       from: {
         orphan: true,

@@ -10,7 +10,12 @@
       "!**/migrations/meta"
     ]
   },
-  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
   "linter": {
     "enabled": true,
     "rules": {
@@ -23,16 +28,33 @@
       "complexity": {
         "noExcessiveCognitiveComplexity": {
           "level": "error",
-          "options": { "maxAllowedComplexity": 10 }
+          "options": {
+            "maxAllowedComplexity": 10
+          }
         }
+      },
+      "correctness": {
+        "noUnusedVariables": "error"
       }
     }
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "overrides": [
     {
       "includes": ["tools/checks/**", "tools/arbiter/**", "bridge/**"],
-      "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
     }
   ]
 }

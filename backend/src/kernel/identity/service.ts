@@ -36,7 +36,7 @@ export interface Actor {
 }
 
 /** Почта приводится к одному виду ровно здесь, на границе домена. */
-export function normalizeEmail(raw: string): string {
+function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 

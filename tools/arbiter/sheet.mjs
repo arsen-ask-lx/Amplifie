@@ -11,7 +11,7 @@
  * их можно менять, файл ложится в git и показывает историю мнения.
  */
 
-export const UNANSWERED = "?";
+const UNANSWERED = "?";
 
 const YES = new Set(["д", "da", "d", "да", "y", "yes"]);
 const NO = new Set(["н", "n", "нет", "no"]);

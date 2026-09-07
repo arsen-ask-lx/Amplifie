@@ -77,10 +77,3 @@ export function publish(workspaceId: string): void {
     }
   }
 }
-
-/** Сколько подписчиков сейчас держим — для наблюдения за утечкой. */
-export function subscriberCount(): number {
-  let total = 0;
-  for (const listeners of byWorkspace.values()) total += listeners.size;
-  return total;
-}

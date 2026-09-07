@@ -13,7 +13,7 @@
 
 export const AGREEMENT = "agreement";
 export const CHATTER = "chatter";
-export const LABELS = [AGREEMENT, CHATTER];
+const LABELS = [AGREEMENT, CHATTER];
 
 /** Доля строк, где выполняется условие. */
 function share(rows, predicate) {

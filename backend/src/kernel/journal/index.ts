@@ -1,1 +1,1 @@
-export { appendEvent, type EventInput } from "./append.js";
+export { appendEvent } from "./append.js";

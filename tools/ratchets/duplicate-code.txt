@@ -1,0 +1,15 @@
+# Повторы в прод-коде. Число может только уменьшаться.
+#
+# Заведено 2026-09-07 при установке записи duplicate-code: она сразу нашла
+# 18 повторов, из них 13 в приёмочных тестах (там повтор осознан, см.
+# tools/checks/check-duplicates.mjs) и 5 в прод-коде.
+#
+# Что за этими пятью — их и разбирать:
+#   kernel/identity/service.ts   сам с собой, 13 строк
+#   kernel/talk/schema.ts        ↔ kernel/work/schema.ts, 9 строк
+#   kernel/work/schema.ts        сам с собой, 10 строк
+#   surface/http/routes/auth.ts  ↔ routes/chat.ts, 16 строк — самый крупный
+#   surface/http/routes/bridge.ts ↔ routes/work.ts, 11 строк
+#
+# Уменьшил — поправь число здесь, иначе храповик разрешит вернуть повтор.
+5

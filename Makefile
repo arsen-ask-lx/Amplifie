@@ -76,7 +76,10 @@ no-raw-html: ## запрет вставки сырого HTML в интерфе�
 model: ## спросить подключённую модель вживую (не гейт, а проверка связи)
 > npm run model
 
-gates: ## вшитые записи каталога AQK (размер файла, TODO, ссылки, версии)
+duplicates: ## повторы в прод-коде под храповиком
+> npm run duplicates
+
+gates: ## вшитые записи каталога AQK (размер файла, TODO, ссылки, мёртвый код, цвет…)
 > npm run gates
 
 arbiter-check: ## проверки самого счётчика согласия (числа посчитаны руками)
@@ -89,12 +92,12 @@ label: ## выпустить лист второй разметки К2 (пра�
 > npm run label
 
 aqk: ## ступень соответствия AQK и что до следующей
-> npx --yes agent-quality-kit@0.4.2 doctor
+> npx --yes agent-quality-kit@0.6.0 doctor
 
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
-check: lint typecheck arch decisions contrast rhythm unit no-raw-html gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast rhythm unit no-raw-html duplicates gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html gates arbiter-check model arbiter label aqk test check
+.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html duplicates gates arbiter-check model arbiter label aqk test check

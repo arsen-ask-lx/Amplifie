@@ -17,7 +17,8 @@ export const pool = new pg.Pool({
 
 export const db = drizzle(pool);
 
-export type Db = NodePgDatabase;
+type Db = NodePgDatabase;
+
 /** Транзакция. Тот же интерфейс, что у db, — службы принимают либо то, либо это. */
 export type Tx = Parameters<Parameters<NodePgDatabase["transaction"]>[0]>[0];
 export type Executor = Db | Tx;

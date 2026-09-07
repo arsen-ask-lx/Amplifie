@@ -11,7 +11,7 @@ export interface Viewer {
   workspaceId: string;
 }
 
-export interface MessageView {
+interface MessageView {
   id: string;
   conversationId: string;
   body: string;
