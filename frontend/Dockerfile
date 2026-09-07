@@ -2,7 +2,8 @@
 # Отдельного сервера у фронта нет — минус один узел по Люссеру.
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json* tsconfig.base.json ./
+COPY package.json package-lock.json* ./
+COPY tools/tsconfig.base.json tools/
 COPY frontend/package.json frontend/
 RUN npm ci --workspace=@amplifie/frontend --include-workspace-root
 COPY frontend frontend

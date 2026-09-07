@@ -125,7 +125,12 @@ module.exports = {
   options: {
     doNotFollow: { path: "node_modules" },
     exclude: { path: "(^|/)dist/|(^|/)migrations/" },
-    tsConfig: { fileName: "tsconfig.base.json" },
+    // КОРНЕВОЙ tsconfig.json, а не база настроек. База переехала в tools/,
+    // и указание на неё роняет обход: TypeScript ищет входные файлы рядом
+    // с конфигурацией, а в tools/ нет ни одного .ts — TS18003.
+    // Корневой файл ссылается на все проекты и разрешает пути так же:
+    // 65 модулей и 127 связей до и после, подсадка ловится.
+    tsConfig: { fileName: "tsconfig.json" },
     tsPreCompilationDeps: true,
   },
 };

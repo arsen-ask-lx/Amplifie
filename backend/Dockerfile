@@ -1,7 +1,8 @@
 # Сборка один раз, запуск везде (build once, deploy everywhere)
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json* tsconfig.base.json tsconfig.json ./
+COPY package.json package-lock.json* tsconfig.json ./
+COPY tools/tsconfig.base.json tools/
 COPY backend/package.json backend/
 # Общий пакет: интерфейс модели. Сам клиент запускает мост на машине
 # человека, но интерфейс нужен обеим сторонам и обязан быть один (task-001).

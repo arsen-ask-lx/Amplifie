@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -9,6 +10,9 @@ import { defineConfig } from "vitest/config";
  * от «упало, потому что стек не поднят».
  */
 export default defineConfig({
+  // Корень — репозиторий, а не этот каталог: без строки ниже vitest
+  // считает от места файла настроек и не находит ни одного теста.
+  root: fileURLToPath(new URL("..", import.meta.url)),
   test: {
     include: ["{backend,frontend,bridge}/src/**/*.test.ts"],
     environment: "node",

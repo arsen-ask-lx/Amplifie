@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 const asked = "Ответь ровно одним словом: работает";
 
 const probe = `
-import { chooseProvider } from "./apps/api/dist/agent/model/choose.js";
+import { chooseProvider } from "./backend/dist/agent/model/choose.js";
 
 const provider = chooseProvider(process.env);
 if (!provider) {
