@@ -101,6 +101,49 @@ export async function listMessages(
   return { items: rows.map(presentMessage), hasMore: rows.length === limit };
 }
 
+/**
+ * Записать сообщение: номер, вставка, событие, готовый вид.
+ *
+ * Общее для человека и агента. Разделять их копией нельзя: расходится
+ * не текст, а поведение — например, кто-то один перестанет писать событие,
+ * и журнал начнёт врать про половину сообщений.
+ */
+async function writeMessage(
+  tx: Executor,
+  target: { workspaceId: string },
+  input: {
+    conversationId: string;
+    authorParticipantId: string;
+    body: string;
+    clientMsgId: string;
+    kind?: string;
+    trust?: string;
+  },
+): Promise<MessageView> {
+  // Номер берётся ТОЛЬКО так и только внутри этой же транзакции.
+  // Важно, что это UPDATE строки, а не последовательность: при откате
+  // номер возвращается обратно и дыры не остаётся.
+  const seq = await repo.nextSeq(tx, target.workspaceId);
+
+  const created = await repo.insertMessage(tx, {
+    workspaceId: target.workspaceId,
+    seq,
+    ...input,
+  });
+
+  // Состояние и событие — в одной транзакции. Всегда (Р-2).
+  await appendEvent(tx, {
+    kind: "message.sent",
+    workspaceId: target.workspaceId,
+    actorParticipantId: input.authorParticipantId,
+    subjectType: "message",
+    subjectId: created.id,
+    payload: { conversationId: input.conversationId, seq },
+  });
+
+  return viewOf(tx, created.id);
+}
+
 export interface SendResult {
   message: MessageView;
   /** true — сообщение уже было: клиент повторил отправку после разрыва. */
@@ -126,31 +169,14 @@ export async function sendMessage(
       const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
       if (already) return { replayed: true, message: await viewOf(tx, already.id) };
 
-      // Номер берётся ТОЛЬКО так и только внутри этой же транзакции.
-      // Важно, что это UPDATE строки, а не последовательность: при откате
-      // номер возвращается обратно и дыры не остаётся.
-      const seq = await repo.nextSeq(tx, target.workspaceId);
-
-      const created = await repo.insertMessage(tx, {
-        workspaceId: target.workspaceId,
+      const message = await writeMessage(tx, target, {
         conversationId,
         authorParticipantId: viewer.participantId,
         body: input.body,
         clientMsgId: input.clientMsgId,
-        seq,
       });
 
-      // Состояние и событие — в одной транзакции. Всегда (Р-2).
-      await appendEvent(tx, {
-        kind: "message.sent",
-        workspaceId: target.workspaceId,
-        actorParticipantId: viewer.participantId,
-        subjectType: "message",
-        subjectId: created.id,
-        payload: { conversationId, seq },
-      });
-
-      return { replayed: false, message: await viewOf(tx, created.id) };
+      return { replayed: false, message };
     });
 
     // Звонок ТОЛЬКО после фиксации (Р-006). Позвонив раньше, мы отправили бы
@@ -169,6 +195,50 @@ export async function sendMessage(
     if (!existing) throw error;
     return { replayed: true, message: await viewOf(db, existing.id) };
   }
+}
+
+/**
+ * Сообщение от имени участника-агента.
+ *
+ * ПОЧЕМУ ДВА УЧАСТНИКА В ПОДПИСИ. Видимость проверяется по ЧЕЛОВЕКУ, который
+ * позвал: агент сегодня не состоит в каналах, он участник пространства.
+ * Автором же ставится агент — иначе журнал не ответит на вопрос «кто это
+ * сказал», а в ленте появится реплика человека, которую он не писал.
+ * Когда агент станет членом канала, первый параметр уйдёт.
+ *
+ * `kind = "agent"` — чтобы следующий разбор не принял слова агента за
+ * человеческие и не вышла петля. `trust = "untrusted"` — текст пришёл
+ * от модели, то есть это недоверенный ввод, ровно как ответ моста.
+ */
+export async function sendAsAgent(
+  onBehalfOf: Viewer,
+  agentParticipantId: string,
+  conversationId: string,
+  input: { body: string; clientMsgId: string },
+): Promise<MessageView> {
+  const result = await withTransaction(async (tx) => {
+    const target = await requireVisible(tx, onBehalfOf, conversationId);
+
+    // Идемпотентность: ключ выводится из сообщения-обращения, поэтому
+    // двойной зов даёт один ответ, а не два.
+    const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
+    if (already) return { fresh: false, message: await viewOf(tx, already.id) };
+
+    const message = await writeMessage(tx, target, {
+      conversationId,
+      authorParticipantId: agentParticipantId,
+      body: input.body,
+      clientMsgId: input.clientMsgId,
+      kind: "agent",
+      trust: "untrusted",
+    });
+
+    return { fresh: true, message };
+  });
+
+  // Звонок только после фиксации (Р-006), и только если что-то изменилось.
+  if (result.fresh) publish(onBehalfOf.workspaceId);
+  return result.message;
 }
 
 export async function createThread(viewer: Viewer, parentId: string, title: string) {

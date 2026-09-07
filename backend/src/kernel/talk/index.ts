@@ -6,6 +6,7 @@ export {
   createThread,
   listConversations,
   listMessages,
+  sendAsAgent,
   sendMessage,
   sync,
   type Viewer,

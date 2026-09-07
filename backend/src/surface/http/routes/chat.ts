@@ -1,5 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import {
+  answerIfAddressed,
+  ModelUnavailableError,
+  NotAddressedError,
+} from "../../../app/answering.js";
 import { resolveActor } from "../../../kernel/identity/index.js";
 import {
   ConversationNotVisibleError,
@@ -11,6 +16,7 @@ import {
   sync,
   type Viewer,
 } from "../../../kernel/talk/index.js";
+import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
 import { SESSION_COOKIE } from "./auth.js";
 
 const MAX_PAGE = 200;
@@ -68,6 +74,48 @@ function clampLimit(raw: unknown): number {
  *
  * Обёртка, а не try/catch в каждом обработчике: одно знание — одно место.
  */
+/**
+ * Отказ модели → код причины. Ни один из них НЕ рождает сообщения в ленте:
+ * реплика «извините, ошибка» от имени участника — это ложь про то, кто
+ * говорил. Такому место в журнале, а не в разговоре.
+ */
+function modelFailure(error: unknown): { code: number; body: object } | null {
+  if (error instanceof ModelUnavailableError) {
+    return { code: 503, body: { error: "model_unavailable" } };
+  }
+  if (error instanceof BridgeSilentError) {
+    return { code: 504, body: { error: "model_silent", detail: error.message } };
+  }
+  if (error instanceof BridgeFailedError) {
+    return { code: 502, body: { error: "model_failed", detail: error.message } };
+  }
+  return null;
+}
+
+/**
+ * Позвать агента и превратить исход в ответ витрины.
+ *
+ * Вынесено из маршрута отдельной функцией не ради красоты: у маршрута
+ * получалось три ветки поверх двух обёрток, и линтер сложности был прав —
+ * такое читается только целиком.
+ */
+async function answerOrExplain(
+  reply: FastifyReply,
+  viewer: { participantId: string; workspaceId: string },
+  conversationId: string,
+): Promise<FastifyReply> {
+  try {
+    return reply.code(201).send(await answerIfAddressed(viewer, conversationId));
+  } catch (error) {
+    // Обращения не было — это не ошибка, а обычный ход событий: клиент
+    // зовёт после каждой отправки и не обязан сам разбирать текст.
+    if (error instanceof NotAddressedError) return reply.code(204).send();
+    const known = modelFailure(error);
+    if (known) return reply.code(known.code).send(known.body);
+    throw error;
+  }
+}
+
 async function orNotFound<T>(
   reply: FastifyReply,
   work: () => Promise<T>,
@@ -149,6 +197,24 @@ export function registerChatRoutes(app: FastifyInstance): void {
     return orNotFound(reply, async () =>
       reply.code(201).send(await createThread(viewer, request.params.id, input.title)),
     );
+  });
+
+  /**
+   * Позвать агента разобрать разговор.
+   *
+   * ОТДЕЛЬНАЯ ДВЕРЬ, А НЕ ЧАСТЬ ОТПРАВКИ. Сообщение обязано записаться
+   * мгновенно и не зависеть от модели: упавшая модель не должна означать
+   * потерянную реплику. Поэтому клиент сперва отправляет, а потом зовёт.
+   *
+   * ⚠️ ЗОВЁТ КЛИЕНТ — значит закрытая вкладка равна отсутствию ответа.
+   * Признано и записано в очередь работ. Лечится очередью, а её у нас нет
+   * и заводить ради одного случая рано (task-006 §3).
+   */
+  app.post<{ Params: { id: string } }>("/v1/conversations/:id/ask", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    return orNotFound(reply, () => answerOrExplain(reply, viewer, request.params.id));
   });
 
   /**

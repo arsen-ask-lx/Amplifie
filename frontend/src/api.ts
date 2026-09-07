@@ -130,6 +130,19 @@ export const api = {
       body: JSON.stringify({ body, clientMsgId }),
     }),
 
+  /**
+   * Позвать агента разобрать разговор.
+   *
+   * Зовётся ПОСЛЕ отправки, отдельным запросом: сообщение обязано
+   * записаться мгновенно и не зависеть от модели. 204 — обращения
+   * не было, это обычный ход, а не ошибка.
+   */
+  ask: (id: string) =>
+    request<{ messageId: string; body: string; ms: number } | null>(`/v1/conversations/${id}/ask`, {
+      method: "POST",
+      body: "{}",
+    }),
+
   /** Новый канал. Виден всему пространству, если не сказано иначе (Р-010). */
   createChannel: (title: string) =>
     request<Conversation>("/v1/conversations", {

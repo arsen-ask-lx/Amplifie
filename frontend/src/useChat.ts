@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Conversation, type Message } from "./api.js";
+import { ApiError, api, type Conversation, type Message } from "./api.js";
 
 /**
  * Лента разговора: загрузка, догон и живые обновления.
@@ -70,11 +70,31 @@ export interface Chat {
   openAt: (conversationId: string, seq: number) => void;
   loadOlder: () => Promise<void>;
   send: (body: string, clientMsgId: string) => Promise<void>;
+  /** Агента позвали, и он ещё думает. Пока true — в ленте «печатает…». */
+  asking: boolean;
+  /** Почему агент не ответил. Показывается один раз и не как его реплика. */
+  agentFailure: string | null;
   addChannel: (title: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
 }
 
+/**
+ * Отказ агента человеческими словами.
+ *
+ * Отдельной строкой над полем ввода, а НЕ сообщением в ленте: реплика
+ * «извините, ошибка» от имени участника — это ложь про то, кто говорил.
+ */
+function agentTrouble(error: unknown): string {
+  const code = error instanceof ApiError ? error.status : 0;
+  if (code === 503) return "Сводка не отвечает: не подключена ни одна нейросеть.";
+  if (code === 504) return "Сводка взяла вопрос и не ответила вовремя.";
+  if (code === 502) return "Нейросеть вернула ошибку. Ответа не будет.";
+  return "Не получилось позвать Сводку.";
+}
+
 export function useChat(): Chat {
+  const [asking, setAsking] = useState(false);
+  const [agentFailure, setAgentFailure] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -184,6 +204,32 @@ export function useChat(): Chat {
       // Показываем сразу, чтобы своё написанное не ждало оборота через звонок.
       const sent = await api.send(currentId, body, clientMsgId);
       setMessages((current) => merge(current, [sent]));
+
+      // Зовём агента ВСЕГДА, а решает сервер.
+      //
+      // Почему не проверять обращение здесь: правило «звали ли агента»
+      // должно жить в одном месте, иначе две копии разъедутся. Без
+      // обращения сервер отвечает 204 мгновенно, и «печатает…» мелькает
+      // незаметно; с обращением — держится, пока модель думает.
+      //
+      // ⚠️ БЕЗ await: `send` обязан завершиться, как только сообщение
+      // записано. Первая редакция ждала здесь ответа модели — и поле ввода
+      // держало набранный текст все пять секунд, будто отправка не прошла.
+      // Найдено живым прогоном, тесты этого видеть не могли.
+      setAgentFailure(null);
+      setAsking(true);
+      void (async () => {
+        try {
+          // Ответ агента НЕ вклеиваем руками: он приедет тем же путём, что
+          // и чужие сообщения — звонком и догоном через /v1/sync. Второй
+          // путь доставки разошёлся бы с первым, и разошёлся бы молча.
+          await api.ask(currentId);
+        } catch (error) {
+          setAgentFailure(agentTrouble(error));
+        } finally {
+          setAsking(false);
+        }
+      })();
     },
     [currentId],
   );
@@ -245,6 +291,8 @@ export function useChat(): Chat {
     openAt,
     loadOlder,
     send,
+    asking,
+    agentFailure,
     addChannel,
     addThread,
   };

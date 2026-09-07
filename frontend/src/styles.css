@@ -1084,3 +1084,47 @@ button:hover .icon {
   align-items: center;
   gap: 8px;
 }
+
+/* Состояние агента: между лентой и полем ввода, не внутри разговора.
+   Приглушённый текст на подложке — это служебная строка, а не реплика. */
+.agent-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.agent-line-bad {
+  color: var(--danger);
+}
+
+/* Свой класс, а не `.agent-line .icon`: вложенный селектор понижал
+   специфичность относительно правил значков выше, и линтер был прав —
+   такое правило однажды молча перестаёт применяться. */
+.agent-dot {
+  display: inline-flex;
+  color: var(--accent);
+  animation: agent-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes agent-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Просили не двигаться — значит не двигаемся. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-line .icon {
+    animation: none;
+  }
+}

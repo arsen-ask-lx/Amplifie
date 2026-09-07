@@ -21,13 +21,15 @@ function waitMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 2 * MINUTE;
 }
 
-/** Постоянная часть подсказки для проверки связи. Короткая намеренно. */
+/** Постоянная часть подсказки для ПРОВЕРКИ СВЯЗИ. Короткая намеренно.
+ * Разговор в чате передаёт свою — у него другая задача. */
 const CHECK_SYSTEM =
   "Ты помощник в рабочем пространстве Amplifie. Отвечай коротко, по-русски, без вступлений.";
 
 export async function askOwnBridge(
   participantId: string,
   prompt: string,
+  system: string = CHECK_SYSTEM,
 ): Promise<{ text: string; ms: number }> {
   const mine = await listBridges(participantId);
   const online = mine.find((one) => one.online);
@@ -39,9 +41,6 @@ export async function askOwnBridge(
   }
 
   const started = Date.now();
-  const answer = await bridgeProvider(online.id, waitMs()).ask({
-    system: CHECK_SYSTEM,
-    prompt,
-  });
+  const answer = await bridgeProvider(online.id, waitMs()).ask({ system, prompt });
   return { text: answer.text, ms: Date.now() - started };
 }

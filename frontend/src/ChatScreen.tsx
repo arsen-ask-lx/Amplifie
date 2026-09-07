@@ -64,9 +64,42 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
         meId={meId}
         focus={chat.focus}
       />
+      <AgentLine asking={chat.asking} failure={chat.agentFailure} />
       <Composer onSend={chat.send} />
     </>
   );
+}
+
+/**
+ * Что происходит с агентом — строкой между лентой и полем ввода.
+ *
+ * ⚠️ НЕ РЕПЛИКОЙ В ЛЕНТЕ, и это принципиально. Сообщение «извините,
+ * ошибка» от имени участника — ложь про то, кто говорил. Отказ живёт
+ * рядом с разговором, а не внутри него, и исчезает со следующей отправкой.
+ *
+ * «Печатает…» мелькает и на сообщениях без обращения: решает сервер,
+ * и без обращения он отвечает мгновенно. Это дешевле, чем держать
+ * вторую копию правила «звали ли агента» здесь.
+ */
+function AgentLine({ asking, failure }: { asking: boolean; failure: string | null }) {
+  if (asking) {
+    return (
+      <p className="agent-line" aria-live="polite">
+        <span className="agent-dot">
+          <Icon name="точка" size={12} />
+        </span>
+        Сводка печатает…
+      </p>
+    );
+  }
+  if (failure) {
+    return (
+      <p className="agent-line agent-line-bad" role="status">
+        {failure}
+      </p>
+    );
+  }
+  return null;
 }
 
 /**
