@@ -9,9 +9,16 @@ COPY packages/model/package.json packages/model/
 RUN npm ci
 COPY packages/model packages/model
 COPY apps/api apps/api
-# Именно tsc --build, а не корневой `npm run typecheck`: тот проверяет ещё
-# и фронт, которого в этом образе нет.
-RUN npx tsc --build
+# Именно `tsc --build apps/api`, с явным проектом.
+#
+# Не `npm run typecheck`: тот проверяет ещё и фронт, которого в этом образе нет.
+# И не голое `tsc --build`: без аргумента берётся КОРНЕВОЙ tsconfig.json, а он
+# ссылается на все три приложения, включая мост. Моста в образе бека нет и не
+# должно быть — он живёт на машине человека. Сборка падала на TS5083
+# «Cannot read file /app/apps/bridge/tsconfig.json» с того дня, как мост
+# появился, и молчала до первой пересборки. Явный проект тянет за собой
+# ровно свои ссылки: packages/model и больше ничего.
+RUN npx tsc --build apps/api
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app

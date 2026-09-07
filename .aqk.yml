@@ -38,18 +38,18 @@ gates:
   # Из каталога AQK. Каждый проверен подсаженным нарушением в НАШЕМ коде,
   # а не только на своих образцах.
   #
-  # Каталог gates/ исключён из biome (см. biome.json): форматировать образцы
+  # Каталог tools/gates/ исключён из biome (см. biome.json): форматировать образцы
   # нельзя. Красный образец обязан остаться красным, а форматирование меняет
   # тот самый файл, на котором арбитр доказывает, что ловит брак.
-  file-size-limit: "bash gates/file-size-limit/check.sh ."
-  todo-without-task: "bash gates/todo-without-task/check.sh ."
-  entry-links-exist: "bash gates/entry-links-exist/check.sh ."
-  deps-are-pinned: "bash gates/deps-are-pinned/check.sh ."
-  lesson-has-outcome: "bash gates/lesson-has-outcome/check.sh ."
+  file-size-limit: "bash tools/gates/file-size-limit/check.sh ."
+  todo-without-task: "bash tools/gates/todo-without-task/check.sh ."
+  entry-links-exist: "bash tools/gates/entry-links-exist/check.sh ."
+  deps-are-pinned: "bash tools/gates/deps-are-pinned/check.sh ."
+  lesson-has-outcome: "bash tools/gates/lesson-has-outcome/check.sh ."
 
 # AQK-2 — образцы и реестры долга. Заполняется по мере установки записей.
-samples: gates
-ratchets: ratchets
+samples: tools/gates
+ratchets: tools/ratchets
 
 # AQK-3 — куда возвращаются шишки.
 lessons: dock/incidents

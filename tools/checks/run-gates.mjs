@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const MANIFEST = ".aqk.yml";
-const VENDORED = "bash gates/";
+const VENDORED = "bash tools/gates/";
 
 /** Строки внутри блока `gates:` — без комментариев и пустых. */
 function gateBlockLines(text) {

@@ -62,7 +62,7 @@ decisions: ## решения приняты с источниками, а не �
 > npm run decisions
 
 rhythm: ## отступы стоят на сетке в 4 пикселя
-> node scripts/check-rhythm.mjs
+> node tools/checks/check-rhythm.mjs
 
 contrast: ## контраст пар цветов в обеих темах (WCAG)
 > npm run contrast

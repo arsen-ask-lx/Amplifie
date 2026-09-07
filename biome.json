@@ -1,7 +1,14 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!dock", "!gates", "!**/migrations/meta"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!dock",
+      "!tools/gates",
+      "!**/migrations/meta"
+    ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "linter": {
@@ -24,7 +31,7 @@
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "overrides": [
     {
-      "includes": ["scripts/**", "arbiter/**", "apps/bridge/**"],
+      "includes": ["tools/checks/**", "tools/arbiter/**", "apps/bridge/**"],
       "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
     }
   ]

@@ -13,8 +13,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { parseSheet, renderSheet } from "./sheet.mjs";
 
-const CORPUS = "arbiter/corpus.jsonl";
-const SHEET = "arbiter/labels-b.txt";
+const CORPUS = "tools/arbiter/corpus.jsonl";
+const SHEET = "tools/arbiter/labels-b.txt";
 
 const corpus = readFileSync(CORPUS, "utf8")
   .split("\n")

@@ -10,4 +10,4 @@ RUN npx tsc -p apps/web --noEmit && npm run build --workspace=@amplifie/web
 
 FROM caddy:2-alpine AS runtime
 COPY --from=build /app/apps/web/dist /srv
-COPY infra/Caddyfile /etc/caddy/Caddyfile
+COPY apps/web/Caddyfile /etc/caddy/Caddyfile

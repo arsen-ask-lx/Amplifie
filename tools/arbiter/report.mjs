@@ -15,9 +15,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { AGREEMENT, CHATTER, ceiling, scoreAgainst } from "./kappa.mjs";
 import { parseSheet } from "./sheet.mjs";
 
-const CORPUS = "arbiter/corpus.jsonl";
-const SECOND = "arbiter/labels-b.txt";
-const AGENT = "arbiter/labels-agent.json";
+const CORPUS = "tools/arbiter/corpus.jsonl";
+const SECOND = "tools/arbiter/labels-b.txt";
+const AGENT = "tools/arbiter/labels-agent.json";
 
 const num = (v) => (v === null ? "—" : v.toFixed(3));
 const readJson = (path) => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {});

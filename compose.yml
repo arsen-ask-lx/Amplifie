@@ -28,7 +28,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: infra/Dockerfile.api
+      dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -54,7 +54,7 @@ services:
   caddy:
     build:
       context: .
-      dockerfile: infra/Dockerfile.web
+      dockerfile: apps/web/Dockerfile
     restart: unless-stopped
     ports:
       - "${HTTP_PORT}:80"
