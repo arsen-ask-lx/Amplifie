@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { Button } from "../../shared/ui/button.js";
 
 /**
  * Поле ввода сообщения.
@@ -110,14 +111,14 @@ export function Composer({
 
   return (
     <form
-      className="composer"
+      className="border-t border-line bg-bg px-4 py-3"
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
       }}
     >
-      {failure ? <p className="err">{failure}</p> : null}
-      <div className="composer-row">
+      {failure ? <p className="mb-2 text-aside text-danger">{failure}</p> : null}
+      <div className="mx-auto flex max-w-[80ch] items-end gap-2">
         <textarea
           ref={field}
           value={text}
@@ -127,10 +128,11 @@ export function Composer({
           placeholder="Написать в канал"
           aria-label="Текст сообщения"
           maxLength={8000}
+          className="max-h-56 min-h-9 flex-1 resize-none rounded-lg border border-edge bg-panel px-3 py-2 text-body leading-relaxed text-ink outline-none placeholder:text-muted focus-visible:border-accent"
         />
-        <button type="submit" disabled={busy || text.trim().length === 0}>
+        <Button type="submit" disabled={busy || text.trim().length === 0}>
           Отправить
-        </button>
+        </Button>
       </div>
     </form>
   );

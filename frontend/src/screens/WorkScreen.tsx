@@ -2,6 +2,7 @@ import { useMatch } from "react-router";
 import type { Agreement, Citation } from "../data/api.js";
 import type { Work } from "../data/useWork.js";
 import { awaiting, quoteAddsNothing, refused, strays } from "../data/work.js";
+import { Button } from "../shared/ui/button.js";
 import { деньИЧас } from "../shared/when.js";
 import { Board } from "./Board.js";
 
@@ -37,17 +38,13 @@ function Quote({
   goTo: GoTo;
 }) {
   return (
-    <blockquote className="cite">
-      <p className="cite-text">{citation.quote}</p>
-      <p className="cite-who">
+    <blockquote className="mt-3 rounded border-l-2 border-accent bg-panel px-3 py-2">
+      <p className="text-body leading-relaxed text-ink">{citation.quote}</p>
+      <p className="mt-1 flex flex-wrap items-center gap-2 text-aside text-muted">
         <span>{citation.authorName}</span>
-        <button
-          type="button"
-          className="quiet cite-go"
-          onClick={() => goTo(conversationId, citation.seq)}
-        >
+        <Button variant="link" size="sm" onClick={() => goTo(conversationId, citation.seq)}>
           Показать в разговоре
-        </button>
+        </Button>
       </p>
     </blockquote>
   );
@@ -71,7 +68,7 @@ function Grounds({
   goTo: GoTo;
 }) {
   if (citations.length === 0) {
-    return <p className="cite-none">Агент не назвал, на чём это основано.</p>;
+    return <p className="mt-3 text-aside text-danger">Агент не назвал, на чём это основано.</p>;
   }
   // Пока К3 не формулирует, цитата дословно повторяет договорённость.
   // Показывать одно и то же дважды — учить пролистывать источник.
@@ -97,10 +94,10 @@ function Waiting({ item, work, goTo }: { item: Agreement; work: Work; goTo: GoTo
   const only = item.citations[0];
 
   return (
-    <article className="deal">
-      <p className="deal-text">{item.text}</p>
+    <article className="mb-3 rounded-lg border border-line bg-raised p-4 shadow-raised">
+      <p className="text-lead leading-snug text-ink">{item.text}</p>
 
-      <p className="deal-where">
+      <p className="mt-2 text-aside text-muted">
         {/* Без глагола: имя агента склонять некому, а «услышал Сводка»
             читается как поломка. */}
         {item.conversationTitle} · агент «{item.proposedBy.name}» ·{" "}
@@ -114,22 +111,18 @@ function Waiting({ item, work, goTo }: { item: Agreement; work: Work; goTo: GoTo
         goTo={goTo}
       />
 
-      <div className="deal-do">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         {/* Обе кнопки одного вида: экран не подсказывает правильный ответ. */}
-        <button type="button" disabled={busy} onClick={() => void work.decide(item.id, "confirm")}>
+        <Button disabled={busy} onClick={() => void work.decide(item.id, "confirm")}>
           Подтвердить
-        </button>
-        <button type="button" disabled={busy} onClick={() => void work.decide(item.id, "reject")}>
+        </Button>
+        <Button disabled={busy} onClick={() => void work.decide(item.id, "reject")}>
           Отклонить
-        </button>
+        </Button>
         {only ? (
-          <button
-            type="button"
-            className="quiet"
-            onClick={() => goTo(item.conversationId, only.seq)}
-          >
+          <Button variant="ghost" onClick={() => goTo(item.conversationId, only.seq)}>
             Открыть разговор
-          </button>
+          </Button>
         ) : null}
       </div>
     </article>
@@ -138,19 +131,19 @@ function Waiting({ item, work, goTo }: { item: Agreement; work: Work; goTo: GoTo
 
 function Refused({ item, work }: { item: Agreement; work: Work }) {
   return (
-    <article className="deal deal-off">
-      <p className="deal-text">{item.text}</p>
-      <p className="deal-where">
+    <article className="mb-3 rounded-lg border border-line bg-raised p-4 shadow-raised opacity-70">
+      <p className="text-lead leading-snug text-ink">{item.text}</p>
+      <p className="mt-2 text-aside text-muted">
         {item.conversationTitle} ·{" "}
         {/* Отклонение обратимо: передумал — вернул, без машинерии отмены. */}
-        <button
-          type="button"
-          className="quiet cite-go"
+        <Button
+          variant="link"
+          size="sm"
           disabled={work.deciding === item.id}
           onClick={() => void work.decide(item.id, "confirm")}
         >
           всё-таки подтвердить
-        </button>
+        </Button>
       </p>
     </article>
   );
@@ -170,8 +163,8 @@ export function BoardScreen({ work, meId }: { work: Work; meId: string }) {
   const named = useMatch("/board/:taskId")?.params.taskId ?? null;
 
   return (
-    <div className="work">
-      <section className="work-part board-part" aria-label="Доска">
+    <div className="flex-1 overflow-y-auto p-5">
+      <section className="mb-6" aria-label="Доска">
         <Board
           tasks={work.tasks}
           people={work.people}
@@ -192,16 +185,22 @@ export function WorkScreen({ work, goTo }: { work: Work; goTo: GoTo }) {
   const odd = strays(work.agreements);
 
   return (
-    <div className="work">
-      {work.failure ? <p className="err-top">{work.failure}</p> : null}
+    <div className="flex-1 overflow-y-auto p-5">
+      {work.failure ? (
+        <p className="mb-3 rounded border border-danger/40 bg-panel px-3 py-2 text-aside text-danger">
+          {work.failure}
+        </p>
+      ) : null}
 
-      <section className="work-part" aria-labelledby="ждут">
-        <h3 id="ждут">Ждут решения {wait.length > 0 ? `· ${wait.length}` : ""}</h3>
+      <section className="mb-6" aria-labelledby="ждут">
+        <h3 id="ждут" className="mb-3 text-lead font-semibold text-ink">
+          Ждут решения {wait.length > 0 ? `· ${wait.length}` : ""}
+        </h3>
 
-        {work.loading ? <p className="feed-empty">Загружаем…</p> : null}
+        {work.loading ? <p className="p-8 text-center text-body text-muted">Загружаем…</p> : null}
 
         {!work.loading && wait.length === 0 ? (
-          <p className="feed-empty">
+          <p className="p-8 text-center text-body text-muted">
             Пока нечего решать. Агент не читает каналы сам — откройте разговор и нажмите «Разобрать»
             в его шапке.
           </p>
@@ -213,8 +212,10 @@ export function WorkScreen({ work, goTo }: { work: Work; goTo: GoTo }) {
       </section>
 
       {off.length > 0 ? (
-        <section className="work-part" aria-labelledby="отклонённые">
-          <h3 id="отклонённые">Отклонённые · {off.length}</h3>
+        <section className="mb-6" aria-labelledby="отклонённые">
+          <h3 id="отклонённые" className="mb-3 text-lead font-semibold text-ink">
+            Отклонённые · {off.length}
+          </h3>
           {off.map((item) => (
             <Refused key={item.id} item={item} work={work} />
           ))}
@@ -222,13 +223,20 @@ export function WorkScreen({ work, goTo }: { work: Work; goTo: GoTo }) {
       ) : null}
 
       {odd.length > 0 ? (
-        <section className="work-part" aria-labelledby="прочее">
+        <section className="mb-6" aria-labelledby="прочее">
           {/* Статус, которого экран не знает. Спрятать значило бы потерять. */}
-          <h3 id="прочее">Прочее · {odd.length}</h3>
+          <h3 id="прочее" className="mb-3 text-lead font-semibold text-ink">
+            Прочее · {odd.length}
+          </h3>
           {odd.map((item) => (
-            <article key={item.id} className="deal deal-off">
-              <p className="deal-text">{item.text}</p>
-              <p className="deal-where">состояние «{item.status}» экрану незнакомо</p>
+            <article
+              key={item.id}
+              className="mb-3 rounded-lg border border-line bg-raised p-4 shadow-raised opacity-70"
+            >
+              <p className="text-lead leading-snug text-ink">{item.text}</p>
+              <p className="mt-2 text-aside text-muted">
+                состояние «{item.status}» экрану незнакомо
+              </p>
             </article>
           ))}
         </section>

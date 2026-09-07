@@ -74,7 +74,7 @@ export function RoomList({
       {rooms.length >= SEARCH_FROM ? (
         <input
           ref={search}
-          className="rail-search"
+          className="h-8 w-full rounded border border-edge bg-bg px-2.5 text-aside text-ink outline-none placeholder:text-muted focus-visible:border-accent"
           value={needle}
           onChange={(event) => setNeedle(event.target.value)}
           onKeyDown={(event) => {
@@ -85,17 +85,22 @@ export function RoomList({
         />
       ) : null}
 
-      <nav className="rooms" aria-label="Разговоры">
+      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label="Разговоры">
         {channels.map((channel) => (
           <div key={channel.id}>
             <button
               type="button"
-              className={channel.id === currentId ? "room room-on" : "room"}
+              className={[
+                "flex w-auto items-center gap-2 rounded px-2.5 py-1.5 text-left text-body transition-colors",
+                channel.id === currentId
+                  ? "bg-selected font-medium text-ink"
+                  : "bg-transparent text-muted hover:bg-raised hover:text-ink",
+              ].join(" ")}
               aria-current={channel.id === currentId ? "page" : undefined}
               onClick={() => onSelect(channel.id)}
             >
               <Icon name="хэш" />
-              <span className="room-title">{channel.title}</span>
+              <span className="truncate">{channel.title}</span>
             </button>
             {threads
               .filter((thread) => thread.parentId === channel.id)
@@ -103,18 +108,25 @@ export function RoomList({
                 <button
                   key={thread.id}
                   type="button"
-                  className={thread.id === currentId ? "room room-sub room-on" : "room room-sub"}
+                  className={[
+                    "ml-4 flex w-auto items-center gap-2 rounded px-2.5 py-1.5 text-left text-aside transition-colors",
+                    thread.id === currentId
+                      ? "bg-selected font-medium text-ink"
+                      : "bg-transparent text-muted hover:bg-raised hover:text-ink",
+                  ].join(" ")}
                   aria-current={thread.id === currentId ? "page" : undefined}
                   onClick={() => onSelect(thread.id)}
                 >
                   <Icon name="ветка" />
-                  <span className="room-title">{thread.title}</span>
+                  <span className="truncate">{thread.title}</span>
                 </button>
               ))}
           </div>
         ))}
 
-        {shown.length === 0 ? <p className="rooms-empty">Ничего не нашлось</p> : null}
+        {shown.length === 0 ? (
+          <p className="px-2.5 py-3 text-aside text-muted">Ничего не нашлось</p>
+        ) : null}
       </nav>
     </>
   );

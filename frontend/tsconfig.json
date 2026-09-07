@@ -13,7 +13,12 @@
     "types": ["vite/client"],
     // Тот же путь, что в alias у Vite: проверяльщик типов и сборщик
     // обязаны видеть один и тот же файл, иначе разойдутся молча.
-    "paths": { "@amplifie/contract": ["../packages/contract/src/index.ts"] }
+    "paths": {
+      "@amplifie/contract": ["../packages/contract/src/index.ts"],
+      "@/*": ["./src/*"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+  // Конфигурация сборщика проверяется отдельно — tsconfig.node.json:
+  // ей нужны типы Node, браузерному коду они не нужны.
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

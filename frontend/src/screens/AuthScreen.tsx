@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, type Me } from "../data/api.js";
 import { describeFailure, type FormProblem } from "../shared/authMessages.js";
 import { Field } from "../shared/Field.js";
+import { Button } from "../shared/ui/button.js";
 
 type Mode = "login" | "register";
 
@@ -44,14 +45,24 @@ export function AuthScreen({ onEntered }: { onEntered: (me: Me) => void }) {
   }
 
   return (
-    <div className="screen">
-      <form className="card" onSubmit={submit} noValidate>
-        <h1>{isRegister ? "Создать пространство" : "Вход"}</h1>
-        <p className="sub">
+    <div className="grid min-h-dvh place-items-center bg-bg p-6">
+      <form
+        className="w-full max-w-96 rounded-lg border border-line bg-panel p-6 shadow-float"
+        onSubmit={submit}
+        noValidate
+      >
+        <h1 className="mb-1 font-serif text-brand leading-tight text-ink">
+          {isRegister ? "Создать пространство" : "Вход"}
+        </h1>
+        <p className="mt-2 text-body leading-relaxed text-muted">
           {isRegister ? "Рабочее место, где агенты слышат разговор" : "Рады видеть снова"}
         </p>
 
-        {problem.common ? <div className="err-top">{problem.common}</div> : null}
+        {problem.common ? (
+          <div className="mb-3 rounded border border-danger/40 bg-panel px-3 py-2 text-aside text-danger">
+            {problem.common}
+          </div>
+        ) : null}
 
         <Field
           label="Почта"
@@ -88,13 +99,13 @@ export function AuthScreen({ onEntered }: { onEntered: (me: Me) => void }) {
           </>
         ) : null}
 
-        <button type="submit" disabled={busy}>
+        <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Минуту…" : isRegister ? "Создать" : "Войти"}
-        </button>
+        </Button>
 
-        <button type="button" className="link" onClick={switchMode}>
+        <Button variant="link" onClick={switchMode}>
           {isRegister ? "У меня уже есть вход" : "Создать новое пространство"}
-        </button>
+        </Button>
       </form>
     </div>
   );

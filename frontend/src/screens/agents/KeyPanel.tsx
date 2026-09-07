@@ -3,6 +3,7 @@ import { api, type ModelKey } from "../../data/api.js";
 import { detailOf, fieldsOf } from "../../shared/failure.js";
 import { Icon } from "../../shared/Icon.js";
 import { keyTroubleOf } from "../../shared/trouble.js";
+import { Button } from "../../shared/ui/button.js";
 
 /**
  * Ключ поставщика модели: ввести, увидеть, убрать.
@@ -54,7 +55,7 @@ function Choice({
   onPick: (id: string) => void;
 }) {
   return (
-    <label className="key-field">
+    <label className="flex flex-col gap-1 text-aside text-muted">
       {label}
       <select value={value} onChange={(event) => onPick(event.target.value)}>
         {options.map((one) => (
@@ -69,14 +70,14 @@ function Choice({
 
 function Saved({ item, onRemove }: { item: ModelKey; onRemove: () => void }) {
   return (
-    <li className="key-row">
-      <span className="key-what">
-        {item.provider} · <span className="key-hint">…{item.hint}</span>
+    <li className="flex flex-wrap items-center gap-2 rounded border border-line bg-raised px-3 py-2 text-body">
+      <span className="text-ink">
+        {item.provider} · <span className="text-muted">…{item.hint}</span>
       </span>
-      <span className="key-scope">{item.scope === "участник" ? "мой" : "общий"}</span>
-      <button type="button" className="quiet" onClick={onRemove}>
+      <span className="text-aside text-muted">{item.scope === "участник" ? "мой" : "общий"}</span>
+      <Button variant="ghost" size="sm" onClick={onRemove}>
         Убрать
-      </button>
+      </Button>
     </li>
   );
 }
@@ -127,27 +128,29 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
   const shape = PROVIDERS.find((one) => one.id === provider);
 
   return (
-    <section className="work-part" aria-labelledby="ключ">
-      <h3 id="ключ">Ключ API</h3>
+    <section className="mb-6" aria-labelledby="ключ">
+      <h3 id="ключ" className="mb-3 text-lead font-semibold text-ink">
+        Ключ API
+      </h3>
 
-      <p className="key-note">
+      <p className="mt-2 text-body leading-relaxed text-muted">
         Второй путь, кроме подписки: обычный ключ поставщика, целиком на сайте и без терминала. Ключ
         шифруется и <b>обратно не показывается никогда</b> — только последние знаки, чтобы вы его
         узнали.
       </p>
 
       {items.length > 0 ? (
-        <ul className="key-list">
+        <ul className="mt-3 flex flex-col gap-1">
           {items.map((item) => (
             <Saved key={item.id} item={item} onRemove={() => void remove(item.id)} />
           ))}
         </ul>
       ) : null}
 
-      <form className="key-form" onSubmit={(event) => void save(event)}>
+      <form className="mt-4 flex flex-col gap-3" onSubmit={(event) => void save(event)}>
         <Choice label="Поставщик" value={provider} options={PROVIDERS} onPick={setProvider} />
 
-        <label className="key-field">
+        <label className="flex flex-col gap-1 text-aside text-muted">
           Ключ
           <input
             type="password"
@@ -161,15 +164,15 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
 
         <Choice label="Кому" value={scope} options={SCOPES} onPick={setScope} />
 
-        <p className="key-why">{SCOPES.find((one) => one.id === scope)?.why}</p>
+        <p className="text-aside text-muted">{SCOPES.find((one) => one.id === scope)?.why}</p>
 
-        <button type="submit" disabled={busy || key.trim().length === 0}>
+        <Button type="submit" disabled={busy || key.trim().length === 0}>
           <Icon name="плюс" />
           {busy ? "Сохраняем…" : "Сохранить ключ"}
-        </button>
+        </Button>
       </form>
 
-      {failure ? <p className="key-bad">{failure}</p> : null}
+      {failure ? <p className="mt-2 text-aside text-danger">{failure}</p> : null}
     </section>
   );
 }

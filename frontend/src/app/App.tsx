@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Me } from "../data/api.js";
 import { AuthScreen } from "../screens/AuthScreen.js";
 import { JoinScreen } from "../screens/JoinScreen.js";
+import { Button } from "../shared/ui/button.js";
 import { ChatScreen } from "./ChatScreen.js";
 
 type State =
@@ -49,16 +50,17 @@ export function App({ invite: fromUrl }: { invite: string | null }) {
   // и попросит новую — а старая при этом останется живой.
   if (state.status === "entered" && invite) {
     return (
-      <div className="screen">
-        <div className="card">
-          <h1>Приглашение не применилось</h1>
-          <p className="sub">
+      <div className="grid min-h-dvh place-items-center bg-bg p-6">
+        <div className="w-full max-w-96 rounded-lg border border-line bg-panel p-6 shadow-float">
+          <h1 className="mb-4 font-serif text-brand leading-tight text-ink">
+            Приглашение не применилось
+          </h1>
+          <p className="mt-2 text-body leading-relaxed text-muted">
             Вы уже вошли как {state.me.participant.displayName} в пространстве{" "}
             {state.me.workspace.name}. Приглашение заводит отдельный вход — выйдите и откройте
             ссылку снова. Она не потрачена.
           </p>
-          <button
-            type="button"
+          <Button
             onClick={() => {
               // Токен вычищен из адреса при чтении (чтобы не осел в истории),
               // поэтому просто перезагрузить страницу мало — приглашение
@@ -69,7 +71,7 @@ export function App({ invite: fromUrl }: { invite: string | null }) {
             }}
           >
             Выйти и принять приглашение
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -91,7 +93,11 @@ export function App({ invite: fromUrl }: { invite: string | null }) {
   if (state.status === "anon") {
     return (
       <>
-        {state.notice ? <div className="err-top">{state.notice}</div> : null}
+        {state.notice ? (
+          <div className="mb-3 rounded border border-danger/40 bg-panel px-3 py-2 text-aside text-danger">
+            {state.notice}
+          </div>
+        ) : null}
         <AuthScreen onEntered={(me) => setState({ status: "entered", me })} />
       </>
     );

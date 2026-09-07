@@ -12,13 +12,17 @@
       "project": ["src/**/*.ts"]
     },
     "frontend": {
-      "entry": ["src/**/*.test.ts"],
-      "project": ["src/**/*.{ts,tsx}"]
+      "entry": ["src/main.tsx", "src/**/*.test.ts"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["tailwindcss"]
     },
     "bridge": {
       "project": ["src/**/*.ts"]
     },
     "packages/model": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/contract": {
       "project": ["src/**/*.ts"]
     }
   }

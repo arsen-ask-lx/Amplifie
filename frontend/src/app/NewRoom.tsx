@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "../shared/ui/button.js";
 
 /**
  * Заведение канала или ветки — полем на месте, без окна поверх экрана.
@@ -54,14 +55,19 @@ export function NewRoom({
 
   if (!open) {
     return (
-      <button type="button" className="rail-add" onClick={() => setOpen(true)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="justify-start text-muted"
+        onClick={() => setOpen(true)}
+      >
         {label}
-      </button>
+      </Button>
     );
   }
 
   return (
-    <form className="rail-new" onSubmit={submit}>
+    <form onSubmit={submit}>
       <input
         ref={field}
         value={title}
@@ -79,8 +85,9 @@ export function NewRoom({
         aria-label={label}
         maxLength={120}
         disabled={busy}
+        className="h-8 w-full rounded border border-accent bg-bg px-2.5 text-body text-ink outline-none placeholder:text-muted"
       />
-      {failure ? <p className="err">{failure}</p> : null}
+      {failure ? <p className="mt-1 text-aside text-danger">{failure}</p> : null}
     </form>
   );
 }

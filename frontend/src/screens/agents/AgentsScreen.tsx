@@ -32,9 +32,9 @@ const REFRESH_MS = 4000;
 function Via({ via }: { via: AgentsView["answersVia"] }) {
   if (via.kind === "нечем") return null;
   return (
-    <p className="agent-via">
+    <p className="mt-1 text-aside text-muted">
       Платит: <b>{via.kind}</b>
-      {via.hint ? <span className="key-hint"> …{via.hint}</span> : null}
+      {via.hint ? <span className="text-muted"> …{via.hint}</span> : null}
     </p>
   );
 }
@@ -42,21 +42,21 @@ function Via({ via }: { via: AgentsView["answersVia"] }) {
 function State({ bridge }: { bridge: AgentsView["bridge"] }) {
   if (bridge.online) {
     return (
-      <p className="agent-state">
+      <p className="mt-3 text-body text-ink">
         Отвечает через <b>{bridge.name}</b> — машина на связи.
       </p>
     );
   }
   if (bridge.connected) {
     return (
-      <p className="agent-state agent-state-off">
+      <p className="mt-3 text-body text-ink text-muted">
         Мост «{bridge.name}» подключён, но сейчас не на связи. Пока окно терминала закрыто, Сводка
         не ответит.
       </p>
     );
   }
   return (
-    <p className="agent-state agent-state-off">
+    <p className="mt-3 text-body text-ink text-muted">
       Своя нейросеть не подключена — Сводка не сможет ответить. Подключение ниже.
     </p>
   );
@@ -87,23 +87,26 @@ export function AgentsScreen() {
   return (
     // Тот же контейнер, что у остальных экранов: иначе карточка агента
     // и блок подписки под ней стоят в разной сетке и разной ширины.
-    <div className="work">
+    <div className="flex-1 overflow-y-auto p-5">
       {/* Заголовок «Агенты» уже стоит в шапке экрана. Второй такой же
           под ним — не структура, а эхо. */}
       {view && view.items.length === 0 ? (
-        <p className="work-note">
+        <p className="rounded-lg border border-line bg-panel p-4 text-body text-muted">
           Агентов пока нет. Сводка появится сама, как только её позовут впервые: напишите в любом
           канале <code>@Сводка</code> и вопрос.
         </p>
       ) : null}
 
       {view?.items.map((agent) => (
-        <section key={agent.id} className="work-part agent-card">
-          <h3>
+        <section
+          key={agent.id}
+          className="mb-6 rounded-lg border border-line bg-raised p-4 shadow-raised"
+        >
+          <h3 className="flex items-center gap-2 text-lead font-semibold text-ink">
             <Icon name="модель" />
             {agent.name}
           </h3>
-          <p className="agent-what">
+          <p className="mt-2 text-body leading-relaxed text-muted">
             Читает разговор и отвечает <b>только по обращению</b> — <code>@{agent.name}</code> в
             тексте. Сам ничего не слушает.
           </p>

@@ -1,188 +1,42 @@
-import { BREAKER, HIDDEN_STAGE, STAGES, type Stage } from "@amplifie/contract";
-import { useEffect, useRef, useState } from "react";
+import { HIDDEN_STAGE } from "@amplifie/contract";
+import { Plus } from "lucide-react";
+import { useState } from "react";
 import { api, type Participant, type Task } from "../data/api.js";
-import { Icon } from "../shared/Icon.js";
-import { troubleOf } from "../shared/trouble.js";
-import { день } from "../shared/when.js";
+
+import { Button } from "../shared/ui/button.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../shared/ui/select.js";
+
+import { Card, COLUMNS } from "./board/Card.js";
 
 /**
- * Доска задач: колонки по стадиям (task-010).
+ * Доска задач: колонки по стадиям (task-010), вид переработан в task-013.
  *
- * ПОЧЕМУ БЕЗ ПЕРЕТАСКИВАНИЯ. Доска без перетаскивания работает,
- * перетаскивание без доски — нет. Сперва колонки и кнопки, потом жесты.
+ * ЧТО БЫЛО НЕ ТАК. Карточка показывала название, «Отвечает», «Делает» и дату
+ * ОДНИМ весом, а самым заметным в ней был системный серый `<select>`. Кнопки
+ * «влево-вправо» занимали половину карточки, хотя двигают задачу раз в день.
+ * Глаз не находил главное, потому что главного не было назначено.
+ *
+ * ЧТО СТАЛО. Иерархия в три ступени:
+ *   1. НАЗВАНИЕ — крупно и основным цветом. Ради него карточку и открывают;
+ *   2. кто отвечает — приглушённо, но именем: это единственное поле,
+ *      которое отвечает на вопрос «с кого спросить»;
+ *   3. всё остальное — мелко и тихо: происхождение, дата, смена исполнителя.
+ *
+ * Управление показывается ПРИ НАВЕДЕНИИ и остаётся доступным с клавиатуры
+ * (`focus-within`). Кнопка, которую видно всегда, соревнуется за внимание
+ * с содержимым — а карточка существует ради содержимого.
  *
  * ⚠️ «ЗА РЕЗУЛЬТАТ ОТВЕЧАЕТ ЧЕЛОВЕК» — правило владельца, и держит его
  * база (составной ключ на `participant (id, kind)`). Здесь оно только
  * ПОКАЗАНО: в выбор ответственного попадают одни люди. Если экран
  * ошибётся, сервер и база всё равно откажут.
  */
-
-/**
- * Колонки в порядке движения слева направо.
- *
- * Порядок и состав приходят из `@amplifie/contract` — до task-012 список
- * был переписан здесь вручную, третьей копией после базы и сервера.
- * Скрытая стадия отфильтрована, а не вырезана из объявления: доска
- * решает, что показывать, но не решает, какие стадии бывают.
- */
-const COLUMNS = STAGES.filter((stage) => stage !== HIDDEN_STAGE);
-
-/** Почему прогон не удался — словами доски. Причину считает общий слой. */
-const SAYS: Record<string, string> = {
-  размыкатель: "Два отказа подряд — дальше нужен человек.",
-  "нет-модели": "Нейросеть не подключена: раздел «Агенты».",
-  "мост-молчит": "Мост взял работу и не ответил вовремя.",
-  "модель-отказала": "Нейросеть вернула ошибку. Попробуйте ещё раз.",
-};
-
-function whyNot(error: unknown): string {
-  return SAYS[troubleOf(error)] ?? "Не получилось запустить.";
-}
-
-/** Куда можно подвинуть отсюда: соседняя колонка слева и справа. */
-function neighbours(stage: string): { back: string | null; next: string | null } {
-  const at = COLUMNS.indexOf(stage as Stage);
-  if (at < 0) return { back: null, next: null };
-  return { back: COLUMNS[at - 1] ?? null, next: COLUMNS[at + 1] ?? null };
-}
-
-/**
- * Прогон агента по задаче.
- *
- * Отдельным компонентом, а не строкой в карточке: у карточки стало три
- * разных дела — показать, подвинуть и запустить, — и линтер сложности
- * был прав. Заодно состояние прогона не мешается с состоянием правки.
- */
-function Run({ task, onDone }: { task: Task; onDone: () => void | Promise<void> }) {
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  // Размыкатель: два отказа подряд — дальше нужен человек, а не третья
-  // попытка (task-011). Кнопка гаснет, и рядом сказано почему.
-  const broken = task.failedRuns >= BREAKER;
-
-  async function start() {
-    setBusy(true);
-    setFailure(null);
-    try {
-      await api.runTask(task.id);
-      // Прогон меняет стадию, счётчик отказов и заводит обсуждение —
-      // ответ ручки этого не несёт, поэтому перечитываем задачи. Только их.
-      await onDone();
-    } catch (error) {
-      setFailure(whyNot(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="task-card-run">
-      <button type="button" disabled={busy || broken} onClick={() => void start()}>
-        {busy ? "Делает…" : "Пусть сделает"}
-      </button>
-      {broken ? (
-        <p className="task-card-broken">
-          Два отказа подряд. Третьей попытки не будет — посмотрите сами и верните задачу в работу.
-        </p>
-      ) : null}
-      {failure ? <p className="task-card-broken">{failure}</p> : null}
-    </div>
-  );
-}
-
-function Card({
-  task,
-  people,
-  named,
-  onPatched,
-  onRan,
-}: {
-  task: Task;
-  people: Participant[];
-  /** На эту задачу указывает адрес: `/board/:taskId` (Р-019). */
-  named: boolean;
-  onPatched: (task: Task) => void;
-  onRan: () => void | Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  const box = useRef<HTMLElement>(null);
-
-  // Пришли по ссылке на задачу — доводим до неё. Метки цветом здесь нет
-  // намеренно: вид этой задачей не меняется (task-012), а довести до
-  // карточки уже достаточно, чтобы ссылка не врала.
-  useEffect(() => {
-    if (named) box.current?.scrollIntoView({ block: "center", behavior: "auto" });
-  }, [named]);
-  const { back, next } = neighbours(task.stage);
-  const byAgent = task.assignedTo?.kind === "agent";
-
-  async function apply(patch: Parameters<typeof api.patchTask>[1]) {
-    setBusy(true);
-    try {
-      // Сервер возвращает задачу целиком — берём ЕГО ответ, а не идём
-      // за всем списком заново. До task-012 один ход карты стоил трёх
-      // запросов, включая участников, которые при этом не меняются.
-      onPatched(await api.patchTask(task.id, patch));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <article className="task-card" ref={box} aria-current={named ? "true" : undefined}>
-      <p className="task-card-title">{task.title}</p>
-
-      <p className="task-card-who">
-        {/* Ответственный первым: за результат отвечает он, а не исполнитель. */}
-        Отвечает: <b>{task.responsible?.name ?? "никто"}</b>
-      </p>
-
-      <label className="task-card-pick">
-        Делает
-        <select
-          value={task.assignedTo?.id ?? ""}
-          disabled={busy}
-          onChange={(event) => void apply({ assignedToId: event.target.value || null })}
-        >
-          <option value="">никто</option>
-          {people.map((one) => (
-            <option key={one.id} value={one.id}>
-              {one.name}
-              {one.kind === "agent" ? " (агент)" : ""}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <p className="task-card-from">
-        {task.fromAgreement ? "из договорённости" : "заведена руками"} ·{" "}
-        <time dateTime={task.createdAt}>{день.format(new Date(task.createdAt))}</time>
-      </p>
-
-      {byAgent ? <Run task={task} onDone={onRan} /> : null}
-
-      <div className="task-card-move">
-        <button
-          type="button"
-          className="quiet"
-          disabled={busy || !back}
-          onClick={() => back && void apply({ stage: back })}
-        >
-          ←
-        </button>
-        <button
-          type="button"
-          className="quiet"
-          disabled={busy || !next}
-          onClick={() => next && void apply({ stage: next })}
-        >
-          →
-        </button>
-      </div>
-    </article>
-  );
-}
 
 function NewTask({
   people,
@@ -214,23 +68,30 @@ function NewTask({
   }
 
   return (
-    <form className="board-new" onSubmit={(event) => void add(event)}>
+    <form className="mb-5 flex flex-wrap items-center gap-2" onSubmit={(e) => void add(e)}>
       <input
         value={title}
         placeholder="Новая задача"
+        aria-label="Название новой задачи"
         onChange={(event) => setTitle(event.target.value)}
+        className="h-9 min-w-60 flex-1 rounded border border-edge bg-panel px-3 text-body text-ink outline-none placeholder:text-muted focus-visible:border-accent"
       />
-      <select value={responsibleId} onChange={(event) => setResponsibleId(event.target.value)}>
-        {humans.map((one) => (
-          <option key={one.id} value={one.id}>
-            отвечает {one.name}
-          </option>
-        ))}
-      </select>
-      <button type="submit" disabled={busy || title.trim().length === 0}>
-        <Icon name="плюс" />
+      <Select value={responsibleId} onValueChange={setResponsibleId}>
+        <SelectTrigger className="w-auto">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {humans.map((one) => (
+            <SelectItem key={one.id} value={one.id}>
+              отвечает {one.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button type="submit" disabled={busy || title.trim().length === 0}>
+        <Plus />
         Завести
-      </button>
+      </Button>
     </form>
   );
 }
@@ -259,15 +120,24 @@ export function Board({
     <>
       <NewTask people={people} meId={meId} onMade={onListChanged} />
 
-      <div className="board">
+      {/* Колонки одной ширины и не сжимаются ниже читаемого: доска
+          прокручивается вбок, а не превращается в столбик карточек.
+          До task-013 на узком окне канбан складывался в один список,
+          и стадии переставали быть видны — то есть исчезал он весь. */}
+      <div className="flex gap-4 overflow-x-auto pb-4">
         {COLUMNS.map((stage) => {
           const here = shown.filter((one) => one.stage === stage);
           return (
-            <section key={stage} className="column" aria-label={stage}>
-              <h4 className="column-head">
-                {stage}{" "}
-                {here.length > 0 ? <span className="column-count">{here.length}</span> : null}
+            <section
+              key={stage}
+              aria-label={stage}
+              className="flex w-72 shrink-0 flex-col gap-3 rounded-lg bg-panel p-3"
+            >
+              <h4 className="flex items-center gap-2 px-1 text-aside text-muted">
+                {stage}
+                <span className="text-mark text-muted">{here.length > 0 ? here.length : ""}</span>
               </h4>
+
               {here.map((task) => (
                 <Card
                   key={task.id}
@@ -278,6 +148,14 @@ export function Board({
                   onRan={onListChanged}
                 />
               ))}
+
+              {/* Пустая колонка говорит, что она пустая. Пустой прямоугольник
+                  читается как «не загрузилось», а не как «здесь ничего нет». */}
+              {here.length === 0 ? (
+                <p className="rounded border border-dashed border-line px-3 py-6 text-center text-aside text-muted">
+                  пусто
+                </p>
+              ) : null}
             </section>
           );
         })}

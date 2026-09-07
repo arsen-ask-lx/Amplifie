@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../data/api.js";
 import { NOT_COPIED, copy as toClipboard } from "../shared/clipboard.js";
+import { Button } from "../shared/ui/button.js";
 
 /**
  * Приглашение в пространство.
@@ -49,27 +50,38 @@ export function InvitePanel() {
   if (!link) {
     return (
       <>
-        <button type="button" className="rail-add" onClick={() => void issue()} disabled={busy}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="justify-start text-muted"
+          onClick={() => void issue()}
+          disabled={busy}
+        >
           {busy ? "Готовим ссылку…" : "Пригласить"}
-        </button>
-        {failure ? <p className="err rail-err">{failure}</p> : null}
+        </Button>
+        {failure ? <p className="px-2.5 text-aside text-danger">{failure}</p> : null}
       </>
     );
   }
 
   return (
-    <div className="invite">
-      <p className="invite-note">Ссылка на одного человека. Показывается один раз.</p>
-      <input className="invite-link" readOnly value={link} onFocus={(e) => e.target.select()} />
-      <div className="invite-row">
-        <button type="button" className="quiet" onClick={() => void copy()}>
+    <div className="rounded border border-line bg-raised p-2">
+      <p className="mb-2 text-mark text-muted">Ссылка на одного человека. Показывается один раз.</p>
+      <input
+        readOnly
+        value={link}
+        onFocus={(e) => e.target.select()}
+        className="h-8 w-full rounded border border-edge bg-bg px-2 text-mark text-ink outline-none"
+      />
+      <div className="mt-2 flex gap-1">
+        <Button variant="outline" size="sm" onClick={() => void copy()}>
           {copied ? "Скопировано" : "Скопировать"}
-        </button>
-        <button type="button" className="quiet" onClick={() => setLink(null)}>
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setLink(null)}>
           Готово
-        </button>
+        </Button>
       </div>
-      {failure ? <p className="err">{failure}</p> : null}
+      {failure ? <p className="mt-1 text-mark text-danger">{failure}</p> : null}
     </div>
   );
 }

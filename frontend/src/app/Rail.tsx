@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import type { Me } from "../data/api.js";
 import type { Chat } from "../data/useChat.js";
 import { Icon } from "../shared/Icon.js";
+import { Button } from "../shared/ui/button.js";
 import { InvitePanel } from "./InvitePanel.js";
 import { NewRoom } from "./NewRoom.js";
 import { RoomList } from "./RoomList.js";
@@ -65,12 +66,17 @@ export function sectionOf(pathname: string): Section {
  */
 function Parts({ section, pending }: { section: Section; pending: number }) {
   return (
-    <nav className="parts" aria-label="Разделы">
+    <nav className="flex flex-col gap-0.5" aria-label="Разделы">
       {PARTS.map((part) => (
         <Link
           key={part.id}
           to={part.path}
-          className={section === part.id ? "part part-on" : "part"}
+          className={[
+            "flex items-center gap-2.5 rounded px-2.5 py-2 text-body no-underline transition-colors",
+            section === part.id
+              ? "bg-selected font-medium text-ink"
+              : "bg-transparent text-muted hover:bg-raised hover:text-ink",
+          ].join(" ")}
           aria-current={section === part.id ? "page" : undefined}
         >
           <Icon name={part.icon} />
@@ -78,7 +84,9 @@ function Parts({ section, pending }: { section: Section; pending: number }) {
           {/* Счётчик только у ждущих решения: подтверждённое внимания не
               требует, а метка на нём учит эту метку не замечать. */}
           {part.id === "deals" && pending > 0 ? (
-            <span className="part-count">{pending}</span>
+            <span className="ml-auto rounded-pill bg-accent px-1.5 text-mark text-on-accent">
+              {pending}
+            </span>
           ) : null}
         </Link>
       ))}
@@ -100,9 +108,14 @@ export function Rail({
   onLeave: () => void;
 }) {
   return (
-    <aside className="rail">
-      <h1>{me.workspace.name}</h1>
-      <p className="who">{me.participant.displayName}</p>
+    <aside className="flex h-full w-64 shrink-0 flex-col gap-4 overflow-hidden border-r border-line bg-panel p-3">
+      {/* Название пространства — единственное место, где живёт засечная
+          гарнитура (Р-008): у продукта должно быть лицо хотя бы в одной
+          точке, но ровно в одной. */}
+      <div className="px-2.5 pt-2">
+        <h1 className="font-serif text-brand leading-tight text-ink">{me.workspace.name}</h1>
+        <p className="text-aside text-muted">{me.participant.displayName}</p>
+      </div>
 
       <Parts section={section} pending={pending} />
 
@@ -116,7 +129,7 @@ export function Rail({
             currentId={chat.current?.id ?? null}
             onSelect={(id) => chat.select(id)}
           />
-          <div className="rail-actions">
+          <div className="flex flex-col gap-0.5">
             <NewRoom label="+ Канал" placeholder="Название канала" onCreate={chat.addChannel} />
             {chat.current ? (
               <NewRoom label="+ Ветка" placeholder="О чём ветка" onCreate={chat.addThread} />
@@ -124,19 +137,19 @@ export function Rail({
           </div>
         </>
       ) : (
-        <div className="rail-filler" />
+        <div className="flex-1" />
       )}
 
       {/* Только настройки: три однородные вещи, ни одна не переключает
         раздел. Раньше здесь же стояла «Своя нейросеть», и подвал
         отвечал сразу на два разных вопроса. */}
-      <div className="rail-foot">
+      <div className="flex shrink-0 flex-col gap-1 border-t border-line pt-3">
         <ThemeSwitch />
         <InvitePanel />
-        <button type="button" className="quiet rail-out" onClick={onLeave}>
+        <Button variant="ghost" size="sm" className="justify-start" onClick={onLeave}>
           <Icon name="выход" />
           Выйти
-        </button>
+        </Button>
       </div>
     </aside>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon, type IconName } from "../shared/Icon.js";
 import { apply, type Choice, chosen, next, remember, watchSystem } from "../shared/theme.js";
+import { Button } from "../shared/ui/button.js";
 
 /**
  * Переключатель темы: система → светлая → тёмная → система.
@@ -32,9 +33,10 @@ export function ThemeSwitch() {
   const look = LOOK[choice];
 
   return (
-    <button
-      type="button"
-      className="rail-add"
+    <Button
+      variant="ghost"
+      size="sm"
+      className="justify-start text-muted"
       // Кнопка меняет состояние, а не открывает список: говорим, что
       // будет дальше, чтобы нажатие не было угадыванием.
       title={`${look.label} — нажмите, чтобы выбрать «${LOOK[next(choice)].label.toLowerCase()}»`}
@@ -47,6 +49,6 @@ export function ThemeSwitch() {
     >
       <Icon name={look.icon} />
       {look.label}
-    </button>
+    </Button>
   );
 }

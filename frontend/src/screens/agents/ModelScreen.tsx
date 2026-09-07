@@ -3,6 +3,7 @@ import { api, type Bridge } from "../../data/api.js";
 import { NOT_COPIED, copy as toClipboard } from "../../shared/clipboard.js";
 import { detailOf } from "../../shared/failure.js";
 import { troubleOf } from "../../shared/trouble.js";
+import { Button } from "../../shared/ui/button.js";
 import { часы } from "../../shared/when.js";
 
 /**
@@ -39,10 +40,10 @@ function explain(error: unknown): string {
 function State({ bridge }: { bridge: Bridge }) {
   const seen = bridge.lastSeenAt ? new Date(bridge.lastSeenAt) : null;
   return (
-    <p className="link-state">
+    <p className="flex flex-wrap items-center gap-2 text-body text-ink">
       <span className={bridge.online ? "dot dot-on" : "dot"} aria-hidden="true" />
       <b>{bridge.name ?? "код выдан, машина ещё не подключалась"}</b>
-      <span className="link-when">
+      <span className="text-aside text-muted">
         {bridge.online ? "на связи" : bridge.joined ? "нет связи" : "ждёт запуска"}
         {seen ? ` · последний раз в ${часы.format(seen)}` : ""}
       </span>
@@ -54,9 +55,11 @@ function State({ bridge }: { bridge: Bridge }) {
 function Command({ command }: { command: string }) {
   return (
     <>
-      <p className="deal-where">Выполните это у себя один раз. Код одноразовый и живёт 15 минут.</p>
+      <p className="mt-2 text-aside text-muted">
+        Выполните это у себя один раз. Код одноразовый и живёт 15 минут.
+      </p>
       <input
-        className="invite-link"
+        className="h-9 w-full rounded border border-edge bg-bg px-3 text-aside text-ink outline-none"
         readOnly
         value={command}
         onFocus={(event) => event.target.select()}
@@ -77,14 +80,14 @@ function Outcome({
   return (
     <>
       {answer ? (
-        <blockquote className="cite">
-          <p className="cite-text">{answer.text}</p>
-          <p className="cite-who">
+        <blockquote className="mt-3 rounded border-l-2 border-accent bg-panel px-3 py-2">
+          <p className="text-body leading-relaxed text-ink">{answer.text}</p>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-aside text-muted">
             <span>ответ настоящей модели за {(answer.ms / 1000).toFixed(1)} с</span>
           </p>
         </blockquote>
       ) : null}
-      {failure ? <p className="cite-none">{failure}</p> : null}
+      {failure ? <p className="mt-3 text-aside text-danger">{failure}</p> : null}
     </>
   );
 }
@@ -148,18 +151,20 @@ export function ModelScreen({
   const connected = bridges.some((one) => one.online);
 
   return (
-    <div className="work">
-      <section className="work-part" aria-labelledby="подписка">
-        <h3 id="подписка">Своя подписка</h3>
+    <div className="flex-1 overflow-y-auto p-5">
+      <section className="mb-6" aria-labelledby="подписка">
+        <h3 id="подписка" className="mb-3 text-lead font-semibold text-ink">
+          Своя подписка
+        </h3>
 
-        <article className="deal">
-          <p className="deal-text">
+        <article className="mb-3 rounded-lg border border-line bg-raised p-4 shadow-raised">
+          <p className="text-lead leading-snug text-ink">
             Модель отвечает через ваш собственный клиент, на вашей машине. Токен подписки остаётся у
             вас: мы его не видим и не храним.
           </p>
 
           {bridges.length > 0 ? (
-            <div className="links">
+            <div className="mt-3 flex flex-col gap-1">
               {bridges.map((bridge) => (
                 <State key={bridge.id} bridge={bridge} />
               ))}
@@ -168,24 +173,24 @@ export function ModelScreen({
 
           {command ? <Command command={command} /> : null}
 
-          <div className="deal-do">
-            <button type="button" disabled={busy} onClick={() => void issue()}>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button disabled={busy} onClick={() => void issue()}>
               {command ? "Новый код" : "Подключить"}
-            </button>
+            </Button>
             {command ? (
-              <button type="button" onClick={() => void copy()}>
+              <Button variant="outline" onClick={() => void copy()}>
                 {copied ? "Скопировано" : "Скопировать"}
-              </button>
+              </Button>
             ) : null}
-            <button type="button" className="quiet" disabled={busy} onClick={() => void check()}>
+            <Button variant="outline" disabled={busy} onClick={() => void check()}>
               {busy ? "Спрашиваем…" : "Проверить"}
-            </button>
+            </Button>
           </div>
 
           <Outcome answer={answer} failure={failure} />
 
           {!connected && !command ? (
-            <p className="deal-where">
+            <p className="mt-2 text-aside text-muted">
               Нужен установленный <code>claude</code>, в который вы вошли. Проверка спрашивает
               настоящую модель — иначе не отличить рабочее подключение от истёкшего.
             </p>

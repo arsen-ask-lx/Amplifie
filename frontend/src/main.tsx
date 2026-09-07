@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App, takeInviteFromUrl } from "./app/App.js";
+import { TooltipProvider } from "./shared/ui/tooltip.js";
 import "./styles.css";
 import { apply, chosen } from "./shared/theme.js";
 
@@ -24,7 +25,11 @@ if (!root) throw new Error("нет узла #root");
 createRoot(root).render(
   <StrictMode>
     <BrowserRouter>
-      <App invite={invite} />
+      {/* Один поставщик подсказок на всё приложение: он держит общую
+          задержку и следит, чтобы две подсказки не висели разом. */}
+      <TooltipProvider delayDuration={300}>
+        <App invite={invite} />
+      </TooltipProvider>
     </BrowserRouter>
   </StrictMode>,
 );

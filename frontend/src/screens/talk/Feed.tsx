@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
-import { RichText } from "../../shared/RichText.js";
-import { день as dayOf, часы } from "../../shared/when.js";
+import { Button } from "../../shared/ui/button.js";
+import { день as dayOf } from "../../shared/when.js";
+import { Bubble, rowsOf } from "./Bubble.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).
@@ -16,107 +17,11 @@ import { день as dayOf, часы } from "../../shared/when.js";
  * сторона и цвет уже ответили на этот вопрос.
  */
 
-/** Столько времени между сообщениями — и группа начинается заново. */
-const REGROUP_MS = 5 * 60 * 1000;
-
-function sameDay(a: Date, b: Date): boolean {
-  return a.toDateString() === b.toDateString();
-}
-
-function startsGroup(message: Message, previous: Message | undefined): boolean {
-  if (!previous) return true;
-  if (previous.author.id !== message.author.id) return true;
-  const gap = new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime();
-  return gap > REGROUP_MS;
-}
-
-function endsGroup(message: Message, next: Message | undefined): boolean {
-  return next === undefined || startsGroup(next, message);
-}
-
-/**
- * Три и больше переводов строки подряд сжимаются до одного пустого ряда.
- *
- * Хранимый текст не трогаем — по Р-002 он остаётся ровно таким, каким его
- * отправили. Это правило ПОКАЗА: полтора экрана пустоты внутри сообщения
- * разрывают разговор сильнее, чем помогает задуманная автором пауза.
- */
-function forDisplay(body: string): string {
-  return body.replace(/\n{3,}/gu, "\n\n");
-}
-
-/** Кружок с инициалом — вместо картинки, которой у нас нет. */
-function initial(name: string): string {
-  return (name.trim()[0] ?? "?").toUpperCase();
-}
-
 function Empty() {
   return (
-    <p className="feed-empty">
+    <p className="p-8 text-center text-body text-muted">
       Здесь пока пусто. Напишите первое сообщение — с него начнётся канал.
     </p>
-  );
-}
-
-interface Row {
-  message: Message;
-  mine: boolean;
-  first: boolean;
-  last: boolean;
-  newDay: boolean;
-  fresh: boolean;
-}
-
-/** Что показать для каждого сообщения. Считается один раз, не в разметке. */
-function rowsOf(messages: Message[], meId: string, wasThere: number | null): Row[] {
-  return messages.map((message, index) => {
-    const previous = messages[index - 1];
-    const first = startsGroup(message, previous);
-    return {
-      message,
-      mine: message.author.id === meId,
-      first,
-      last: endsGroup(message, messages[index + 1]),
-      newDay: !previous || !sameDay(new Date(message.createdAt), new Date(previous.createdAt)),
-      fresh: wasThere !== null && message.seq > wasThere,
-    };
-  });
-}
-
-function Bubble({ row }: { row: Row }) {
-  const at = new Date(row.message.createdAt);
-  const shape = [
-    "msg",
-    row.mine ? "msg-mine" : "msg-theirs",
-    row.first ? "msg-first" : "",
-    row.last ? "msg-last" : "",
-    row.fresh ? "msg-fresh" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return (
-    // data-seq — по нему лента находит реплику при переходе из цитаты.
-    <article className={shape} data-seq={row.message.seq}>
-      {/* Кружок держит место у всей группы, но виден только у последнего:
-          так строки одного автора стоят ровно, а лента не пестрит. */}
-      {row.mine ? null : (
-        <span className="msg-face" aria-hidden="true">
-          {row.last ? initial(row.message.author.name) : ""}
-        </span>
-      )}
-      <div className="bubble">
-        {row.first && !row.mine ? (
-          <span className="msg-author">{row.message.author.name}</span>
-        ) : null}
-        <span className="msg-text">
-          <RichText body={forDisplay(row.message.body)} />
-        </span>
-        <time className="msg-time" dateTime={row.message.createdAt}>
-          {часы.format(at)}
-        </time>
-      </div>
-    </article>
   );
 }
 
@@ -244,7 +149,7 @@ export function Feed({
   return (
     // role="log" — новые сообщения читаются вслух программой чтения экрана.
     <div
-      className="feed"
+      className="flex-1 overflow-y-auto px-4 py-3"
       role="log"
       aria-live="polite"
       aria-relevant="additions"
@@ -252,18 +157,24 @@ export function Feed({
       onScroll={onScroll}
     >
       {hasOlder ? (
-        <button type="button" className="quiet feed-older" onClick={onLoadOlder}>
-          Показать более раннее
-        </button>
+        <div className="mb-3 text-center">
+          <Button variant="ghost" size="sm" onClick={onLoadOlder}>
+            Показать более раннее
+          </Button>
+        </div>
       ) : (
-        <p className="feed-start">{title ? `Начало канала «${title}»` : "Начало канала"}</p>
+        <p className="mb-4 text-center text-aside text-muted">
+          {title ? `Начало канала «${title}»` : "Начало канала"}
+        </p>
       )}
 
       {rows.map((row) => (
         <div key={row.message.id}>
           {row.newDay ? (
-            <p className="feed-day">
-              <span>{dayOf.format(new Date(row.message.createdAt))}</span>
+            <p className="my-4 text-center">
+              <span className="rounded-pill bg-panel px-3 py-1 text-mark text-muted">
+                {dayOf.format(new Date(row.message.createdAt))}
+              </span>
             </p>
           ) : null}
           <Bubble row={row} />

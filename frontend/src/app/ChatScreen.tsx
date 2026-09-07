@@ -10,6 +10,7 @@ import { Composer } from "../screens/talk/Composer.js";
 import { Feed } from "../screens/talk/Feed.js";
 import { BoardScreen, type GoTo, WorkScreen } from "../screens/WorkScreen.js";
 import { Icon } from "../shared/Icon.js";
+import { Button } from "../shared/ui/button.js";
 import { Rail, type Section, sectionOf } from "./Rail.js";
 
 /** Заголовок середины экрана. Разговор подписывается своим названием. */
@@ -38,11 +39,11 @@ const TITLES: Partial<Record<Section, string>> = {
  * регистрации. Экран обязан сказать это прямо, а не крутить загрузку.
  */
 function Room({ chat, meId }: { chat: Chat; meId: string }) {
-  if (chat.loading) return <p className="feed-empty">Загружаем…</p>;
+  if (chat.loading) return <p className="p-8 text-center text-body text-muted">Загружаем…</p>;
 
   if (chat.conversations.length === 0) {
     return (
-      <p className="feed-empty">
+      <p className="p-8 text-center text-body text-muted">
         В этом пространстве ещё нет каналов. Заведите первый — кнопка «+ Канал» слева.
       </p>
     );
@@ -81,8 +82,8 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
 function AgentLine({ asking, failure }: { asking: boolean; failure: string | null }) {
   if (asking) {
     return (
-      <p className="agent-line" aria-live="polite">
-        <span className="agent-dot">
+      <p className="flex items-center gap-2 px-5 py-1 text-aside text-muted" aria-live="polite">
+        <span className="animate-pulse text-accent">
           <Icon name="точка" size={12} />
         </span>
         Сводка печатает…
@@ -91,7 +92,7 @@ function AgentLine({ asking, failure }: { asking: boolean; failure: string | nul
   }
   if (failure) {
     return (
-      <p className="agent-line agent-line-bad" role="status">
+      <p className="px-5 py-1 text-aside text-danger" role="status">
         {failure}
       </p>
     );
@@ -117,10 +118,10 @@ function Listen({
   const [said, setSaid] = useState<string | null>(null);
 
   return (
-    <span className="listen">
-      <button
-        type="button"
-        className="quiet"
+    <span className="flex shrink-0 items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
         disabled={busy}
         onClick={async () => {
           setBusy(true);
@@ -139,8 +140,8 @@ function Listen({
         }}
       >
         {busy ? "Слушает…" : "Разобрать"}
-      </button>
-      {said ? <span className="listen-said">{said}</span> : null}
+      </Button>
+      {said ? <span className="text-aside text-muted">{said}</span> : null}
     </span>
   );
 }
@@ -175,18 +176,24 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
   const pending = awaiting(work.agreements).length;
 
   return (
-    <div className="workspace">
+    <div className="flex h-dvh bg-bg text-ink">
       <Rail me={me} chat={chat} section={section} pending={pending} onLeave={onLeave} />
 
-      <main className="room-view">
-        <header className="room-head">
-          <h2>{TITLES[section] ?? chat.current?.title ?? "Канал"}</h2>
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-line px-5">
+          <h2 className="truncate text-head font-semibold text-ink">
+            {TITLES[section] ?? chat.current?.title ?? "Канал"}
+          </h2>
           {section === "talk" && chat.current ? (
             <Listen conversationId={chat.current.id} onHeard={work.reload} />
           ) : null}
         </header>
 
-        {chat.failure ? <p className="err-top">{chat.failure}</p> : null}
+        {chat.failure ? (
+          <p className="border-b border-line bg-panel px-5 py-2 text-aside text-danger">
+            {chat.failure}
+          </p>
+        ) : null}
 
         <Middle
           section={section}
