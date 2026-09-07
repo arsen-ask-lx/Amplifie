@@ -40,6 +40,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface AgentsView {
+  items: Array<{ id: string; name: string; kind: string; answersOn: string }>;
+  /** Мост СПРАШИВАЮЩЕГО: агент отвечает через его подписку, не через чужую. */
+  bridge: { connected: boolean; online: boolean; name: string | null };
+}
+
 export interface Conversation {
   id: string;
   kind: string;
@@ -129,6 +135,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ body, clientMsgId }),
     }),
+
+  /** Агенты пространства и состояние МОЕГО моста — через него они отвечают. */
+  agents: () => request<AgentsView>("/v1/agents"),
 
   /**
    * Позвать агента разобрать разговор.

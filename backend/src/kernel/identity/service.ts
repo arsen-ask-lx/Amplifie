@@ -416,6 +416,21 @@ export async function joinByInvite(
  * уже есть, а засеять всех разом значит завести агента там, где им
  * никогда не воспользуются.
  */
+/**
+ * Агенты пространства. ТОЛЬКО ЧТЕНИЕ.
+ *
+ * Отдельно от `ensureAgent` намеренно: тот заводит участника при первом
+ * ответе, и звать его из `GET` нельзя. Чтение, которое пишет, однажды
+ * заведёт участника от чужого запроса, и в журнале появится событие
+ * без причины. Пустой список — честный ответ: агента ещё не звали.
+ */
+export async function listAgents(
+  workspaceId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const found = await repo.findAgent(db, workspaceId);
+  return found ? [{ id: found.id, name: found.displayName }] : [];
+}
+
 export async function ensureAgent(workspaceId: string): Promise<{ id: string }> {
   const existing = await repo.findAgent(db, workspaceId);
   if (existing) return existing;

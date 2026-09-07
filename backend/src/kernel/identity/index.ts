@@ -14,6 +14,7 @@ export {
   issueInvite,
   type JoinInput,
   joinByInvite,
+  listAgents,
   login,
   logout,
   type RegisterInput,

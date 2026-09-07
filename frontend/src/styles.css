@@ -824,23 +824,28 @@ button:disabled {
    Переключатель над списком разговоров: список — навигация ВНУТРИ
    раздела, а не над ним. Разделов будет больше; место уже есть. */
 
+/* Разделы столбцом, а не в ряд.
+   Было в ряд — на трёх кнопках «Агенты» переносились на вторую строку
+   и вставали не под своими соседями. Столбец не ломается на четвёртом
+   разделе и оставляет длинным названиям место, а комментарий в коде
+   обещает, что разделы ещё появятся. */
 .parts {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 1px;
   margin: 4px 0 12px;
 }
 .part {
-  width: auto;
-  flex: 1;
+  width: 100%;
   background: none;
   color: var(--muted);
   border-radius: 8px;
-  padding: 8px 8px;
+  padding: 8px 12px;
   font-size: 13px;
   font-weight: 500;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
 }
 .part:hover {
@@ -855,6 +860,9 @@ button:disabled {
 /* Единственное место, где тратится акцент вне ленты, — и ровно то,
    на которое он был отложен: найденная договорённость (Р-008). */
 .part-count {
+  /* Счётчик вправо: названия разделов разной длины, и без этого метка
+     плясала бы по горизонтали от раздела к разделу. */
+  margin-left: auto;
   background: var(--accent);
   color: var(--on-accent);
   font-size: 11px;
@@ -1127,4 +1135,61 @@ button:hover .icon {
   .agent-line .icon {
     animation: none;
   }
+}
+
+/* Пустое место вместо содержимого раздела: подвал должен остаться внизу,
+   а не подниматься к переключателю, когда списка каналов нет. */
+.rail-filler {
+  flex: 1;
+}
+
+/* Раздел «Агенты» */
+.work-note {
+  max-width: 62ch;
+  margin: 0 0 32px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.agent-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.agent-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.agent-what {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-state {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-edge);
+  color: var(--accent-ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Мост погашен — это не ошибка, а состояние: приглушённо, не красным.
+   Красный здесь учил бы пугаться закрытого терминала. */
+.agent-state-off {
+  background: var(--raised);
+  border-color: var(--line);
+  color: var(--muted);
 }

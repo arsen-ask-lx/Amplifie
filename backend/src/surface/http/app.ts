@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
 import { setBusFailureReporter } from "../../platform/bus.js";
 import { config } from "../../platform/config.js";
+import { registerAgentRoutes } from "./routes/agents.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerBridgeRoutes } from "./routes/bridge.js";
 import { registerChatRoutes } from "./routes/chat.js";
@@ -37,6 +38,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerHealthRoutes(app);
   registerAuthRoutes(app);
   registerBridgeRoutes(app);
+  registerAgentRoutes(app);
   registerChatRoutes(app);
   registerInviteRoutes(app);
   registerStreamRoutes(app);
