@@ -15,13 +15,13 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOT = "apps/web/src";
+const ROOT = "frontend/src";
 
 const FORBIDDEN = [
   {
     pattern: /dangerouslySetInnerHTML/u,
     why: "вставка сырого HTML в React",
-    fix: "отрисуй узлами React — см. apps/web/src/RichText.tsx",
+    fix: "отрисуй узлами React — см. frontend/src/RichText.tsx",
   },
   {
     pattern: /\.(inner|outer)HTML\s*=/u,

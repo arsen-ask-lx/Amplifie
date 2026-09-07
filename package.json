@@ -6,14 +6,16 @@
     "node": ">=24"
   },
   "workspaces": [
-    "apps/*",
+    "frontend",
+    "backend",
+    "bridge",
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc --build && tsc -p apps/web --noEmit",
+    "typecheck": "tsc --build && tsc -p frontend --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "arch": "depcruise apps --config .dependency-cruiser.cjs",
+    "arch": "depcruise backend bridge --config .dependency-cruiser.cjs",
     "decisions": "node tools/checks/check-decisions.mjs",
     "contrast": "node tools/checks/check-contrast.mjs",
     "unit": "vitest run --config vitest.unit.config.ts",
@@ -24,7 +26,7 @@
     "arbiter": "node tools/arbiter/report.mjs",
     "label": "node tools/arbiter/label.mjs",
     "test": "vitest run",
-    "bridge": "tsc --build apps/bridge && node apps/bridge/dist/main.js"
+    "bridge": "tsc --build bridge && node bridge/dist/main.js"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.11",

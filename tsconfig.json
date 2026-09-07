@@ -5,10 +5,10 @@
       "path": "./packages/model"
     },
     {
-      "path": "./apps/api"
+      "path": "./backend"
     },
     {
-      "path": "./apps/bridge"
+      "path": "./bridge"
     }
   ]
 }

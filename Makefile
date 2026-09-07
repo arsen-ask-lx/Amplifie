@@ -41,10 +41,10 @@ install: ## поставить зависимости локально (для �
 > npm install
 
 migrate: ## применить миграции к базе
-> cd apps/api && DATABASE_URL="postgres://$${POSTGRES_USER:-amplifie}:$${POSTGRES_PASSWORD:-amplifie_dev_only}@127.0.0.1:$${POSTGRES_HOST_PORT:-54477}/$${POSTGRES_DB:-amplifie}" npx drizzle-kit migrate
+> cd backend && DATABASE_URL="postgres://$${POSTGRES_USER:-amplifie}:$${POSTGRES_PASSWORD:-amplifie_dev_only}@127.0.0.1:$${POSTGRES_HOST_PORT:-54477}/$${POSTGRES_DB:-amplifie}" npx drizzle-kit migrate
 
 migrate-new: ## сгенерировать миграцию из схемы (SQL потом читать и править руками)
-> cd apps/api && npx drizzle-kit generate
+> cd backend && npx drizzle-kit generate
 
 typecheck: ## проверка типов
 > npm run typecheck

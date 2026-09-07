@@ -23,7 +23,7 @@
  */
 import { readFileSync } from "node:fs";
 
-const CSS = "apps/web/src/styles.css";
+const CSS = "frontend/src/styles.css";
 
 /** Шаг сетки. Совпадает с `--step` в стилях. */
 const STEP = 4;

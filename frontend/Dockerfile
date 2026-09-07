@@ -3,11 +3,11 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json* tsconfig.base.json ./
-COPY apps/web/package.json apps/web/
-RUN npm ci --workspace=@amplifie/web --include-workspace-root
-COPY apps/web apps/web
-RUN npx tsc -p apps/web --noEmit && npm run build --workspace=@amplifie/web
+COPY frontend/package.json frontend/
+RUN npm ci --workspace=@amplifie/frontend --include-workspace-root
+COPY frontend frontend
+RUN npx tsc -p frontend --noEmit && npm run build --workspace=@amplifie/frontend
 
 FROM caddy:2-alpine AS runtime
-COPY --from=build /app/apps/web/dist /srv
-COPY apps/web/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/frontend/dist /srv
+COPY frontend/Caddyfile /etc/caddy/Caddyfile

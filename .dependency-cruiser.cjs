@@ -47,8 +47,8 @@ module.exports = {
       comment:
         "platform — низ стека. Если он импортирует ядро или витрину, кольца схлопнулись " +
         "и менять техническое основание станет так же дорого, как модель данных.",
-      from: { path: "^apps/api/src/platform/" },
-      to: { path: "^apps/api/src/(kernel|surface)/" },
+      from: { path: "^backend/src/platform/" },
+      to: { path: "^backend/src/(kernel|surface)/" },
     },
     {
       name: "ядро-не-знает-витрин",
@@ -56,8 +56,8 @@ module.exports = {
       comment:
         "kernel не импортирует surface. Иначе витрину нельзя выбросить, не тронув ядро — " +
         "а это единственное, ради чего кольца и заведены.",
-      from: { path: "^apps/api/src/kernel/" },
-      to: { path: "^apps/api/src/surface/" },
+      from: { path: "^backend/src/kernel/" },
+      to: { path: "^backend/src/surface/" },
     },
     {
       name: "витрина-не-лезет-в-хранилище",
@@ -65,8 +65,8 @@ module.exports = {
       comment:
         "surface не импортирует repo и schema напрямую — только публичный index модуля. " +
         "Иначе появляются жирные вьюхи и путь записи в обход службы (Р-2).",
-      from: { path: "^apps/api/src/surface/" },
-      to: { path: "^apps/api/src/kernel/[^/]+/(repo|schema).ts$" },
+      from: { path: "^backend/src/surface/" },
+      to: { path: "^backend/src/kernel/[^/]+/(repo|schema).ts$" },
     },
     // --- Порядок модулей ядра: space → identity → talk → work ---
     // Нижний НЕ знает про верхний. Запрещаем ровно обратные рёбра.
@@ -78,8 +78,8 @@ module.exports = {
       name: "space-ничего-не-знает",
       severity: "error",
       comment: "space — самый низ ядра: арендатор не знает ни про людей, ни про разговоры.",
-      from: { path: "^apps/api/src/kernel/space/" },
-      to: { path: "^apps/api/src/kernel/(identity|talk|work)/" },
+      from: { path: "^backend/src/kernel/space/" },
+      to: { path: "^backend/src/kernel/(identity|talk|work)/" },
     },
     {
       name: "identity-не-знает-разговоров",
@@ -88,15 +88,15 @@ module.exports = {
         "identity ниже talk: кто существует — не зависит от того, где говорят. " +
         "Обратное делает пару взаимно зависимой, и ни один модуль нельзя " +
         "ни выбросить, ни понять отдельно.",
-      from: { path: "^apps/api/src/kernel/identity/" },
-      to: { path: "^apps/api/src/kernel/(talk|work)/" },
+      from: { path: "^backend/src/kernel/identity/" },
+      to: { path: "^backend/src/kernel/(talk|work)/" },
     },
     {
       name: "talk-не-знает-работы",
       severity: "error",
       comment: "talk ниже work: разговор существует сам по себе, задача — нет.",
-      from: { path: "^apps/api/src/kernel/talk/" },
-      to: { path: "^apps/api/src/kernel/work/" },
+      from: { path: "^backend/src/kernel/talk/" },
+      to: { path: "^backend/src/kernel/work/" },
     },
     {
       name: "app-зовут-только-витрины",
@@ -104,8 +104,8 @@ module.exports = {
       comment:
         "Слой сборки src/app/ видит все модули — поэтому его не должно быть " +
         "видно снизу. Импорт app из ядра вернёт ту же взаимную зависимость.",
-      from: { path: "^apps/api/src/(kernel|platform)/" },
-      to: { path: "^apps/api/src/app/" },
+      from: { path: "^backend/src/(kernel|platform)/" },
+      to: { path: "^backend/src/app/" },
     },
     {
       name: "чужие-внутренности-закрыты",
@@ -115,10 +115,10 @@ module.exports = {
         "Каждый модуль владеет своими таблицами; чужое читается только через " +
         "публичные операции. $1 — обратная ссылка на имя модуля слева: " +
         "свой repo/service импортировать можно, чужой нельзя.",
-      from: { path: "^apps/api/src/kernel/([^/]+)/", pathNot: TEST },
+      from: { path: "^backend/src/kernel/([^/]+)/", pathNot: TEST },
       to: {
-        path: "^apps/api/src/kernel/[^/]+/(repo|service).ts$",
-        pathNot: "^apps/api/src/kernel/$1/",
+        path: "^backend/src/kernel/[^/]+/(repo|service).ts$",
+        pathNot: "^backend/src/kernel/$1/",
       },
     },
   ],

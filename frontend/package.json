@@ -1,5 +1,5 @@
 {
-  "name": "@amplifie/web",
+  "name": "@amplifie/frontend",
   "private": true,
   "type": "module",
   "scripts": {
