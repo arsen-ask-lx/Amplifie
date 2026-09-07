@@ -40,13 +40,20 @@ const threadSchema = z.object({
 });
 
 /** Кто пришёл. Без сессии дальше не пускаем. */
-async function viewerOf(request: FastifyRequest, reply: FastifyReply): Promise<Viewer | null> {
+async function viewerOf(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<(Viewer & { kind: string }) | null> {
   const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
   if (!actor) {
     reply.code(401).send({ error: "not_authenticated" });
     return null;
   }
-  return { participantId: actor.participantId, workspaceId: actor.workspaceId };
+  return {
+    participantId: actor.participantId,
+    workspaceId: actor.workspaceId,
+    kind: actor.kind,
+  };
 }
 
 function clampLimit(raw: unknown): number {
@@ -88,7 +95,9 @@ function modelFailure(error: unknown): { code: number; body: object } | null {
  */
 async function answerOrExplain(
   reply: FastifyReply,
-  viewer: { participantId: string; workspaceId: string },
+  // `kind` нужен ядру работы: подтвердить договорённость может только
+  // человек. Витрина не решает этого, она лишь честно передаёт, кто пришёл.
+  viewer: { participantId: string; workspaceId: string; kind: string },
   conversationId: string,
 ): Promise<FastifyReply> {
   try {

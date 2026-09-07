@@ -1,3 +1,4 @@
+import { readEnvelope } from "../agent/answering/envelope.js";
 import { buildPrompt, SYSTEM, type Turn } from "../agent/answering/prompt.js";
 import { awaitsAnswer } from "../agent/listening/address.js";
 import { NoBridgeError } from "../agent/model/bridge.js";
@@ -8,6 +9,7 @@ import { appendEvent } from "../kernel/journal/index.js";
 import { listMessages, sendAsAgent, type Viewer } from "../kernel/talk/index.js";
 import { db } from "../platform/db.js";
 import { askOwnBridge } from "./bridging.js";
+import { doActions } from "./doing.js";
 
 /**
  * Агент отвечает в чате по обращению (task-006), через настройку
@@ -161,7 +163,10 @@ export async function answersVia(viewer: Viewer): Promise<AnswersVia> {
  * участника — это ложь про то, кто говорил; такому место в журнале,
  * а не в разговоре.
  */
-export async function answerIfAddressed(viewer: Viewer, conversationId: string): Promise<Answer> {
+export async function answerIfAddressed(
+  viewer: Viewer & { kind: string },
+  conversationId: string,
+): Promise<Answer> {
   // Видимость разговора проверяется здесь же: чужой разговор не читается,
   // и до модели дело не доходит.
   const feed = await listMessages(viewer, conversationId, WINDOW);
@@ -193,10 +198,25 @@ export async function answerIfAddressed(viewer: Viewer, conversationId: string):
 
   const agent = await ensureAgent(viewer.workspaceId);
 
+  // Конверт разбирается ЗДЕСЬ, после ответа модели и до записи в ленту.
+  // Не разобрался — весь вывод считается простым ответом (Р-017).
+  const envelope = readEnvelope(answer.text);
+
+  // Действия выполняются ТОЛЬКО потому, что человек обратился: до этой
+  // строки мы уже убедились в обращении (`called`). Ответственный, цитата
+  // и подтверждение — от него же, и ничто из этого не читается из вывода.
+  const done = await doActions(
+    viewer,
+    agent.id,
+    conversationId,
+    { id: asking.id, body: asking.body },
+    envelope.actions,
+  );
+
   // Ключ идемпотентности — идентификатор сообщения-обращения. Двойной зов
   // (двойной клик, повтор после разрыва) даёт один ответ, а не два.
   const message = await sendAsAgent(viewer, agent.id, conversationId, {
-    body: answer.text,
+    body: withReport(envelope.text, done),
     clientMsgId: asking.id,
   });
 
@@ -208,6 +228,7 @@ export async function answerIfAddressed(viewer: Viewer, conversationId: string):
     hint: answer.used.hint,
     promptChars: prompt.length,
     ms: answer.ms,
+    made: done.made.length,
   });
 
   return { messageId: message.id, body: message.body, ms: answer.ms };
@@ -228,4 +249,20 @@ function note(
     subjectId: conversationId,
     payload,
   });
+}
+
+/**
+ * Приписать к ответу, что агент сделал.
+ *
+ * Обязательно, а не по вкусу: действие, о котором не сказали, неотличимо
+ * от подлога (Р-017). Человек должен узнать о заведённой задаче из того же
+ * сообщения, в котором получил ответ, — а не из раздела «Работа» через час.
+ */
+function withReport(text: string, done: { made: string[] }): string {
+  if (done.made.length === 0) return text;
+  const listed = done.made.map((one) => `«${one}»`).join(", ");
+  const word = done.made.length === 1 ? "задачу" : "задачи";
+  return `${text}
+
+Завёл ${word}: ${listed}.`;
 }

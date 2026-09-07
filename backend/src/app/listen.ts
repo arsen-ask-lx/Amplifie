@@ -33,9 +33,11 @@ export async function listenTo(viewer: Viewer, conversationId: string): Promise<
   // обязан быть автор, иначе журнал не отвечает на вопрос «кто это сказал».
   const agent = await ensureAgent(viewer.workspaceId);
 
-  return propose(
+  // `propose` отдаёт идентификаторы заведённых, витрине нужно число.
+  const added = await propose(
     { workspaceId: viewer.workspaceId, participantId: agent.id },
     conversationId,
     heard,
   );
+  return added.length;
 }
