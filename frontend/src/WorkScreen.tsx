@@ -1,4 +1,5 @@
-import type { Agreement, Citation, Task } from "./api.js";
+import type { Agreement, Citation } from "./api.js";
+import { Board } from "./Board.js";
 import type { Work } from "./useWork.js";
 import { awaiting, quoteAddsNothing, refused, strays } from "./work.js";
 
@@ -140,31 +141,6 @@ function Waiting({ item, work, goTo }: { item: Agreement; work: Work; goTo: GoTo
   );
 }
 
-function Done({ task, goTo }: { task: Task; goTo: GoTo }) {
-  const only = task.citations[0];
-  return (
-    <article className="deal deal-done">
-      <p className="deal-text">{task.title}</p>
-      <p className="deal-where">
-        {task.conversationTitle} ·{" "}
-        <time dateTime={task.createdAt}>{when.format(new Date(task.createdAt))}</time>
-        {only ? (
-          <>
-            {" · "}
-            <button
-              type="button"
-              className="quiet cite-go"
-              onClick={() => goTo(task.conversationId, only.seq)}
-            >
-              откуда взялась
-            </button>
-          </>
-        ) : null}
-      </p>
-    </article>
-  );
-}
-
 function Refused({ item, work }: { item: Agreement; work: Work }) {
   return (
     <article className="deal deal-off">
@@ -185,7 +161,16 @@ function Refused({ item, work }: { item: Agreement; work: Work }) {
   );
 }
 
-export function WorkScreen({ work, goTo }: { work: Work; goTo: GoTo }) {
+export function WorkScreen({
+  work,
+  goTo,
+  meId,
+}: {
+  work: Work;
+  goTo: GoTo;
+  /** Кто я: ответственный по умолчанию у задачи, которую сам завожу. */
+  meId: string;
+}) {
   const wait = awaiting(work.agreements);
   const off = refused(work.agreements);
   const odd = strays(work.agreements);
@@ -211,13 +196,9 @@ export function WorkScreen({ work, goTo }: { work: Work; goTo: GoTo }) {
         ))}
       </section>
 
-      <section className="work-part" aria-labelledby="задачи">
+      <section className="work-part board-part" aria-labelledby="задачи">
         <h3 id="задачи">Задачи {work.tasks.length > 0 ? `· ${work.tasks.length}` : ""}</h3>
-        {work.tasks.length === 0 ? (
-          <p className="feed-empty">Подтверждённая договорённость становится задачей.</p>
-        ) : (
-          work.tasks.map((task) => <Done key={task.id} task={task} goTo={goTo} />)
-        )}
+        <Board tasks={work.tasks} people={work.people} meId={meId} onChange={work.reload} />
       </section>
 
       {off.length > 0 ? (

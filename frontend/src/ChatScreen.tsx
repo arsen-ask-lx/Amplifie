@@ -152,7 +152,7 @@ function Middle({
   onGoTo: GoTo;
 }) {
   if (section === "agents") return <AgentsScreen />;
-  if (section === "work") return <WorkScreen work={work} goTo={onGoTo} />;
+  if (section === "work") return <WorkScreen work={work} goTo={onGoTo} meId={meId} />;
   return <Room chat={chat} meId={meId} />;
 }
 

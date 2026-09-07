@@ -1291,3 +1291,134 @@ button:hover .icon {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* Доска задач: колонки по стадиям (task-010). */
+.board-part {
+  /* Доске нужна вся ширина: 62ch остальных частей ей мало. */
+  max-width: none;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  gap: 12px;
+  align-items: start;
+  overflow-x: auto;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  min-height: 80px;
+}
+
+.column-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.column-count {
+  color: var(--ink);
+}
+
+.card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.card-title {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.card-who,
+.card-from {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.card-from {
+  margin: 8px 0 0;
+}
+
+.card-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.card-pick select,
+.board-new input,
+.board-new select {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.card-move {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.card-move button {
+  flex: 1;
+}
+
+.board-new {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.board-new input {
+  flex: 1;
+  min-width: 160px;
+  padding: 8px 12px;
+}
+
+/* Кнопка по содержимому, а не во всю строку: растянутая на всю ширину
+   она читается как «главное действие экрана», хотя это одно из полей. */
+.board-new button {
+  width: auto;
+  white-space: nowrap;
+}
+
+/* Узкий экран: поля в столбик, и тогда кнопка во всю ширину уместна. */
+@media (width < 700px) {
+  .board-new {
+    flex-wrap: wrap;
+  }
+
+  .board-new button {
+    width: 100%;
+  }
+}
+
+/* Узкий экран: колонки в столбик. Горизонтальная прокрутка доски
+   на телефоне превращает её в лабиринт. */
+@media (width < 900px) {
+  .board {
+    grid-template-columns: 1fr;
+  }
+}

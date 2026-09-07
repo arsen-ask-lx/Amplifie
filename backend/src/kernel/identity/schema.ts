@@ -45,6 +45,10 @@ export const participant = pgTable(
     unique("participant_workspace_account_uq").on(t.workspaceId, t.accountId),
     // Ключ арендатора ПЕРВЫМ полем — иначе индекс не сработает под RLS (Р-7).
     index("participant_workspace_kind_idx").on(t.workspaceId, t.kind),
+    // Цель составного внешнего ключа: «ответственный — только человек»
+    // (task-010). Без уникальности на пару Postgres не разрешит ссылаться
+    // на (id, kind), и правило пришлось бы держать кодом.
+    unique("participant_id_kind_uq").on(t.id, t.kind),
   ],
 );
 

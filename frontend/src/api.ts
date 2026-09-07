@@ -113,13 +113,26 @@ export interface Agreement {
 
 export interface Task {
   id: string;
-  agreementId: string;
   title: string;
-  status: string;
+  /** Откуда родилась. Пусто — завели руками. */
+  agreementId: string | null;
+  /** Колонка доски. Список закрыт сервером и базой. */
+  stage: string;
   createdAt: string;
-  conversationId: string;
-  conversationTitle: string;
+  /** Пусто — задачу завели руками, а не из договорённости. */
+  fromAgreement: boolean;
+  conversationId: string | null;
+  conversationTitle: string | null;
+  assignedTo: { id: string; name: string; kind: string } | null;
+  /** Всегда человек: это держит база, а не экран. */
+  responsible: { id: string; name: string } | null;
   citations: Citation[];
+}
+
+export interface Participant {
+  id: string;
+  name: string;
+  kind: string;
 }
 
 /** Мост — машина участника, на которой живёт его подписка (task-001). */
@@ -161,6 +174,19 @@ export const api = {
 
   /** Агенты пространства и состояние МОЕГО моста — через него они отвечают. */
   agents: () => request<AgentsView>("/v1/agents"),
+
+  /** Кого можно назначить исполнителем. */
+  participants: () => request<{ items: Participant[] }>("/v1/participants"),
+
+  /** Завести задачу руками — без договорённости (task-010). */
+  addTask: (input: { title: string; responsibleId: string; assignedToId?: string | null }) =>
+    request<Task>("/v1/tasks", { method: "POST", body: JSON.stringify(input) }),
+
+  /** Подвинуть по доске либо переназначить. */
+  patchTask: (
+    id: string,
+    patch: { stage?: string; assignedToId?: string | null; responsibleId?: string },
+  ) => request<Task>(`/v1/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   /** Мои ключи и ключи пространства. Чужих личных здесь не бывает. */
   modelKeys: () => request<{ items: ModelKey[] }>("/v1/model-keys"),

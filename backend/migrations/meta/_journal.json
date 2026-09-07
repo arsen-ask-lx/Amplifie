@@ -57,6 +57,13 @@
       "when": 1788768384316,
       "tag": "0007_pale_baron_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788771317605,
+      "tag": "0008_conscious_kulan_gath",
+      "breakpoints": true
     }
   ]
 }

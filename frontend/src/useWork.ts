@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { type Agreement, api, type Task } from "./api.js";
+import { type Agreement, api, type Participant, type Task } from "./api.js";
 
 /**
  * Данные экрана работы: договорённости и задачи.
@@ -12,6 +12,8 @@ import { type Agreement, api, type Task } from "./api.js";
 export interface Work {
   agreements: Agreement[];
   tasks: Task[];
+  /** Кого можно назначить исполнителем. */
+  people: Participant[];
   loading: boolean;
   failure: string | null;
   /** По какой договорённости сейчас идёт запрос: кнопки на ней гаснут. */
@@ -23,6 +25,7 @@ export interface Work {
 export function useWork(): Work {
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [people, setPeople] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
@@ -31,9 +34,14 @@ export function useWork(): Work {
     try {
       // Оба списка одним заходом: подтверждение меняет сразу и то и другое,
       // а показать новое в одном и старое в другом — хуже, чем подождать.
-      const [gathered, done] = await Promise.all([api.agreements(), api.tasks()]);
+      const [gathered, done, who] = await Promise.all([
+        api.agreements(),
+        api.tasks(),
+        api.participants(),
+      ]);
       setAgreements(gathered.items);
       setTasks(done.items);
+      setPeople(who.items);
       setFailure(null);
     } catch {
       setFailure("Не удалось загрузить договорённости");
@@ -68,5 +76,5 @@ export function useWork(): Work {
     [reload],
   );
 
-  return { agreements, tasks, loading, failure, deciding, reload, decide };
+  return { agreements, tasks, people, loading, failure, deciding, reload, decide };
 }

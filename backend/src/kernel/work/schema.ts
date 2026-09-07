@@ -68,12 +68,39 @@ export const task = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    /** Откуда взялась. Задача без источника в этом продукте не бывает. */
-    agreementId: uuid("agreement_id")
-      .notNull()
-      .references(() => agreement.id, { onDelete: "cascade" }),
+    /**
+     * Откуда взялась. Пусто — задачу завели руками (task-010).
+     *
+     * До task-010 источник был обязателен: задача рождалась только
+     * из подтверждённой договорённости. Ограничение первого среза снято,
+     * но связь осталась — задача из чата по-прежнему указывает на неё.
+     */
+    agreementId: uuid("agreement_id").references(() => agreement.id, {
+      onDelete: "cascade",
+    }),
     title: text("title").notNull(),
-    status: text("status").notNull().default("open"),
+    /**
+     * Колонка доски. Список закрыт проверкой в базе, см. миграцию.
+     *
+     * Имя столбца осталось `status`, хотя по смыслу это стадия.
+     * Переименование потребовало бы у генератора миграций ответа
+     * «это переименование или новый столбец», а он спрашивает только
+     * в терминале — которого в нашей сборке нет. Выигрыш в ясности
+     * меньше, чем цена сломанного инструмента миграций (task-010).
+     */
+    status: text("status").notNull().default("к работе"),
+    /**
+     * Кто отвечает за результат. ТОЛЬКО ЧЕЛОВЕК, и это держит база.
+     *
+     * Рядом лежит `responsibleKind` — сгенерированная константа «human»,
+     * и составной внешний ключ на `participant (id, kind)`. Записать сюда
+     * агента невозможно физически: пары (id_агента, 'human') в участниках
+     * не существует. Правило владельца «за результат отвечает человек»
+     * перестаёт быть договорённостью на словах.
+     */
+    responsibleId: uuid("responsible_id").references(() => participant.id, {
+      onDelete: "restrict",
+    }),
     /** Кому. Пусто, пока не назначена. */
     assignedTo: uuid("assigned_to").references(() => participant.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
