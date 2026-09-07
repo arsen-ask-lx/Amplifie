@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
 import { conversation, message } from "../talk/schema.js";
@@ -101,8 +101,27 @@ export const task = pgTable(
     responsibleId: uuid("responsible_id").references(() => participant.id, {
       onDelete: "restrict",
     }),
-    /** Кому. Пусто, пока не назначена. */
+    /** Кому. Пусто, пока не назначена. Может быть агентом — в этом смысл. */
     assignedTo: uuid("assigned_to").references(() => participant.id, { onDelete: "set null" }),
+    /**
+     * Обсуждение задачи — обычный разговор, не новая сущность.
+     *
+     * Заводится при ПЕРВОМ прогоне, а не при заведении задачи: у задачи,
+     * которую никто не трогал, обсуждать нечего, а пустой разговор
+     * в списке — мусор.
+     *
+     * Ссылку держит задача, а не разговор: разговор не должен знать,
+     * что бывают задачи. Слой talk ничего не знает про работу (Р-4).
+     */
+    discussionId: uuid("discussion_id"),
+    /**
+     * Отказов ПОДРЯД. Два — размыкатель разомкнут, третьей попытки нет.
+     *
+     * Правило проекта требует три; здесь строже намеренно: у каждой
+     * попытки цена в деньгах и секундах, а третья почти никогда
+     * не отличается от второй. Сбрасывается удачным прогоном.
+     */
+    failedRuns: integer("failed_runs").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

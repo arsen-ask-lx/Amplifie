@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type Participant, type Task } from "./api.js";
+import { ApiError, api, type Participant, type Task } from "./api.js";
 import { Icon } from "./Icon.js";
 
 /**
@@ -20,13 +20,69 @@ const COLUMNS = ["к работе", "в работе", "на проверке", 
 /** Пятая стадия. С доски прячется, но задача не удаляется. */
 const HIDDEN = "отменена";
 
+/** Столько отказов подряд размыкают. Совпадает с сервером (task-011). */
+const BREAKER = 2;
+
 const when = new Intl.DateTimeFormat("ru", { day: "numeric", month: "short" });
+
+/** Почему прогон не удался — человеческими словами. */
+function whyNot(error: unknown): string {
+  const code = error instanceof ApiError ? error.status : 0;
+  if (code === 409) return "Два отказа подряд — дальше нужен человек.";
+  if (code === 503) return "Нейросеть не подключена: раздел «Агенты».";
+  if (code === 504) return "Мост взял работу и не ответил вовремя.";
+  if (code === 502) return "Нейросеть вернула ошибку. Попробуйте ещё раз.";
+  return "Не получилось запустить.";
+}
 
 /** Куда можно подвинуть отсюда: соседняя колонка слева и справа. */
 function neighbours(stage: string): { back: string | null; next: string | null } {
   const at = COLUMNS.indexOf(stage as (typeof COLUMNS)[number]);
   if (at < 0) return { back: null, next: null };
   return { back: COLUMNS[at - 1] ?? null, next: COLUMNS[at + 1] ?? null };
+}
+
+/**
+ * Прогон агента по задаче.
+ *
+ * Отдельным компонентом, а не строкой в карточке: у карточки стало три
+ * разных дела — показать, подвинуть и запустить, — и линтер сложности
+ * был прав. Заодно состояние прогона не мешается с состоянием правки.
+ */
+function Run({ task, onDone }: { task: Task; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  // Размыкатель: два отказа подряд — дальше нужен человек, а не третья
+  // попытка (task-011). Кнопка гаснет, и рядом сказано почему.
+  const broken = task.failedRuns >= BREAKER;
+
+  async function start() {
+    setBusy(true);
+    setFailure(null);
+    try {
+      await api.runTask(task.id);
+      onDone();
+    } catch (error) {
+      setFailure(whyNot(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="task-card-run">
+      <button type="button" disabled={busy || broken} onClick={() => void start()}>
+        {busy ? "Делает…" : "Пусть сделает"}
+      </button>
+      {broken ? (
+        <p className="task-card-broken">
+          Два отказа подряд. Третьей попытки не будет — посмотрите сами и верните задачу в работу.
+        </p>
+      ) : null}
+      {failure ? <p className="task-card-broken">{failure}</p> : null}
+    </div>
+  );
 }
 
 function Card({
@@ -40,6 +96,7 @@ function Card({
 }) {
   const [busy, setBusy] = useState(false);
   const { back, next } = neighbours(task.stage);
+  const byAgent = task.assignedTo?.kind === "agent";
 
   async function apply(patch: Parameters<typeof api.patchTask>[1]) {
     setBusy(true);
@@ -52,15 +109,15 @@ function Card({
   }
 
   return (
-    <article className="card">
-      <p className="card-title">{task.title}</p>
+    <article className="task-card">
+      <p className="task-card-title">{task.title}</p>
 
-      <p className="card-who">
+      <p className="task-card-who">
         {/* Ответственный первым: за результат отвечает он, а не исполнитель. */}
         Отвечает: <b>{task.responsible?.name ?? "никто"}</b>
       </p>
 
-      <label className="card-pick">
+      <label className="task-card-pick">
         Делает
         <select
           value={task.assignedTo?.id ?? ""}
@@ -77,12 +134,14 @@ function Card({
         </select>
       </label>
 
-      <p className="card-from">
+      <p className="task-card-from">
         {task.fromAgreement ? "из договорённости" : "заведена руками"} ·{" "}
         <time dateTime={task.createdAt}>{when.format(new Date(task.createdAt))}</time>
       </p>
 
-      <div className="card-move">
+      {byAgent ? <Run task={task} onDone={onChange} /> : null}
+
+      <div className="task-card-move">
         <button
           type="button"
           className="quiet"

@@ -131,7 +131,13 @@ export async function patchTask(
   tx: Executor,
   workspaceId: string,
   id: string,
-  patch: { status?: string; assignedTo?: string | null; responsibleId?: string },
+  patch: {
+    status?: string;
+    assignedTo?: string | null;
+    responsibleId?: string;
+    discussionId?: string;
+    failedRuns?: number;
+  },
 ) {
   const rows = await tx
     .update(task)
@@ -161,6 +167,8 @@ export async function listTasksIn(tx: Executor, workspaceId: string) {
       title: task.title,
       status: task.status,
       createdAt: task.createdAt,
+      discussionId: task.discussionId,
+      failedRuns: task.failedRuns,
       conversationId: agreement.conversationId,
       conversationTitle: conversation.title,
       assignedToId: doer.id,
@@ -195,4 +203,14 @@ export async function listParticipantsIn(tx: Executor, workspaceId: string) {
     .from(participant)
     .where(eq(participant.workspaceId, workspaceId))
     .orderBy(participant.displayName);
+}
+
+/** Одна задача по идентификатору. Нужна прогону: счётчик отказов и обсуждение. */
+export async function findTask(tx: Executor, workspaceId: string, id: string) {
+  const rows = await tx
+    .select()
+    .from(task)
+    .where(and(eq(task.id, id), eq(task.workspaceId, workspaceId)))
+    .limit(1);
+  return rows[0] ?? null;
 }

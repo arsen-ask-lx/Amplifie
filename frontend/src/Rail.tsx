@@ -22,12 +22,15 @@ import type { Chat } from "./useChat.js";
  * лежит внутри «Агентов»: агент отвечает через мост позвавшего, значит
  * «агент молчит» и «мост погашен» — одно событие с двух сторон.
  */
-export type Section = "talk" | "work" | "agents";
+export type Section = "talk" | "board" | "deals" | "agents";
 
 /** Что написано на кнопке раздела и каким значком помечено. */
-const PARTS: Array<{ id: Section; label: string; icon: "хэш" | "работа" | "модель" }> = [
+const PARTS: Array<{ id: Section; label: string; icon: "хэш" | "работа" | "модель" | "точка" }> = [
   { id: "talk", label: "Разговоры", icon: "хэш" },
-  { id: "work", label: "Работа", icon: "работа" },
+  { id: "board", label: "Доска", icon: "работа" },
+  // Счётчик висит здесь, а не на доске: он про то, что ЖДЁТ человека,
+  // а доска показывает то, что уже в работе. Разные вопросы.
+  { id: "deals", label: "Договорённости", icon: "точка" },
   { id: "agents", label: "Агенты", icon: "модель" },
 ];
 
@@ -55,7 +58,9 @@ function Parts({
           {part.label}
           {/* Счётчик только у ждущих решения: подтверждённое внимания не
               требует, а метка на нём учит эту метку не замечать. */}
-          {part.id === "work" && pending > 0 ? <span className="part-count">{pending}</span> : null}
+          {part.id === "deals" && pending > 0 ? (
+            <span className="part-count">{pending}</span>
+          ) : null}
         </button>
       ))}
     </nav>

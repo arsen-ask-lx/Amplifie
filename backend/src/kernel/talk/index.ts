@@ -3,6 +3,7 @@ export {
   ConversationNotVisibleError,
   createChannel,
   createDefaultChannel,
+  createTaskDiscussion,
   createThread,
   listConversations,
   listMessages,

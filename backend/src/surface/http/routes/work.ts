@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { ModelUnavailableError } from "../../../app/answering.js";
 import { listenTo } from "../../../app/listen.js";
+import { BreakerOpenError, NotAgentTaskError, runTask } from "../../../app/working.js";
 import { resolveActor } from "../../../kernel/identity/index.js";
 import { ConversationNotVisibleError } from "../../../kernel/talk/index.js";
 import {
@@ -15,6 +17,7 @@ import {
   STAGES,
   TaskNotVisibleError,
 } from "../../../kernel/work/index.js";
+import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
 import { SESSION_COOKIE } from "./auth.js";
 import { parse } from "./parse.js";
 
@@ -69,6 +72,34 @@ async function orTaskFailure(
   }
 }
 
+/**
+ * Отказ прогона → код причины.
+ *
+ * `409` у размыкателя, а не `503`: это не «сломалось», а «дальше нужен
+ * человек». Разные починки — разные коды.
+ */
+function runFailure(error: unknown): { code: number; body: object } | null {
+  if (error instanceof BreakerOpenError) {
+    return { code: 409, body: { error: "breaker_open", detail: error.message } };
+  }
+  if (error instanceof NotAgentTaskError) {
+    return { code: 422, body: { error: "not_agent_task", detail: error.message } };
+  }
+  if (error instanceof TaskNotVisibleError) {
+    return { code: 404, body: { error: "not_found" } };
+  }
+  if (error instanceof ModelUnavailableError) {
+    return { code: 503, body: { error: "model_unavailable" } };
+  }
+  if (error instanceof BridgeSilentError) {
+    return { code: 504, body: { error: "model_silent" } };
+  }
+  if (error instanceof BridgeFailedError) {
+    return { code: 502, body: { error: "model_failed", detail: error.message } };
+  }
+  return null;
+}
+
 export function registerWorkRoutes(app: FastifyInstance): void {
   app.post<{ Params: { id: string } }>("/v1/conversations/:id/listen", async (request, reply) => {
     const actor = await actorOf(request, reply);
@@ -116,6 +147,26 @@ export function registerWorkRoutes(app: FastifyInstance): void {
     if (!input) return reply;
 
     return orTaskFailure(reply, async () => reply.code(201).send(await createTask(actor, input)));
+  });
+
+  /**
+   * Пусть агент сделает задачу (task-011).
+   *
+   * ⚠️ Запускает ЧЕЛОВЕК и платит своей настройкой. Агент себя не
+   * запускает: иначе доска стала бы счётчиком расходов, который никто
+   * не заводил.
+   */
+  app.post<{ Params: { id: string } }>("/v1/tasks/:id/run", async (request, reply) => {
+    const actor = await actorOf(request, reply);
+    if (!actor) return reply;
+
+    try {
+      return reply.send(await runTask(actor, request.params.id));
+    } catch (error) {
+      const known = runFailure(error);
+      if (!known) throw error;
+      return reply.code(known.code).send(known.body);
+    }
   });
 
   /** Подвинуть по доске, назначить исполнителя, сменить ответственного. */

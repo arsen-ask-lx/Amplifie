@@ -111,22 +111,28 @@ export interface Agreement {
   citations: Citation[];
 }
 
+/**
+ * Задача в том виде, в каком ею пользуется доска.
+ *
+ * ⚠️ ЗДЕСЬ НЕ ВЕСЬ ОТВЕТ СЕРВЕРА, а только то, что читает экран. Копировать
+ * серверную форму целиком значит завести вторую её копию, которая разъедется
+ * при первом же изменении, — и мы это уже проходили сегодня с `agreementId`.
+ */
 export interface Task {
   id: string;
   title: string;
-  /** Откуда родилась. Пусто — завели руками. */
-  agreementId: string | null;
   /** Колонка доски. Список закрыт сервером и базой. */
   stage: string;
   createdAt: string;
   /** Пусто — задачу завели руками, а не из договорённости. */
   fromAgreement: boolean;
-  conversationId: string | null;
-  conversationTitle: string | null;
   assignedTo: { id: string; name: string; kind: string } | null;
   /** Всегда человек: это держит база, а не экран. */
   responsible: { id: string; name: string } | null;
-  citations: Citation[];
+  /** Обсуждение задачи. Пусто, пока не было ни одного прогона. */
+  discussionId: string | null;
+  /** Отказов подряд. Два — размыкатель разомкнут, нужен человек. */
+  failedRuns: number;
 }
 
 export interface Participant {
@@ -181,6 +187,13 @@ export const api = {
   /** Завести задачу руками — без договорённости (task-010). */
   addTask: (input: { title: string; responsibleId: string; assignedToId?: string | null }) =>
     request<Task>("/v1/tasks", { method: "POST", body: JSON.stringify(input) }),
+
+  /** Пусть агент сделает задачу. Платит нажавший (Р-016). */
+  runTask: (id: string) =>
+    request<{ taskId: string; discussionId: string; ms: number }>(`/v1/tasks/${id}/run`, {
+      method: "POST",
+      body: "{}",
+    }),
 
   /** Подвинуть по доске либо переназначить. */
   patchTask: (

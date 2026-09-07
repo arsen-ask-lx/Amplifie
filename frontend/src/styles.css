@@ -1330,32 +1330,34 @@ button:hover .icon {
   color: var(--ink);
 }
 
-.card {
+/* Карточка задачи на доске. Имя своё, а не общее `.card`: тот уже занят
+   формами входа, и одно имя на две разные вещи однажды перекрасит обе. */
+.task-card {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--raised);
 }
 
-.card-title {
+.task-card-title {
   margin: 0 0 8px;
   color: var(--ink);
   font-size: 14px;
   line-height: 1.4;
 }
 
-.card-who,
-.card-from {
+.task-card-who,
+.task-card-from {
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 12px;
 }
 
-.card-from {
+.task-card-from {
   margin: 8px 0 0;
 }
 
-.card-pick {
+.task-card-pick {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1363,7 +1365,7 @@ button:hover .icon {
   font-size: 12px;
 }
 
-.card-pick select,
+.task-card-pick select,
 .board-new input,
 .board-new select {
   padding: 4px 8px;
@@ -1374,13 +1376,13 @@ button:hover .icon {
   font-size: 13px;
 }
 
-.card-move {
+.task-card-move {
   display: flex;
   gap: 4px;
   margin-top: 8px;
 }
 
-.card-move button {
+.task-card-move button {
   flex: 1;
 }
 
@@ -1421,4 +1423,22 @@ button:hover .icon {
   .board {
     grid-template-columns: 1fr;
   }
+}
+
+/* Прогон агента: кнопка и объяснение, почему её нет. */
+.task-card-run {
+  margin-top: 8px;
+}
+
+.task-card-run > button {
+  width: 100%;
+}
+
+/* Разомкнутый размыкатель — состояние, а не ошибка: приглушённо.
+   Красный учил бы пугаться того, что случается штатно. */
+.task-card-broken {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }

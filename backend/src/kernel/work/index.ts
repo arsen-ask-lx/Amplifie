@@ -5,9 +5,12 @@ export {
   listAgreements,
   listParticipants,
   listTasks,
+  markRun,
   NotHumanError,
+  oneTaskFor,
   patchTask,
   propose,
   STAGES,
+  setDiscussion,
   TaskNotVisibleError,
 } from "./service.js";

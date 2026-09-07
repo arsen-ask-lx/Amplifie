@@ -161,16 +161,26 @@ function Refused({ item, work }: { item: Agreement; work: Work }) {
   );
 }
 
-export function WorkScreen({
-  work,
-  goTo,
-  meId,
-}: {
-  work: Work;
-  goTo: GoTo;
-  /** Кто я: ответственный по умолчанию у задачи, которую сам завожу. */
-  meId: string;
-}) {
+/**
+ * Доска задач — и НИЧЕГО больше.
+ *
+ * Договорённости отсюда убраны намеренно (владелец, 2026-09-07): доска
+ * отвечает на один вопрос — «что в работе и на какой стадии». Очередь
+ * решений отвечает на другой — «что я должен подтвердить». Смешанные,
+ * они снова заставляли искать глазами, что здесь моё.
+ */
+export function BoardScreen({ work, meId }: { work: Work; meId: string }) {
+  return (
+    <div className="work">
+      <section className="work-part board-part" aria-label="Доска">
+        <Board tasks={work.tasks} people={work.people} meId={meId} onChange={work.reload} />
+      </section>
+    </div>
+  );
+}
+
+/** Очередь решений: договорённости, которые ждут человека (К4). */
+export function WorkScreen({ work, goTo }: { work: Work; goTo: GoTo }) {
   const wait = awaiting(work.agreements);
   const off = refused(work.agreements);
   const odd = strays(work.agreements);
@@ -194,11 +204,6 @@ export function WorkScreen({
         {wait.map((item) => (
           <Waiting key={item.id} item={item} work={work} goTo={goTo} />
         ))}
-      </section>
-
-      <section className="work-part board-part" aria-labelledby="задачи">
-        <h3 id="задачи">Задачи {work.tasks.length > 0 ? `· ${work.tasks.length}` : ""}</h3>
-        <Board tasks={work.tasks} people={work.people} meId={meId} onChange={work.reload} />
       </section>
 
       {off.length > 0 ? (

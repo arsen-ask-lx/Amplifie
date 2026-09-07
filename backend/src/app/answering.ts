@@ -76,12 +76,12 @@ function timed(ask: (prompt: string) => Promise<string>) {
  * Список, а не цепочка условий: добавить источник — значит вставить строку,
  * а не переписать ветвление.
  */
-async function sourcesFor(viewer: Viewer): Promise<Source[]> {
+async function sourcesFor(viewer: Viewer, system: string = SYSTEM): Promise<Source[]> {
   const found: Source[] = [
     {
       payment: "мост",
       hint: null,
-      ask: (prompt) => askOwnBridge(viewer.participantId, prompt, SYSTEM),
+      ask: (prompt) => askOwnBridge(viewer.participantId, prompt, system),
     },
   ];
 
@@ -99,7 +99,7 @@ async function sourcesFor(viewer: Viewer): Promise<Source[]> {
     found.push({
       payment: own.scope === "участник" ? "свой ключ" : "ключ пространства",
       hint: own.hint,
-      ask: timed(async (prompt) => (await provider.ask({ system: SYSTEM, prompt })).text),
+      ask: timed(async (prompt) => (await provider.ask({ system, prompt })).text),
     });
   }
 
@@ -108,7 +108,7 @@ async function sourcesFor(viewer: Viewer): Promise<Source[]> {
     found.push({
       payment: "ключ сервера",
       hint: null,
-      ask: timed(async (prompt) => (await server.ask({ system: SYSTEM, prompt })).text),
+      ask: timed(async (prompt) => (await server.ask({ system, prompt })).text),
     });
   }
 
@@ -123,6 +123,23 @@ async function sourcesFor(viewer: Viewer): Promise<Source[]> {
  * а любой другой отказ пробрасывается: молча съесть отказ поставщика
  * значит потерять причину и показать человеку не то.
  */
+/**
+ * Спросить модель через настройку этого участника, с любой подсказкой.
+ *
+ * Вынесено наружу для прогона задач (task-011): порядок оплаты и обход
+ * источников там ровно тот же, и вторая копия разъехалась бы с первой
+ * при первом же изменении Р-016.
+ */
+export async function askThroughSources(
+  viewer: Viewer,
+  system: string,
+  prompt: string,
+): Promise<{ text: string; ms: number }> {
+  const sources = await sourcesFor(viewer, system);
+  const { text, ms } = await askThrough(sources, prompt);
+  return { text, ms };
+}
+
 async function askThrough(
   sources: Source[],
   prompt: string,

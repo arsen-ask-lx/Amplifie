@@ -6,9 +6,17 @@ import { Composer } from "./Composer.js";
 import { Feed } from "./Feed.js";
 import { Icon } from "./Icon.js";
 import { Rail, type Section } from "./Rail.js";
+
+/** Заголовок середины экрана. Разговор подписывается своим названием. */
+const TITLES: Partial<Record<Section, string>> = {
+  board: "Доска",
+  deals: "Договорённости",
+  agents: "Агенты",
+};
+
 import { type Chat, useChat } from "./useChat.js";
 import { useWork, type Work } from "./useWork.js";
-import { type GoTo, WorkScreen } from "./WorkScreen.js";
+import { BoardScreen, type GoTo, WorkScreen } from "./WorkScreen.js";
 import { awaiting } from "./work.js";
 
 /**
@@ -152,7 +160,8 @@ function Middle({
   onGoTo: GoTo;
 }) {
   if (section === "agents") return <AgentsScreen />;
-  if (section === "work") return <WorkScreen work={work} goTo={onGoTo} meId={meId} />;
+  if (section === "board") return <BoardScreen work={work} meId={meId} />;
+  if (section === "deals") return <WorkScreen work={work} goTo={onGoTo} />;
   return <Room chat={chat} meId={meId} />;
 }
 
@@ -176,13 +185,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
 
       <main className="room-view">
         <header className="room-head">
-          <h2>
-            {section === "work"
-              ? "Работа"
-              : section === "agents"
-                ? "Агенты"
-                : (chat.current?.title ?? "Канал")}
-          </h2>
+          <h2>{TITLES[section] ?? chat.current?.title ?? "Канал"}</h2>
           {section === "talk" && chat.current ? (
             <Listen conversationId={chat.current.id} onHeard={work.reload} />
           ) : null}

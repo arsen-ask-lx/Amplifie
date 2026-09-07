@@ -382,6 +382,44 @@ export async function addToRootChannel(
 export type Visibility = "workspace" | "private";
 
 /**
+ * Завести разговор и сделать заводящего его владельцем.
+ *
+ * Общее у канала и обсуждения задачи: вставка, членство, событие.
+ * Разъехавшись копией, они однажды перестали бы одинаково записывать
+ * событие — и половина разговоров пропала бы из журнала.
+ */
+async function openConversation(
+  viewer: Viewer,
+  input: { kind: string; title: string; visibility: Visibility },
+) {
+  return withTransaction(async (tx) => {
+    const made = await repo.insertConversation(tx, {
+      workspaceId: viewer.workspaceId,
+      kind: input.kind,
+      title: input.title,
+      visibility: input.visibility,
+    });
+    await repo.insertMember(tx, {
+      conversationId: made.id,
+      participantId: viewer.participantId,
+      workspaceId: viewer.workspaceId,
+      role: "owner",
+    });
+
+    await appendEvent(tx, {
+      kind: "conversation.created",
+      workspaceId: viewer.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "conversation",
+      subjectId: made.id,
+      payload: { kind: input.kind, title: made.title, visibility: made.visibility },
+    });
+
+    return made;
+  });
+}
+
+/**
  * Создать канал.
  *
  * Строку членства заводим создателю ВСЕГДА, даже для открытого канала:
@@ -393,34 +431,31 @@ export async function createChannel(
   viewer: Viewer,
   input: { title: string; visibility?: Visibility | undefined },
 ) {
-  const created = await withTransaction(async (tx) => {
-    const created = await repo.insertConversation(tx, {
-      workspaceId: viewer.workspaceId,
-      kind: "channel",
-      title: input.title,
-      visibility: input.visibility ?? "workspace",
-    });
-    await repo.insertMember(tx, {
-      conversationId: created.id,
-      participantId: viewer.participantId,
-      workspaceId: viewer.workspaceId,
-      role: "owner",
-    });
-
-    await appendEvent(tx, {
-      kind: "conversation.created",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "conversation",
-      subjectId: created.id,
-      payload: { kind: "channel", title: created.title, visibility: created.visibility },
-    });
-
-    return created;
+  const created = await openConversation(viewer, {
+    kind: "channel",
+    title: input.title,
+    visibility: input.visibility ?? "workspace",
   });
 
   // Звонок ТОЛЬКО после фиксации: новый канал обязан появиться у всех,
   // кому он виден, без перезагрузки страницы.
   publish(viewer.workspaceId);
   return created;
+}
+
+/**
+ * Обсуждение задачи — обычный разговор вида `task`.
+ *
+ * НЕ НОВАЯ СУЩНОСТЬ. Один слой хранит каналы, ветки и обсуждения задач;
+ * лента, догон и живые обновления работают там даром. Отдельная таблица
+ * «комментарии к задаче» пришлось бы учить всему этому заново.
+ *
+ * Разговор не знает, что он чей-то: ссылку держит задача (Р-4, `talk`
+ * ничего не знает про работу). Поэтому здесь нет ни слова про `task`,
+ * кроме названия.
+ */
+export async function createTaskDiscussion(viewer: Viewer, title: string): Promise<{ id: string }> {
+  const created = await openConversation(viewer, { kind: "task", title, visibility: "workspace" });
+  publish(viewer.workspaceId);
+  return { id: created.id };
 }
