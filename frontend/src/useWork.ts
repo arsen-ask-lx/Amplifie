@@ -18,7 +18,19 @@ export interface Work {
   failure: string | null;
   /** По какой договорённости сейчас идёт запрос: кнопки на ней гаснут. */
   deciding: string | null;
+  /** Перечитать всё. Для решения человека: оно меняет сразу оба списка. */
   reload: () => Promise<void>;
+  /** Перечитать только задачи. Прогон меняет стадию, счётчик и обсуждение. */
+  reloadTasks: () => Promise<void>;
+  /**
+   * Вклеить одну задачу, которую сервер только что вернул.
+   *
+   * ⚠️ Это НЕ второй источник правды: вклеивается ответ того же сервера,
+   * а не собранное из воздуха. До task-012 ход карты по доске стоил трёх
+   * запросов — договорённости, задачи и участники разом, — хотя менялась
+   * одна строка и участники не менялись вовсе.
+   */
+  applyTask: (task: Task) => void;
   decide: (id: string, verdict: "confirm" | "reject") => Promise<void>;
 }
 
@@ -50,6 +62,18 @@ export function useWork(): Work {
     }
   }, []);
 
+  const reloadTasks = useCallback(async () => {
+    try {
+      setTasks((await api.tasks()).items);
+    } catch {
+      setFailure("Не удалось перечитать задачи");
+    }
+  }, []);
+
+  const applyTask = useCallback((task: Task) => {
+    setTasks((current) => current.map((one) => (one.id === task.id ? task : one)));
+  }, []);
+
   useEffect(() => {
     void reload();
   }, [reload]);
@@ -76,5 +100,16 @@ export function useWork(): Work {
     [reload],
   );
 
-  return { agreements, tasks, people, loading, failure, deciding, reload, decide };
+  return {
+    agreements,
+    tasks,
+    people,
+    loading,
+    failure,
+    deciding,
+    reload,
+    reloadTasks,
+    applyTask,
+    decide,
+  };
 }

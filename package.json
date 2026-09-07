@@ -20,6 +20,8 @@
     "contrast": "node tools/checks/check-contrast.mjs",
     "unit": "vitest run --config tools/vitest.unit.ts",
     "no-raw-html": "node tools/checks/check-no-raw-html.mjs",
+    "failure-map": "node tools/checks/check-failure-map.mjs",
+    "stages": "node tools/checks/check-stages.mjs",
     "model": "node tools/checks/check-model.mjs",
     "duplicates": "node tools/checks/check-duplicates.mjs",
     "gates": "node tools/checks/run-gates.mjs",

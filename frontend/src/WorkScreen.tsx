@@ -1,5 +1,6 @@
 import type { Agreement, Citation } from "./api.js";
 import { Board } from "./Board.js";
+import { деньИЧас } from "./shared/when.js";
 import type { Work } from "./useWork.js";
 import { awaiting, quoteAddsNothing, refused, strays } from "./work.js";
 
@@ -21,13 +22,6 @@ import { awaiting, quoteAddsNothing, refused, strays } from "./work.js";
  * ⚠️ Меры против штамповки как таковой это НЕ заменяет: она в реестре
  * висит нерешённой (А-2). Это лишь отказ подталкивать в её сторону.
  */
-
-const when = new Intl.DateTimeFormat("ru", {
-  day: "numeric",
-  month: "long",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 /** Куда прыгать по цитате: разговор и место в нём. */
 export type GoTo = (conversationId: string, seq: number) => void;
@@ -109,7 +103,7 @@ function Waiting({ item, work, goTo }: { item: Agreement; work: Work; goTo: GoTo
         {/* Без глагола: имя агента склонять некому, а «услышал Сводка»
             читается как поломка. */}
         {item.conversationTitle} · агент «{item.proposedBy.name}» ·{" "}
-        <time dateTime={item.createdAt}>{when.format(new Date(item.createdAt))}</time>
+        <time dateTime={item.createdAt}>{деньИЧас.format(new Date(item.createdAt))}</time>
       </p>
 
       <Grounds
@@ -173,7 +167,13 @@ export function BoardScreen({ work, meId }: { work: Work; meId: string }) {
   return (
     <div className="work">
       <section className="work-part board-part" aria-label="Доска">
-        <Board tasks={work.tasks} people={work.people} meId={meId} onChange={work.reload} />
+        <Board
+          tasks={work.tasks}
+          people={work.people}
+          meId={meId}
+          onPatched={work.applyTask}
+          onListChanged={work.reloadTasks}
+        />
       </section>
     </div>
   );

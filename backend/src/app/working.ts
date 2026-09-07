@@ -1,3 +1,4 @@
+import { BREAKER } from "@amplifie/contract";
 import { WORK_SYSTEM } from "../agent/answering/prompt.js";
 import { ensureAgent } from "../kernel/identity/index.js";
 import { createTaskDiscussion, sendAsAgent, type Viewer } from "../kernel/talk/index.js";
@@ -26,9 +27,6 @@ import { askThroughSources } from "./answering.js";
  * ⚠️ ИНСТРУМЕНТОВ У ПРОГОНА НЕТ. Он умеет только написать текст
  * в обсуждение. Это граница архитектуры, а не просьба в подсказке.
  */
-
-/** Сколько отказов подряд размыкают. */
-const BREAKER = 2;
 
 /** Задача не годится для прогона: исполнитель не агент. */
 export class NotAgentTaskError extends Error {}

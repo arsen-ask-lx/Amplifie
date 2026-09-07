@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { type AgentsView, api } from "./api.js";
+import { useCallback, useState } from "react";
+import { type AgentsView, api, type Bridge } from "./api.js";
 import { Icon } from "./Icon.js";
 import { KeyPanel } from "./KeyPanel.js";
 import { ModelScreen } from "./ModelScreen.js";
+import { usePolling } from "./shared/usePolling.js";
 
 /**
  * Раздел «Агенты»: кто у меня есть и почему он молчит.
@@ -63,21 +64,25 @@ function State({ bridge }: { bridge: AgentsView["bridge"] }) {
 
 export function AgentsScreen() {
   const [view, setView] = useState<AgentsView | null>(null);
+  const [bridges, setBridges] = useState<Bridge[]>([]);
 
+  /**
+   * ОДИН опрос на весь раздел. До task-012 их было два: этот экран и
+   * подключение подписки внутри него ходили каждый своим таймером,
+   * а состояние моста приходит в обоих ответах.
+   */
   const refresh = useCallback(async () => {
     try {
-      setView(await api.agents());
+      const [agents, links] = await Promise.all([api.agents(), api.bridges()]);
+      setView(agents);
+      setBridges(links.items);
     } catch {
       // Список агентов — не то, ради чего стоит ронять экран: подключение
       // подписки ниже работает и без него. Молчание здесь осознанное.
     }
   }, []);
 
-  useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
+  usePolling(refresh, REFRESH_MS);
 
   return (
     // Тот же контейнер, что у остальных экранов: иначе карточка агента
@@ -107,7 +112,7 @@ export function AgentsScreen() {
         </section>
       ))}
 
-      <ModelScreen />
+      <ModelScreen bridges={bridges} onChanged={refresh} />
       <KeyPanel onChange={() => void refresh()} />
     </div>
   );

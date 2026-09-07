@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "./api.js";
+import { NOT_COPIED, copy as toClipboard } from "./shared/clipboard.js";
 
 /**
  * Приглашение в пространство.
@@ -39,14 +40,10 @@ export function InvitePanel() {
 
   async function copy(): Promise<void> {
     if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-    } catch {
-      // Буфер обмена может быть закрыт настройками браузера. Ссылка при
-      // этом на экране и выделяется — говорим об этом, а не молчим.
-      setFailure("Браузер не дал скопировать. Выделите ссылку и скопируйте сами.");
-    }
+    // Ссылка при этом на экране и выделяется — поэтому отказ буфера
+    // не поломка, а повод сказать словами (shared/clipboard.ts).
+    if (await toClipboard(link)) setCopied(true);
+    else setFailure(NOT_COPIED);
   }
 
   if (!link) {

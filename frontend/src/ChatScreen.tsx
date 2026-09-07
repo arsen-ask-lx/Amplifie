@@ -6,6 +6,10 @@ import { Composer } from "./Composer.js";
 import { Feed } from "./Feed.js";
 import { Icon } from "./Icon.js";
 import { Rail, type Section } from "./Rail.js";
+import { type Chat, useChat } from "./useChat.js";
+import { useWork, type Work } from "./useWork.js";
+import { BoardScreen, type GoTo, WorkScreen } from "./WorkScreen.js";
+import { awaiting } from "./work.js";
 
 /** Заголовок середины экрана. Разговор подписывается своим названием. */
 const TITLES: Partial<Record<Section, string>> = {
@@ -13,11 +17,6 @@ const TITLES: Partial<Record<Section, string>> = {
   deals: "Договорённости",
   agents: "Агенты",
 };
-
-import { type Chat, useChat } from "./useChat.js";
-import { useWork, type Work } from "./useWork.js";
-import { BoardScreen, type GoTo, WorkScreen } from "./WorkScreen.js";
-import { awaiting } from "./work.js";
 
 /**
  * Главный экран: разговоры и работа.

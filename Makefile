@@ -74,6 +74,12 @@ unit: ## быстрые проверки чистых функций (без с�
 no-raw-html: ## запрет вставки сырого HTML в интерфейс (Р-002)
 > npm run no-raw-html
 
+failure-map: ## код отказа разбирается в одном слое, а не по экранам
+> npm run failure-map
+
+stages: ## список стадий задачи совпадает с CHECK в базе
+> npm run stages
+
 model: ## спросить подключённую модель вживую (не гейт, а проверка связи)
 > npm run model
 
@@ -98,7 +104,7 @@ aqk: ## ступень соответствия AQK и что до следую�
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
-check: lint typecheck arch decisions contrast rhythm unit no-raw-html duplicates gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html duplicates gates arbiter-check model arbiter label aqk test check
+.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates arbiter-check model arbiter label aqk test check

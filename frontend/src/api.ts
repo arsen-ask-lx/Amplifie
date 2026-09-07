@@ -1,3 +1,5 @@
+import { ApiError, type FieldErrors } from "./shared/failure.js";
+
 /**
  * Единственное место, где фронт ходит на сервер.
  *
@@ -10,20 +12,6 @@ export interface Me {
   account: { id: string; email: string };
   participant: { id: string; displayName: string; kind: string; role: string };
   workspace: { id: string; name: string };
-}
-
-export interface FieldErrors {
-  error: string;
-  fields?: Record<string, string>;
-}
-
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly body: FieldErrors,
-  ) {
-    super(body.error);
-  }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

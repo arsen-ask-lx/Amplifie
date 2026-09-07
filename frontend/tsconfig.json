@@ -10,7 +10,10 @@
     "noEmit": true,
     "composite": false,
     "declaration": false,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    // Тот же путь, что в alias у Vite: проверяльщик типов и сборщик
+    // обязаны видеть один и тот же файл, иначе разойдутся молча.
+    "paths": { "@amplifie/contract": ["../packages/contract/src/index.ts"] }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, type Conversation, type Message } from "./api.js";
+import { api, type Conversation, type Message } from "./api.js";
+import { troubleOf } from "./shared/trouble.js";
 
 /**
  * Лента разговора: загрузка, догон и живые обновления.
@@ -84,12 +85,14 @@ export interface Chat {
  * Отдельной строкой над полем ввода, а НЕ сообщением в ленте: реплика
  * «извините, ошибка» от имени участника — это ложь про то, кто говорил.
  */
+const SAYS: Record<string, string> = {
+  "нет-модели": "Сводка не отвечает: не подключена ни одна нейросеть.",
+  "мост-молчит": "Сводка взяла вопрос и не ответила вовремя.",
+  "модель-отказала": "Нейросеть вернула ошибку. Ответа не будет.",
+};
+
 function agentTrouble(error: unknown): string {
-  const code = error instanceof ApiError ? error.status : 0;
-  if (code === 503) return "Сводка не отвечает: не подключена ни одна нейросеть.";
-  if (code === 504) return "Сводка взяла вопрос и не ответила вовремя.";
-  if (code === 502) return "Нейросеть вернула ошибку. Ответа не будет.";
-  return "Не получилось позвать Сводку.";
+  return SAYS[troubleOf(error)] ?? "Не получилось позвать Сводку.";
 }
 
 export function useChat(): Chat {

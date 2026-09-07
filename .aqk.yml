@@ -34,6 +34,8 @@ gates:
   contrast: "npm run contrast"
   unit: "npm run unit"
   no-raw-html: "npm run no-raw-html"
+  failure-map: "npm run failure-map"
+  stages: "npm run stages"
 
   # Из каталога AQK. Каждый проверен подсаженным нарушением в НАШЕМ коде,
   # а не только на своих образцах.

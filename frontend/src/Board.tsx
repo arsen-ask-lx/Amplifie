@@ -1,6 +1,9 @@
+import { BREAKER, HIDDEN_STAGE, STAGES, type Stage } from "@amplifie/contract";
 import { useState } from "react";
-import { ApiError, api, type Participant, type Task } from "./api.js";
+import { api, type Participant, type Task } from "./api.js";
 import { Icon } from "./Icon.js";
+import { troubleOf } from "./shared/trouble.js";
+import { день } from "./shared/when.js";
 
 /**
  * Доска задач: колонки по стадиям (task-010).
@@ -14,30 +17,31 @@ import { Icon } from "./Icon.js";
  * ошибётся, сервер и база всё равно откажут.
  */
 
-/** Колонки в порядке движения слева направо. */
-const COLUMNS = ["к работе", "в работе", "на проверке", "готово"] as const;
+/**
+ * Колонки в порядке движения слева направо.
+ *
+ * Порядок и состав приходят из `@amplifie/contract` — до task-012 список
+ * был переписан здесь вручную, третьей копией после базы и сервера.
+ * Скрытая стадия отфильтрована, а не вырезана из объявления: доска
+ * решает, что показывать, но не решает, какие стадии бывают.
+ */
+const COLUMNS = STAGES.filter((stage) => stage !== HIDDEN_STAGE);
 
-/** Пятая стадия. С доски прячется, но задача не удаляется. */
-const HIDDEN = "отменена";
+/** Почему прогон не удался — словами доски. Причину считает общий слой. */
+const SAYS: Record<string, string> = {
+  размыкатель: "Два отказа подряд — дальше нужен человек.",
+  "нет-модели": "Нейросеть не подключена: раздел «Агенты».",
+  "мост-молчит": "Мост взял работу и не ответил вовремя.",
+  "модель-отказала": "Нейросеть вернула ошибку. Попробуйте ещё раз.",
+};
 
-/** Столько отказов подряд размыкают. Совпадает с сервером (task-011). */
-const BREAKER = 2;
-
-const when = new Intl.DateTimeFormat("ru", { day: "numeric", month: "short" });
-
-/** Почему прогон не удался — человеческими словами. */
 function whyNot(error: unknown): string {
-  const code = error instanceof ApiError ? error.status : 0;
-  if (code === 409) return "Два отказа подряд — дальше нужен человек.";
-  if (code === 503) return "Нейросеть не подключена: раздел «Агенты».";
-  if (code === 504) return "Мост взял работу и не ответил вовремя.";
-  if (code === 502) return "Нейросеть вернула ошибку. Попробуйте ещё раз.";
-  return "Не получилось запустить.";
+  return SAYS[troubleOf(error)] ?? "Не получилось запустить.";
 }
 
 /** Куда можно подвинуть отсюда: соседняя колонка слева и справа. */
 function neighbours(stage: string): { back: string | null; next: string | null } {
-  const at = COLUMNS.indexOf(stage as (typeof COLUMNS)[number]);
+  const at = COLUMNS.indexOf(stage as Stage);
   if (at < 0) return { back: null, next: null };
   return { back: COLUMNS[at - 1] ?? null, next: COLUMNS[at + 1] ?? null };
 }
@@ -49,7 +53,7 @@ function neighbours(stage: string): { back: string | null; next: string | null }
  * разных дела — показать, подвинуть и запустить, — и линтер сложности
  * был прав. Заодно состояние прогона не мешается с состоянием правки.
  */
-function Run({ task, onDone }: { task: Task; onDone: () => void }) {
+function Run({ task, onDone }: { task: Task; onDone: () => void | Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -62,7 +66,9 @@ function Run({ task, onDone }: { task: Task; onDone: () => void }) {
     setFailure(null);
     try {
       await api.runTask(task.id);
-      onDone();
+      // Прогон меняет стадию, счётчик отказов и заводит обсуждение —
+      // ответ ручки этого не несёт, поэтому перечитываем задачи. Только их.
+      await onDone();
     } catch (error) {
       setFailure(whyNot(error));
     } finally {
@@ -88,11 +94,13 @@ function Run({ task, onDone }: { task: Task; onDone: () => void }) {
 function Card({
   task,
   people,
-  onChange,
+  onPatched,
+  onRan,
 }: {
   task: Task;
   people: Participant[];
-  onChange: () => void;
+  onPatched: (task: Task) => void;
+  onRan: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const { back, next } = neighbours(task.stage);
@@ -101,8 +109,10 @@ function Card({
   async function apply(patch: Parameters<typeof api.patchTask>[1]) {
     setBusy(true);
     try {
-      await api.patchTask(task.id, patch);
-      onChange();
+      // Сервер возвращает задачу целиком — берём ЕГО ответ, а не идём
+      // за всем списком заново. До task-012 один ход карты стоил трёх
+      // запросов, включая участников, которые при этом не меняются.
+      onPatched(await api.patchTask(task.id, patch));
     } finally {
       setBusy(false);
     }
@@ -136,10 +146,10 @@ function Card({
 
       <p className="task-card-from">
         {task.fromAgreement ? "из договорённости" : "заведена руками"} ·{" "}
-        <time dateTime={task.createdAt}>{when.format(new Date(task.createdAt))}</time>
+        <time dateTime={task.createdAt}>{день.format(new Date(task.createdAt))}</time>
       </p>
 
-      {byAgent ? <Run task={task} onDone={onChange} /> : null}
+      {byAgent ? <Run task={task} onDone={onRan} /> : null}
 
       <div className="task-card-move">
         <button
@@ -170,7 +180,7 @@ function NewTask({
 }: {
   people: Participant[];
   meId: string;
-  onMade: () => void;
+  onMade: () => void | Promise<void>;
 }) {
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -186,7 +196,7 @@ function NewTask({
     try {
       await api.addTask({ title: title.trim(), responsibleId });
       setTitle("");
-      onMade();
+      await onMade();
     } finally {
       setBusy(false);
     }
@@ -218,18 +228,22 @@ export function Board({
   tasks,
   people,
   meId,
-  onChange,
+  onPatched,
+  onListChanged,
 }: {
   tasks: Task[];
   people: Participant[];
   meId: string;
-  onChange: () => void;
+  /** Одна задача изменилась, и сервер вернул её целиком. */
+  onPatched: (task: Task) => void;
+  /** Список изменился: завели новую либо прогон переставил стадию. */
+  onListChanged: () => void | Promise<void>;
 }) {
-  const shown = tasks.filter((one) => one.stage !== HIDDEN);
+  const shown = tasks.filter((one) => one.stage !== HIDDEN_STAGE);
 
   return (
     <>
-      <NewTask people={people} meId={meId} onMade={onChange} />
+      <NewTask people={people} meId={meId} onMade={onListChanged} />
 
       <div className="board">
         {COLUMNS.map((stage) => {
@@ -241,7 +255,13 @@ export function Board({
                 {here.length > 0 ? <span className="column-count">{here.length}</span> : null}
               </h4>
               {here.map((task) => (
-                <Card key={task.id} task={task} people={people} onChange={onChange} />
+                <Card
+                  key={task.id}
+                  task={task}
+                  people={people}
+                  onPatched={onPatched}
+                  onRan={onListChanged}
+                />
               ))}
             </section>
           );

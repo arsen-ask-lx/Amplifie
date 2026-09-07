@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY tools/tsconfig.base.json tools/
 COPY frontend/package.json frontend/
+COPY packages/contract packages/contract
 RUN npm ci --workspace=@amplifie/frontend --include-workspace-root
 COPY frontend frontend
 RUN npx tsc -p frontend --noEmit && npm run build --workspace=@amplifie/frontend

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Message } from "./api.js";
 import { RichText } from "./RichText.js";
+import { день as dayOf, часы } from "./shared/when.js";
 import type { Focus } from "./useChat.js";
 
 /**
@@ -17,9 +18,6 @@ import type { Focus } from "./useChat.js";
 
 /** Столько времени между сообщениями — и группа начинается заново. */
 const REGROUP_MS = 5 * 60 * 1000;
-
-const time = new Intl.DateTimeFormat("ru", { hour: "2-digit", minute: "2-digit" });
-const day = new Intl.DateTimeFormat("ru", { day: "numeric", month: "long" });
 
 function sameDay(a: Date, b: Date): boolean {
   return a.toDateString() === b.toDateString();
@@ -115,7 +113,7 @@ function Bubble({ row }: { row: Row }) {
           <RichText body={forDisplay(row.message.body)} />
         </span>
         <time className="msg-time" dateTime={row.message.createdAt}>
-          {time.format(at)}
+          {часы.format(at)}
         </time>
       </div>
     </article>
@@ -265,7 +263,7 @@ export function Feed({
         <div key={row.message.id}>
           {row.newDay ? (
             <p className="feed-day">
-              <span>{day.format(new Date(row.message.createdAt))}</span>
+              <span>{dayOf.format(new Date(row.message.createdAt))}</span>
             </p>
           ) : null}
           <Bubble row={row} />

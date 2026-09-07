@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api, type ModelKey } from "./api.js";
+import { api, type ModelKey } from "./api.js";
 import { Icon } from "./Icon.js";
+import { detailOf, fieldsOf } from "./shared/failure.js";
+import { keyTroubleOf } from "./shared/trouble.js";
 
 /**
  * Ключ поставщика модели: ввести, увидеть, убрать.
@@ -29,15 +31,14 @@ const SCOPES = [
 ];
 
 function explain(error: unknown): string {
-  if (!(error instanceof ApiError)) return "Не удалось сохранить ключ.";
-  const body = error.body as { detail?: string; fields?: Record<string, string> };
-  if (error.status === 422) {
-    return body.detail ?? Object.values(body.fields ?? {})[0] ?? "Ключ не той формы.";
+  switch (keyTroubleOf(error)) {
+    case "не-та-форма":
+      return detailOf(error) ?? Object.values(fieldsOf(error))[0] ?? "Ключ не той формы.";
+    case "негде-хранить":
+      return "Сервер не настроен для хранения секретов: не задан AMPLIFIE_SECRET_KEY.";
+    default:
+      return "Не удалось сохранить ключ.";
   }
-  if (error.status === 503) {
-    return "Сервер не настроен для хранения секретов: не задан AMPLIFIE_SECRET_KEY.";
-  }
-  return "Не удалось сохранить ключ.";
 }
 
 /** Выбор из списка. Два поля отличались только подписью и набором. */
