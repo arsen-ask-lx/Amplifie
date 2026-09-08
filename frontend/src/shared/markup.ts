@@ -25,7 +25,11 @@ export type Token =
   | { kind: "strike"; text: string }
   | { kind: "code"; text: string }
   /** Многострочный кусок кода. Отдельно от `code`: рисуется блоком. */
-  | { kind: "pre"; text: string }
+  /**
+   * Блок кода. `lang` — подпись языка из первой строки ограды
+   * (```` ```sql ````), если она там была.
+   */
+  | { kind: "pre"; text: string; lang?: string }
   /** Скрытый до нажатия. У Телеграма — «спойлер». */
   | { kind: "spoiler"; text: string }
   | { kind: "link"; text: string; href: string };
@@ -114,11 +118,32 @@ function bareToken(raw: string): { token: Token; tail: string } {
  */
 const KINDS = ["pre", "code", "bold", "underline", "strike", "spoiler", "italic"] as const;
 
+/**
+ * Подпись языка в первой строке ограды: ```` ```sql ````.
+ *
+ * ⚠️ РАЗБИРАЕТСЯ ЗДЕСЬ, А НЕ ОТДЕЛЬНОЙ СКОБКОЙ В РЕГУЛЯРКЕ. Скобки в ней
+ * пронумерованы, и на этот порядок опирается список `KINDS`: лишняя
+ * скобка сдвинула бы ВСЕ виды разметки на один. Такая поломка не
+ * называется по имени — жирный просто начинает быть курсивом.
+ *
+ * Подписью считается только одинокое слово на своей строке: строка
+ * `SELECT *` — это код, а не язык, и путать их нельзя.
+ */
+function splitLang(raw: string): { text: string; lang?: string } {
+  const at = raw.indexOf("\n");
+  if (at === -1) return { text: raw };
+  const head = raw.slice(0, at).trim();
+  if (!head || !/^[A-Za-z][\w+#.-]{0,19}$/u.test(head)) return { text: raw };
+  return { text: raw.slice(at + 1), lang: head };
+}
+
 function tokenOf(match: RegExpExecArray): { token: Token; tail: string } {
   for (let i = 0; i < KINDS.length; i++) {
     const text = match[i + 1];
     const kind = KINDS[i];
-    if (text !== undefined && kind !== undefined) return { token: { kind, text }, tail: "" };
+    if (text === undefined || kind === undefined) continue;
+    if (kind === "pre") return { token: { kind, ...splitLang(text) }, tail: "" };
+    return { token: { kind, text }, tail: "" };
   }
 
   // Ветки ссылки и голого адреса идут сразу за семью видами обёрток.
