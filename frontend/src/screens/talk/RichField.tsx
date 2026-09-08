@@ -7,6 +7,8 @@ import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import {
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
   COMMAND_PRIORITY_LOW,
   FORMAT_TEXT_COMMAND,
   INSERT_LINE_BREAK_COMMAND,
@@ -69,6 +71,40 @@ const KEYS: Record<string, { shift: boolean; format: TextFormatType }> = {
   KeyM: { shift: true, format: "code" },
 };
 
+/**
+ * Пометить ВЫДЕЛЕННОЕ и не залипнуть.
+ *
+ * ⚠️ БЕЗ ВЫДЕЛЕНИЯ НЕ ДЕЛАЕМ НИЧЕГО, и это главное. Редактор по умолчанию
+ * понимает Ctrl+B на пустом выделении как «включить режим»: дальше всё
+ * набранное идёт жирным, пока не выключишь. Владелец на это и наткнулся:
+ * «нажал Ctrl+B и у меня остался шрифт жирным». Разметка у нас —
+ * это свойство КУСКА ТЕКСТА, а не состояние поля.
+ *
+ * ⚠️ ПОСЛЕ ПОМЕТКИ РЕЖИМ СНИМАЕТСЯ. Даже когда выделение было, курсор
+ * остаётся в конце помеченного куска и наследует его вид — и следующее
+ * слово опять уходит жирным. Поэтому выделение схлопывается в конец,
+ * а признак с него снимается: пометили слово — пишем дальше как писали.
+ */
+function markSelection(editor: LexicalEditor, format: TextFormatType): void {
+  let было = false;
+  editor.getEditorState().read(() => {
+    const selection = $getSelection();
+    было = $isRangeSelection(selection) && !selection.isCollapsed();
+  });
+  if (!было) return;
+
+  editor.dispatchCommand(FORMAT_TEXT_COMMAND, format);
+
+  editor.update(() => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) return;
+    // Схлопываем в конец: курсор встаёт за помеченным куском.
+    selection.anchor.set(selection.focus.key, selection.focus.offset, selection.focus.type);
+    // И гасим унаследованный признак, иначе следующее слово будет таким же.
+    if (selection.hasFormat(format)) selection.toggleFormat(format);
+  });
+}
+
 /** Отдаёт редактор наружу: полю нужен и фокус, и очистка, и заполнение. */
 function Handle({ onReady }: { onReady: (editor: LexicalEditor) => void }) {
   const [editor] = useLexicalComposerContext();
@@ -119,7 +155,7 @@ function Keys({ onSend }: { onSend: () => void }) {
         const rule = KEYS[event.code];
         if (!rule || rule.shift !== event.shiftKey) return false;
         event.preventDefault();
-        editor.dispatchCommand(FORMAT_TEXT_COMMAND, rule.format);
+        markSelection(editor, rule.format);
         return true;
       },
       COMMAND_PRIORITY_LOW,
@@ -200,7 +236,7 @@ export function RichField({
                   $getRoot().clear();
                 }),
               fill: (markup) => editor.update(() => $fillFromMarkup(markup)),
-              format: (format) => editor.dispatchCommand(FORMAT_TEXT_COMMAND, format),
+              format: (format) => markSelection(editor, format),
             })
           }
         />

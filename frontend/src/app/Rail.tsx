@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import type { Me } from "../data/api.js";
 import type { Chat } from "../data/useChat.js";
 import { Icon } from "../shared/Icon.js";
+import { Logo } from "../shared/Logo.js";
 import { Profile } from "./Profile.js";
 import { RoomList } from "./RoomList.js";
 
@@ -118,7 +119,10 @@ export function Rail({
           гарнитура (Р-008): у продукта должно быть лицо хотя бы в одной
           точке, но ровно в одной. Имя пространства и человека уехали
           в профиль внизу: там всё, что относится «ко мне». */}
-        <h1 className="px-2.5 pt-2 font-serif text-lead leading-tight text-ink">Amplifie</h1>
+        <h1 className="flex items-center gap-2 px-2.5 pt-2 text-lead leading-tight text-ink">
+          <Logo className="size-6 shrink-0" />
+          <span className="font-serif">Amplifie</span>
+        </h1>
 
         <Parts section={section} />
 

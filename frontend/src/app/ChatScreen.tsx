@@ -251,7 +251,20 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
   // её уже знают.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "b") return;
+      if (!(event.ctrlKey || event.metaKey) || event.code !== "KeyB") return;
+
+      // ⚠️ В ПОЛЕ ВВОДА Ctrl+B — ЭТО ЖИРНЫЙ, А НЕ ПАНЕЛЬ. Оба сочетания
+      // общеприняты, и оба мы взяли не выдумывая; столкнулись они только
+      // когда поле стало форматированным. Победитель определяется местом:
+      // курсор в тексте — значит человек пишет, а не ходит по разделам.
+      // Найдено живым прогоном: панель уезжала при попытке сделать
+      // слово жирным.
+      const where = document.activeElement;
+      const typing =
+        where instanceof HTMLElement &&
+        (where.isContentEditable || where.tagName === "INPUT" || where.tagName === "TEXTAREA");
+      if (typing) return;
+
       event.preventDefault();
       toggleRail();
     }
@@ -275,7 +288,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
             onClick={toggleRail}
             aria-label={railOpen ? "Задвинуть панель" : "Выдвинуть панель"}
             aria-expanded={railOpen}
-            title={`${railOpen ? "Задвинуть" : "Выдвинуть"} панель (Ctrl+B)`}
+            title={`${railOpen ? "Задвинуть" : "Выдвинуть"} панель (Ctrl+B вне поля ввода)`}
             className="grid size-9 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
           >
             <Sidebar className="size-[18px]" />
