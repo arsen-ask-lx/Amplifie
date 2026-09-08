@@ -1,15 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { ModelUnavailableError } from "../../../app/answering.js";
-import { listenTo } from "../../../app/listen.js";
 import { BreakerOpenError, NotAgentTaskError, runTask } from "../../../app/working.js";
 import { resolveActor } from "../../../kernel/identity/index.js";
-import { ConversationNotVisibleError } from "../../../kernel/talk/index.js";
 import {
-  AgreementNotVisibleError,
   createTask,
-  decide,
-  listAgreements,
   listParticipants,
   listTasks,
   NotHumanError,
@@ -101,30 +96,6 @@ function runFailure(error: unknown): { code: number; body: object } | null {
 }
 
 export function registerWorkRoutes(app: FastifyInstance): void {
-  app.post<{ Params: { id: string } }>("/v1/conversations/:id/listen", async (request, reply) => {
-    const actor = await actorOf(request, reply);
-    if (!actor) return reply;
-
-    try {
-      const added = await listenTo(
-        { participantId: actor.participantId, workspaceId: actor.workspaceId },
-        request.params.id,
-      );
-      return reply.code(200).send({ proposed: added });
-    } catch (error) {
-      if (error instanceof ConversationNotVisibleError) {
-        return reply.code(404).send({ error: "not_found" });
-      }
-      throw error;
-    }
-  });
-
-  app.get("/v1/agreements", async (request, reply) => {
-    const actor = await actorOf(request, reply);
-    if (!actor) return reply;
-    return { items: await listAgreements(actor.workspaceId) };
-  });
-
   app.get("/v1/tasks", async (request, reply) => {
     const actor = await actorOf(request, reply);
     if (!actor) return reply;
@@ -181,32 +152,4 @@ export function registerWorkRoutes(app: FastifyInstance): void {
       reply.send(await patchTask(actor, request.params.id, input)),
     );
   });
-
-  for (const verdict of ["confirm", "reject"] as const) {
-    app.post<{ Params: { id: string } }>(
-      `/v1/agreements/:id/${verdict}`,
-      async (request, reply) => {
-        const actor = await actorOf(request, reply);
-        if (!actor) return reply;
-
-        try {
-          return await decide(
-            {
-              workspaceId: actor.workspaceId,
-              participantId: actor.participantId,
-              kind: actor.kind,
-            },
-            request.params.id,
-            verdict,
-          );
-        } catch (error) {
-          // Нет такой, чужая, или решает не человек — снаружи одно и то же.
-          if (error instanceof AgreementNotVisibleError) {
-            return reply.code(404).send({ error: "not_found" });
-          }
-          throw error;
-        }
-      },
-    );
-  }
 }

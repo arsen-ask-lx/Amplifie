@@ -1,35 +1,46 @@
-import { useState } from "react";
+import { PanelLeft } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import type { Me } from "../data/api.js";
-import { api } from "../data/api.js";
 import { type Chat, useChat } from "../data/useChat.js";
 import { useWork, type Work } from "../data/useWork.js";
-import { awaiting } from "../data/work.js";
 import { AgentsScreen } from "../screens/agents/AgentsScreen.js";
+import { BoardScreen } from "../screens/BoardScreen.js";
 import { Composer } from "../screens/talk/Composer.js";
 import { Feed } from "../screens/talk/Feed.js";
-import { BoardScreen, type GoTo, WorkScreen } from "../screens/WorkScreen.js";
-import { Icon } from "../shared/Icon.js";
-import { Button } from "../shared/ui/button.js";
 import { Rail, type Section, sectionOf } from "./Rail.js";
 
 /** Заголовок середины экрана. Разговор подписывается своим названием. */
 const TITLES: Partial<Record<Section, string>> = {
   board: "Доска",
-  deals: "Договорённости",
   agents: "Агенты",
 };
 
 /**
- * Главный экран: разговоры и работа.
- *
- * Два раздела, а не один: договорённости — не часть ленты, их читают
- * подряд и решают пачкой. Переключатель стоит НАД списком разговоров,
- * потому что список — навигация внутри раздела «Разговоры», а не общая.
+ * Главный экран: чат и работа.
  *
  * Разделов будет больше (документы, встречи), и это место для них уже
  * есть. Папок по-прежнему нет: порядок и поиск (Р-011).
  */
+
+const PANEL_KEY = "amplifie.панель";
+
+/**
+ * Задвинута ли панель — помним между заходами.
+ *
+ * Тот, кто её задвинул, сделал это не на один экран: он работает в узком
+ * окне или ему мешает список. Возвращать панель на место при каждой
+ * перезагрузке значит спорить с человеком.
+ */
+function railWasOpen(): boolean {
+  try {
+    return localStorage.getItem(PANEL_KEY) !== "нет";
+  } catch {
+    // Хранилище закрыто настройками приватности. Панель — не то,
+    // ради чего стоит падать.
+    return true;
+  }
+}
 
 /**
  * Середина экрана: загрузка, пустое пространство или разговор.
@@ -39,12 +50,17 @@ const TITLES: Partial<Record<Section, string>> = {
  * регистрации. Экран обязан сказать это прямо, а не крутить загрузку.
  */
 function Room({ chat, meId }: { chat: Chat; meId: string }) {
-  if (chat.loading) return <p className="p-8 text-center text-body text-muted">Загружаем…</p>;
+  // «Загружаем…» только когда показать НЕЧЕГО. Если лента уже на экране,
+  // подгрузка идёт молча: подменять готовое содержимое надписью — это
+  // мигание на ровном месте.
+  if (chat.loading && chat.messages.length === 0) {
+    return <p className="p-8 text-center text-body text-muted">Загружаем…</p>;
+  }
 
   if (chat.conversations.length === 0) {
     return (
       <p className="p-8 text-center text-body text-muted">
-        В этом пространстве ещё нет каналов. Заведите первый — кнопка «+ Канал» слева.
+        В этом пространстве ещё нет каналов. Заведите первый — плюс в заголовке «Каналы» слева.
       </p>
     );
   }
@@ -62,87 +78,31 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
         meId={meId}
         focus={chat.focus}
       />
-      <AgentLine asking={chat.asking} failure={chat.agentFailure} />
+      <AgentFailure failure={chat.agentFailure} />
       <Composer onSend={chat.send} />
     </>
   );
 }
 
 /**
- * Что происходит с агентом — строкой между лентой и полем ввода.
+ * Почему агент не ответил — строкой между лентой и полем ввода.
  *
  * ⚠️ НЕ РЕПЛИКОЙ В ЛЕНТЕ, и это принципиально. Сообщение «извините,
  * ошибка» от имени участника — ложь про то, кто говорил. Отказ живёт
  * рядом с разговором, а не внутри него, и исчезает со следующей отправкой.
  *
- * «Печатает…» мелькает и на сообщениях без обращения: решает сервер,
- * и без обращения он отвечает мгновенно. Это дешевле, чем держать
- * вторую копию правила «звали ли агента» здесь.
+ * ⚠️ «ПЕЧАТАЕТ…» УБРАНО ВЛАДЕЛЬЦЕМ. Строка загоралась на КАЖДОЙ отправке,
+ * а не только когда агента звали: решает сервер, и без обращения он
+ * отвечает мгновенно — то есть почти всегда это было мелькание ни о чём.
+ * Вместе со строкой ушло и состояние `asking`: держать признак, который
+ * ничего не рисует, значит однажды нарисовать им что-нибудь не то.
  */
-function AgentLine({ asking, failure }: { asking: boolean; failure: string | null }) {
-  if (asking) {
-    return (
-      <p className="flex items-center gap-2 px-5 py-1 text-aside text-muted" aria-live="polite">
-        <span className="animate-pulse text-accent">
-          <Icon name="точка" size={12} />
-        </span>
-        Сводка печатает…
-      </p>
-    );
-  }
-  if (failure) {
-    return (
-      <p className="px-5 py-1 text-aside text-danger" role="status">
-        {failure}
-      </p>
-    );
-  }
-  return null;
-}
-
-/**
- * Кнопка разбора: агент читает разговор и предлагает договорённости.
- *
- * ⚠️ Это временно КНОПКА, и она честно об этом говорит. Агент не слушает
- * сам, потому что «слушать всё» упирается в лимиты тарифа и месячный
- * бюджет — они не отвечены (О-1, О-2), а угадывать их дорого.
- */
-function Listen({
-  conversationId,
-  onHeard,
-}: {
-  conversationId: string;
-  onHeard: () => Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [said, setSaid] = useState<string | null>(null);
-
+function AgentFailure({ failure }: { failure: string | null }) {
+  if (!failure) return null;
   return (
-    <span className="flex shrink-0 items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          setSaid(null);
-          try {
-            const { proposed } = await api.listen(conversationId);
-            // Ноль — это ответ, а не молчание: человек должен понимать
-            // разницу между «агент ничего не нашёл» и «кнопка не сработала».
-            setSaid(proposed > 0 ? `нашёл: ${proposed}` : "ничего не нашёл");
-            await onHeard();
-          } catch {
-            setSaid("разбор не удался");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        {busy ? "Слушает…" : "Разобрать"}
-      </Button>
-      {said ? <span className="text-aside text-muted">{said}</span> : null}
-    </span>
+    <p className="px-5 py-1 text-aside text-danger" role="status">
+      {failure}
+    </p>
   );
 }
 
@@ -152,41 +112,75 @@ function Middle({
   chat,
   work,
   meId,
-  onGoTo,
 }: {
   section: Section;
   chat: Chat;
   work: Work;
   meId: string;
-  onGoTo: GoTo;
 }) {
   if (section === "agents") return <AgentsScreen />;
   if (section === "board") return <BoardScreen work={work} meId={meId} />;
-  if (section === "deals") return <WorkScreen work={work} goTo={onGoTo} />;
   return <Room chat={chat} meId={meId} />;
 }
 
 export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
-  const chat = useChat();
+  const chat = useChat(me);
   const work = useWork();
   // Раздел ВЫВОДИТСЯ из адреса, а не хранится рядом с ним (Р-019).
   // Хранить копию значило бы завести второй ответ на вопрос «где я».
   const section: Section = sectionOf(useLocation().pathname);
 
-  const pending = awaiting(work.agreements).length;
+  const [railOpen, setRailOpen] = useState(railWasOpen);
+
+  const toggleRail = useCallback(() => {
+    setRailOpen((was) => {
+      try {
+        localStorage.setItem(PANEL_KEY, was ? "нет" : "да");
+      } catch {
+        // Не сохранилось — задвинутость продержится до перезагрузки.
+      }
+      return !was;
+    });
+  }, []);
+
+  // Ctrl+B — тот же способ, что в Слаке, VS Code и Дискорде. Своего
+  // сочетания мы не придумываем: горячая клавиша полезна ровно тем, что
+  // её уже знают.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "b") return;
+      event.preventDefault();
+      toggleRail();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleRail]);
 
   return (
-    <div className="flex h-dvh bg-bg text-ink">
-      <Rail me={me} chat={chat} section={section} pending={pending} onLeave={onLeave} />
+    <div className="flex h-dvh overflow-hidden bg-bg text-ink">
+      <Rail me={me} chat={chat} section={section} open={railOpen} onLeave={onLeave} />
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-line px-5">
-          <h2 className="truncate text-head font-semibold text-ink">
+      {/* ⚠️ `min-h-0` ЗДЕСЬ И НА ЛЕНТЕ — НЕ УКРАШЕНИЕ. У flex-ребёнка
+          минимальная высота по умолчанию равна содержимому, поэтому лента
+          не сжималась, колонка вырастала выше экрана, и поле ввода
+          уезжало за нижний край: в чате не было видно, куда писать.
+          Найдено живым прогоном — из кода это не читается. */}
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3">
+          <button
+            type="button"
+            onClick={toggleRail}
+            aria-label={railOpen ? "Задвинуть панель" : "Выдвинуть панель"}
+            aria-expanded={railOpen}
+            title={`${railOpen ? "Задвинуть" : "Выдвинуть"} панель (Ctrl+B)`}
+            className="grid size-9 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
+          >
+            <PanelLeft className="size-[18px]" />
+          </button>
+
+          <h2 className="min-w-0 truncate text-head font-semibold text-ink">
             {TITLES[section] ?? chat.current?.title ?? "Канал"}
           </h2>
-          {section === "talk" && chat.current ? (
-            <Listen conversationId={chat.current.id} onHeard={work.reload} />
-          ) : null}
         </header>
 
         {chat.failure ? (
@@ -195,15 +189,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
           </p>
         ) : null}
 
-        <Middle
-          section={section}
-          chat={chat}
-          work={work}
-          meId={me.participant.id}
-          // Переход по цитате — это адрес: `/c/<разговор>/<номер>`.
-          // Раздел меняется сам, потому что выводится из адреса.
-          onGoTo={(conversationId, seq) => chat.openAt(conversationId, seq)}
-        />
+        <Middle section={section} chat={chat} work={work} meId={me.participant.id} />
       </main>
     </div>
   );

@@ -40,10 +40,15 @@ export interface RunResult {
   ms: number;
 }
 
-/** Что агент получает на вход. Название задачи — единственное поручение. */
-function briefFor(task: { title: string; citations: Array<{ quote: string }> }): string {
-  const said = task.citations.map((one) => `— ${one.quote}`).join("\n");
-  return said ? `Задача: ${task.title}\n\nНа чём она основана:\n${said}` : `Задача: ${task.title}`;
+/**
+ * Что агент получает на вход. Название задачи — единственное поручение.
+ *
+ * Раньше сюда добавлялись цитаты договорённости, из которой родилась
+ * задача. Договорённостей больше нет, и поручение стало короче: одна
+ * строка, которую написал человек.
+ */
+function briefFor(task: { title: string }): string {
+  return `Задача: ${task.title}`;
 }
 
 /**

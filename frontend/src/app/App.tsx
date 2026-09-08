@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Me } from "../data/api.js";
 import { AuthScreen } from "../screens/AuthScreen.js";
-import { JoinScreen } from "../screens/JoinScreen.js";
-import { Button } from "../shared/ui/button.js";
 import { ChatScreen } from "./ChatScreen.js";
 
 type State =
@@ -11,28 +9,8 @@ type State =
   | { status: "anon"; notice?: string }
   | { status: "entered"; me: Me };
 
-/**
- * Токен приглашения из адреса. Читается ОДИН раз при запуске и тут же
- * убирается из адресной строки: ссылка не должна остаться в истории
- * браузера и уехать в закладки или в чужой скриншот.
- *
- * ⚠️ Зовётся из `main.tsx` ДО запуска маршрутизатора: `replaceState` мимо
- * него разошёлся бы с его представлением об истории (task-012, шаг 4).
- */
-export function takeInviteFromUrl(): string | null {
-  const found = new URLSearchParams(window.location.search).get("invite");
-  if (!found) return null;
-  window.history.replaceState(null, "", window.location.pathname);
-  return found;
-}
-
-export function App({ invite: fromUrl }: { invite: string | null }) {
+export function App() {
   const [state, setState] = useState<State>({ status: "loading" });
-  // Токен снят со СТРАНИЦЫ в `main.tsx`, но живёт в состоянии до тех пор,
-  // пока не применён. Не гасить его после успешного входа — значит сразу
-  // после входа показать «приглашение не применилось» тому, кто только что
-  // вошёл именно по нему. Так и было, поймано живым прогоном.
-  const [invite, setInvite] = useState(fromUrl);
 
   // Кто пришёл — спрашиваем у сервера, а не у localStorage: печенька
   // HttpOnly, и это единственный честный источник ответа.
@@ -44,51 +22,6 @@ export function App({ invite: fromUrl }: { invite: string | null }) {
   }, []);
 
   if (state.status === "loading") return null;
-
-  // Пришёл по приглашению, но уже вошёл под другим именем. Молча
-  // потерять приглашение нельзя: человек решит, что ссылка не работает,
-  // и попросит новую — а старая при этом останется живой.
-  if (state.status === "entered" && invite) {
-    return (
-      <div className="grid min-h-dvh place-items-center bg-bg p-6">
-        <div className="w-full max-w-96 rounded-lg border border-line bg-panel p-6 shadow-float">
-          <h1 className="mb-4 font-serif text-brand leading-tight text-ink">
-            Приглашение не применилось
-          </h1>
-          <p className="mt-2 text-body leading-relaxed text-muted">
-            Вы уже вошли как {state.me.participant.displayName} в пространстве{" "}
-            {state.me.workspace.name}. Приглашение заводит отдельный вход — выйдите и откройте
-            ссылку снова. Она не потрачена.
-          </p>
-          <Button
-            onClick={() => {
-              // Токен вычищен из адреса при чтении (чтобы не осел в истории),
-              // поэтому просто перезагрузить страницу мало — приглашение
-              // потерялось бы. Возвращаем его в адрес явно.
-              void api
-                .logout()
-                .finally(() => window.location.replace(`/?invite=${encodeURIComponent(invite)}`));
-            }}
-          >
-            Выйти и принять приглашение
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Пришёл по приглашению и ещё не вошёл — ему нужен другой экран.
-  if (state.status === "anon" && invite) {
-    return (
-      <JoinScreen
-        token={invite}
-        onEntered={(me) => {
-          setInvite(null);
-          setState({ status: "entered", me });
-        }}
-      />
-    );
-  }
 
   if (state.status === "anon") {
     return (

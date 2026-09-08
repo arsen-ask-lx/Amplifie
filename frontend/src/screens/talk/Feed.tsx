@@ -3,7 +3,7 @@ import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
 import { Button } from "../../shared/ui/button.js";
 import { день as dayOf } from "../../shared/when.js";
-import { Bubble, rowsOf } from "./Bubble.js";
+import { Group, groupsOf, rowsOf } from "./Bubble.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).
@@ -149,7 +149,7 @@ export function Feed({
   return (
     // role="log" — новые сообщения читаются вслух программой чтения экрана.
     <div
-      className="flex-1 overflow-y-auto px-4 py-3"
+      className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
       role="log"
       aria-live="polite"
       aria-relevant="additions"
@@ -168,16 +168,16 @@ export function Feed({
         </p>
       )}
 
-      {rows.map((row) => (
-        <div key={row.message.id}>
-          {row.newDay ? (
+      {groupsOf(rows).map((group) => (
+        <div key={group[0]?.message.id}>
+          {group[0]?.newDay ? (
             <p className="my-4 text-center">
-              <span className="rounded-pill bg-panel px-3 py-1 text-mark text-muted">
-                {dayOf.format(new Date(row.message.createdAt))}
+              <span className="rounded-pill border border-line bg-card px-3 py-1 text-mark text-muted">
+                {dayOf.format(new Date(group[0].message.createdAt))}
               </span>
             </p>
           ) : null}
-          <Bubble row={row} />
+          <Group rows={group} />
         </div>
       ))}
     </div>

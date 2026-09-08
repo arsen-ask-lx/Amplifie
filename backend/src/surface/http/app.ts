@@ -8,7 +8,6 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerBridgeRoutes } from "./routes/bridge.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
-import { registerInviteRoutes } from "./routes/invites.js";
 import { registerStreamRoutes } from "./routes/stream.js";
 import { registerWorkRoutes } from "./routes/work.js";
 
@@ -40,7 +39,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerBridgeRoutes(app);
   registerAgentRoutes(app);
   registerChatRoutes(app);
-  registerInviteRoutes(app);
   registerStreamRoutes(app);
   registerWorkRoutes(app);
 

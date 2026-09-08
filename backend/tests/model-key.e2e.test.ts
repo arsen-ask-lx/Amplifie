@@ -58,30 +58,6 @@ async function newPerson(tag: string): Promise<Person> {
   return { cookie: sessionCookie(response) };
 }
 
-/** Второй участник ТОГО ЖЕ пространства — через приглашение. */
-async function inviteInto(host: Person, tag: string): Promise<Person> {
-  const issued = await fetch(`${BASE}/v1/invites`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: host.cookie },
-    body: "{}",
-  });
-  if (issued.status !== 201) throw new Error(`приглашение: ${issued.status}`);
-  const { token } = (await issued.json()) as { token: string };
-
-  const joined = await fetch(`${BASE}/v1/auth/join`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      token,
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-    }),
-  });
-  if (joined.status !== 201) throw new Error(`вход по приглашению: ${joined.status}`);
-  return { cookie: sessionCookie(joined) };
-}
-
 function call(path: string, person: Person, init: RequestInit = {}): Promise<Response> {
   // content-type только там, где есть тело: Fastify отвергает пустой запрос
   // с заголовком JSON, и настоящий браузер его тоже не ставит.
@@ -168,70 +144,12 @@ describe("свой ключ модели", () => {
       expect(via.kind).toBe("свой ключ");
       expect(via.hint).toBe(markedKey("СВОЙКЛЮЧ").slice(-4));
     });
-
-    it("сосед по пространству видит СВОЙ источник, а не чужой", async () => {
-      const host = await newPerson("Хозяин");
-      const guest = await inviteInto(host, "Гость");
-
-      await saveKey(host, markedKey("ХОЗЯИНА"));
-      await saveKey(guest, markedKey("ГОСТЯ"));
-
-      const hostVia = (await (await call("/v1/agents", host)).json()) as {
-        answersVia: { hint: string };
-      };
-      const guestVia = (await (await call("/v1/agents", guest)).json()) as {
-        answersVia: { hint: string };
-      };
-
-      expect(hostVia.answersVia.hint).toBe(markedKey("ХОЗЯИНА").slice(-4));
-      expect(guestVia.answersVia.hint).toBe(markedKey("ГОСТЯ").slice(-4));
-      expect(hostVia.answersVia.hint).not.toBe(guestVia.answersVia.hint);
-    });
-
-    it("общий ключ пространства работает, пока своего нет", async () => {
-      const host = await newPerson("Заводящий");
-      const guest = await inviteInto(host, "Безключевой");
-
-      // Законная замена «поделиться подпиской»: делится ключ, не подписка.
-      const shared = await saveKey(host, markedKey("ОБЩИЙ"), "пространство");
-      expect(shared.status).toBe(201);
-
-      const seen = (await (await call("/v1/agents", guest)).json()) as {
-        answersVia: { kind: string; hint: string };
-      };
-      expect(seen.answersVia.kind).toBe("ключ пространства");
-      expect(seen.answersVia.hint).toBe(markedKey("ОБЩИЙ").slice(-4));
-    });
   });
 
-  describe("В-5 чужой ключ недоступен", () => {
-    it("участник не видит ключей соседа", async () => {
-      const host = await newPerson("Первый");
-      const guest = await inviteInto(host, "Второй");
-      await saveKey(host, markedKey("ТОЛЬКОПЕРВОГО"));
-
-      const mine = await keysOf(guest);
-      expect(mine.filter((one) => one.scope === "участник")).toHaveLength(0);
-
-      const seen = await everythingSeenBy(guest);
-      expect(seen).not.toContain("ТОЛЬКОПЕРВОГО");
-    });
-
-    it("чужой ключ нельзя убрать", async () => {
-      const host = await newPerson("Владелец ключа");
-      const guest = await inviteInto(host, "Посторонний");
-      await saveKey(host, markedKey("НЕТРОГАЙ"));
-
-      const [key] = await keysOf(host);
-      if (!key) throw new Error("ключ не сохранился");
-
-      const removed = await call(`/v1/model-keys/${key.id}`, guest, { method: "DELETE" });
-      expect(removed.status).toBe(404);
-
-      // И он остался на месте.
-      expect(await keysOf(host)).toHaveLength(1);
-    });
-  });
+  // ⚠️ В-5 «чужой ключ недоступен» УДАЛЁН вместе с приглашениями: проверка
+  // требовала второго человека в том же пространстве, а другой двери
+  // для него не было. Изоляция ключей в коде осталась, доказательства
+  // у неё больше нет (2026-09-07).
 
   describe("форма ключа проверяется до сохранения", () => {
     it("мусор вместо ключа не сохраняется", async () => {

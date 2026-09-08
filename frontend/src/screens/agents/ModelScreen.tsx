@@ -59,7 +59,7 @@ function Command({ command }: { command: string }) {
         Выполните это у себя один раз. Код одноразовый и живёт 15 минут.
       </p>
       <input
-        className="h-9 w-full rounded border border-edge bg-bg px-3 text-aside text-ink outline-none"
+        className="h-9 w-full rounded-lg border border-edge bg-card px-3 text-aside text-ink outline-none"
         readOnly
         value={command}
         onFocus={(event) => event.target.select()}
@@ -157,7 +157,7 @@ export function ModelScreen({
           Своя подписка
         </h3>
 
-        <article className="mb-3 rounded-lg border border-line bg-raised p-4 shadow-raised">
+        <article className="mb-3 rounded-xl border border-line bg-card p-4 shadow-raised">
           <p className="text-lead leading-snug text-ink">
             Модель отвечает через ваш собственный клиент, на вашей машине. Токен подписки остаётся у
             вас: мы его не видим и не храним.

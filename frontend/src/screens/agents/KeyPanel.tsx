@@ -70,7 +70,7 @@ function Choice({
 
 function Saved({ item, onRemove }: { item: ModelKey; onRemove: () => void }) {
   return (
-    <li className="flex flex-wrap items-center gap-2 rounded border border-line bg-raised px-3 py-2 text-body">
+    <li className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-card px-3 py-2 text-body">
       <span className="text-ink">
         {item.provider} · <span className="text-muted">…{item.hint}</span>
       </span>

@@ -2,11 +2,8 @@ import { Link } from "react-router";
 import type { Me } from "../data/api.js";
 import type { Chat } from "../data/useChat.js";
 import { Icon } from "../shared/Icon.js";
-import { Button } from "../shared/ui/button.js";
-import { InvitePanel } from "./InvitePanel.js";
-import { NewRoom } from "./NewRoom.js";
+import { Profile } from "./Profile.js";
 import { RoomList } from "./RoomList.js";
-import { ThemeSwitch } from "./ThemeSwitch.js";
 
 /**
  * Боковая панель: где я и куда могу пойти.
@@ -24,7 +21,7 @@ import { ThemeSwitch } from "./ThemeSwitch.js";
  * лежит внутри «Агентов»: агент отвечает через мост позвавшего, значит
  * «агент молчит» и «мост погашен» — одно событие с двух сторон.
  */
-export type Section = "talk" | "board" | "deals" | "agents";
+export type Section = "talk" | "board" | "agents";
 
 /**
  * Раздел, его адрес, подпись и значок.
@@ -39,18 +36,15 @@ const PARTS: Array<{
   label: string;
   icon: "хэш" | "работа" | "модель" | "точка";
 }> = [
-  { id: "talk", path: "/", label: "Разговоры", icon: "хэш" },
+  { id: "talk", path: "/", label: "Чат", icon: "хэш" },
   { id: "board", path: "/board", label: "Доска", icon: "работа" },
-  // Счётчик висит здесь, а не на доске: он про то, что ЖДЁТ человека,
-  // а доска показывает то, что уже в работе. Разные вопросы.
-  { id: "deals", path: "/deals", label: "Договорённости", icon: "точка" },
   { id: "agents", path: "/agents", label: "Агенты", icon: "модель" },
 ];
 
 /**
  * Какой раздел открыт — по адресу.
  *
- * Разговоры остаются ответом по умолчанию: и «/», и «/c/…» — это они.
+ * Чат остаётся ответом по умолчанию: и «/», и «/c/…» — это он.
  */
 export function sectionOf(pathname: string): Section {
   const found = PARTS.find((part) => part.path !== "/" && pathname.startsWith(part.path));
@@ -64,7 +58,7 @@ export function sectionOf(pathname: string): Section {
  * в новой вкладке» и копирование адреса. Кнопка этого не умеет и молча
  * притворяется ссылкой.
  */
-function Parts({ section, pending }: { section: Section; pending: number }) {
+function Parts({ section }: { section: Section }) {
   return (
     <nav className="flex flex-col gap-0.5" aria-label="Разделы">
       {PARTS.map((part) => (
@@ -81,13 +75,6 @@ function Parts({ section, pending }: { section: Section; pending: number }) {
         >
           <Icon name={part.icon} />
           {part.label}
-          {/* Счётчик только у ждущих решения: подтверждённое внимания не
-              требует, а метка на нём учит эту метку не замечать. */}
-          {part.id === "deals" && pending > 0 ? (
-            <span className="ml-auto rounded-pill bg-accent px-1.5 text-mark text-on-accent">
-              {pending}
-            </span>
-          ) : null}
         </Link>
       ))}
     </nav>
@@ -98,58 +85,63 @@ export function Rail({
   me,
   chat,
   section,
-  pending,
+  open,
   onLeave,
 }: {
   me: Me;
   chat: Chat;
   section: Section;
-  pending: number;
+  /** Панель раскрыта. Задвинутая остаётся в разметке — см. ниже. */
+  open: boolean;
   onLeave: () => void;
 }) {
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col gap-4 overflow-hidden border-r border-line bg-panel p-3">
-      {/* Название пространства — единственное место, где живёт засечная
+    /* ⚠️ ЗАДВИНУТАЯ ПАНЕЛЬ НЕ УДАЛЯЕТСЯ, А СХЛОПЫВАЕТСЯ ДО НУЛЯ. Убрать её
+       из разметки значило бы каждый раз пересоздавать список каналов —
+       и терять его прокрутку и раскрытые секции. Ширина едет плавно,
+       содержимое внутри остаётся прежней ширины (`w-64` на обёртке),
+       иначе на время перехода панель сминалась бы в столбик букв.
+
+       `inert` — не украшение: у задвинутой панели нулевая ширина, но её
+       кнопки без него по-прежнему ловятся Tab'ом, и фокус уезжает
+       в невидимое. */
+    <aside
+      inert={!open}
+      aria-hidden={!open}
+      className={[
+        "h-full shrink-0 overflow-hidden border-r bg-panel transition-[width] duration-200",
+        open ? "w-64 border-line" : "w-0 border-transparent",
+      ].join(" ")}
+    >
+      <div className="flex h-full w-64 flex-col gap-4 p-3">
+        {/* Название продукта — единственное место, где живёт засечная
           гарнитура (Р-008): у продукта должно быть лицо хотя бы в одной
-          точке, но ровно в одной. */}
-      <div className="px-2.5 pt-2">
-        <h1 className="font-serif text-brand leading-tight text-ink">{me.workspace.name}</h1>
-        <p className="text-aside text-muted">{me.participant.displayName}</p>
-      </div>
+          точке, но ровно в одной. Имя пространства и человека уехали
+          в профиль внизу: там всё, что относится «ко мне». */}
+        <h1 className="px-2.5 pt-2 font-serif text-lead leading-tight text-ink">Amplifie</h1>
 
-      <Parts section={section} pending={pending} />
+        <Parts section={section} />
 
-      {/* Содержимое ТЕКУЩЕГО раздела. Список каналов — навигация внутри
+        {/* Содержимое ТЕКУЩЕГО раздела. Список каналов — навигация внутри
         «Разговоров», а не общая: в «Работе» и «Агентах» ему нечего
         делать, и его присутствие там сбивало прицел. */}
-      {section === "talk" ? (
-        <>
+        {section === "talk" ? (
           <RoomList
             rooms={chat.conversations}
             currentId={chat.current?.id ?? null}
             onSelect={(id) => chat.select(id)}
+            onCreate={chat.addChannel}
           />
-          <div className="flex flex-col gap-0.5">
-            <NewRoom label="+ Канал" placeholder="Название канала" onCreate={chat.addChannel} />
-            {chat.current ? (
-              <NewRoom label="+ Ветка" placeholder="О чём ветка" onCreate={chat.addThread} />
-            ) : null}
-          </div>
-        </>
-      ) : (
-        <div className="flex-1" />
-      )}
+        ) : (
+          <div className="flex-1" />
+        )}
 
-      {/* Только настройки: три однородные вещи, ни одна не переключает
-        раздел. Раньше здесь же стояла «Своя нейросеть», и подвал
-        отвечал сразу на два разных вопроса. */}
-      <div className="flex shrink-0 flex-col gap-1 border-t border-line pt-3">
-        <ThemeSwitch />
-        <InvitePanel />
-        <Button variant="ghost" size="sm" className="justify-start" onClick={onLeave}>
-          <Icon name="выход" />
-          Выйти
-        </Button>
+        {/* Подвал — одна строка вместо трёх. Всё «про меня» под ней:
+        тема и выход. Раньше здесь стояли три равновесные кнопки,
+        и панель заканчивалась списком несвязанных действий. */}
+        <div className="shrink-0 border-t border-line pt-2">
+          <Profile me={me} onLeave={onLeave} />
+        </div>
       </div>
     </aside>
   );

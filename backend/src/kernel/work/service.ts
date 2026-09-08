@@ -1,18 +1,19 @@
-import { createHash } from "node:crypto";
 import type { Stage } from "@amplifie/contract";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import * as repo from "./repo.js";
 
 /**
- * Ядро продукта: договорённость → подтверждение → задача.
+ * Ядро работы: задачи и доска.
+ *
+ * ⚠️ ДОГОВОРЁННОСТИ УБРАНЫ ЦЕЛИКОМ (владелец, 2026-09-07). Здесь была
+ * связка «агент предложил → человек подтвердил → родилась задача»,
+ * а вместе с ней таблицы `agreement` и `citation`. Задача теперь
+ * заводится напрямую: руками с доски либо агентом по явной просьбе.
  *
  * Здесь нет ни модели, ни правил распознавания: их место в `agent/`,
- * который выбрасывается целиком. Сюда приходит уже услышанное.
+ * который выбрасывается целиком.
  */
-
-/** Нет такой договорённости ЛИБО она не твоя — снаружи это одно и то же. */
-export class AgreementNotVisibleError extends Error {}
 
 export interface Actor {
   workspaceId: string;
@@ -20,215 +21,6 @@ export interface Actor {
   kind: string;
 }
 
-export interface Proposal {
-  messageId: string;
-  quote: string;
-  text: string;
-}
-
-/**
- * Цитата в том виде, в каком её показывают человеку.
- *
- * Три поля сверх текста, и каждое отвечает на свой вопрос перед тем, как
- * человек нажмёт «подтверждаю»: кто это сказал, в каком месте ленты
- * и на какое сообщение указывает.
- */
-interface CitationView {
-  messageId: string;
-  seq: number;
-  quote: string;
-  authorName: string;
-}
-
-export interface AgreementView {
-  id: string;
-  conversationId: string;
-  /** Где сказано — словами. Идентификатор человеку ничего не говорит. */
-  conversationTitle: string;
-  text: string;
-  status: string;
-  /** Кто предложил. Пока всегда агент, но поле не про «агента», а про автора. */
-  proposedBy: { id: string; name: string };
-  confirmedBy: string | null;
-  createdAt: Date;
-  citations: CitationView[];
-}
-
-/**
- * Отпечаток: этот источник и это утверждение.
- *
- * Идентификаторы сообщений, а не их текст: текст могут отредактировать,
- * и тогда «то же самое» превратилось бы в «новое».
- *
- * ⚠️ ТЕКСТ САМОЙ ДОГОВОРЁННОСТИ ВХОДИТ В ОТПЕЧАТОК, и это не мелочь.
- * Раньше отпечаток строился только по сообщению, то есть одна реплика
- * могла породить РОВНО ОДНУ договорённость. А «сделаю смету и позвоню
- * подрядчику» — это две. Вскрылось на task-009: просьба завести три
- * задачи одной репликой заводила одну.
- *
- * Повторный разбор по-прежнему ничего не дублирует: `hear` из тех же
- * реплик выводит те же формулировки, значит и те же отпечатки.
- */
-function fingerprint(messageIds: string[], text: string): string {
-  return createHash("sha256")
-    .update([...messageIds].sort().join("|"))
-    .update("\u0000") // разделитель: сырой байт делал файл двоичным для поиска
-    .update(text.trim().toLowerCase())
-    .digest("hex");
-}
-
-/**
- * Записать услышанное как ПРЕДЛОЖЕННЫЕ договорённости.
- *
- * Ничего не подтверждает: гейт одобрения — человек, и обойти его отсюда
- * нельзя даже случайно, потому что статус здесь не параметр.
- */
-export async function propose(
-  by: { workspaceId: string; participantId: string },
-  conversationId: string,
-  heard: Proposal[],
-): Promise<string[]> {
-  if (heard.length === 0) return [];
-
-  return withTransaction(async (tx) => {
-    const added: string[] = [];
-    for (const item of heard) {
-      const created = await repo.insertAgreement(tx, {
-        workspaceId: by.workspaceId,
-        conversationId,
-        proposedBy: by.participantId,
-        text: item.text,
-        sourceFingerprint: fingerprint([item.messageId], item.text),
-      });
-      // Уже была — повторный разбор ничего не меняет и ничего не пишет.
-      if (!created) continue;
-      added.push(created.id);
-
-      await repo.insertCitation(tx, {
-        workspaceId: by.workspaceId,
-        agreementId: created.id,
-        messageId: item.messageId,
-        quote: item.quote,
-      });
-
-      await appendEvent(tx, {
-        kind: "agreement.proposed",
-        workspaceId: by.workspaceId,
-        actorParticipantId: by.participantId,
-        subjectType: "agreement",
-        subjectId: created.id,
-        payload: { conversationId, citedMessageId: item.messageId },
-      });
-    }
-    return added;
-  });
-}
-
-/**
- * Подтвердить или отклонить. **Только человек.**
- *
- * Гейт одобрения — не украшение: измерено, что человек принимает 10–20%
- * НЕВЕРНЫХ предложений (Р-004). Гейт не спасает от ошибки агента, но
- * без него не спасает вообще ничто.
- */
-export async function decide(
-  actor: Actor,
-  agreementId: string,
-  verdict: "confirm" | "reject",
-): Promise<AgreementView> {
-  if (actor.kind !== "human") {
-    throw new AgreementNotVisibleError();
-  }
-
-  const changed = await withTransaction(async (tx) => {
-    const updated = await repo.setAgreementStatus(tx, {
-      id: agreementId,
-      workspaceId: actor.workspaceId,
-      status: verdict === "confirm" ? "confirmed" : "rejected",
-      confirmedBy: verdict === "confirm" ? actor.participantId : null,
-      now: new Date(),
-    });
-    if (!updated) throw new AgreementNotVisibleError();
-
-    // Задача рождается ТОЛЬКО из подтверждённой. Повторное подтверждение
-    // второй не заводит — за это отвечает уникальность в базе, а не
-    // проверка «а нет ли уже», которая была бы гонкой.
-    if (verdict === "confirm") {
-      await repo.insertTask(tx, {
-        workspaceId: actor.workspaceId,
-        agreementId: updated.id,
-        title: updated.text,
-        // Подтвердивший и есть ответственный: он взял результат на себя
-        // этим самым нажатием. Доска не должна наполняться задачами
-        // без хозяина (task-010).
-        responsibleId: actor.participantId,
-      });
-    }
-
-    await appendEvent(tx, {
-      kind: verdict === "confirm" ? "agreement.confirmed" : "agreement.rejected",
-      workspaceId: actor.workspaceId,
-      actorParticipantId: actor.participantId,
-      subjectType: "agreement",
-      subjectId: updated.id,
-      payload: {},
-    });
-
-    return updated;
-  });
-
-  return viewOf(db, changed.id, actor.workspaceId);
-}
-
-/** Цитаты одной договорённости, без полей соединения. */
-function citesOf(
-  all: Array<CitationView & { agreementId: string }>,
-  agreementId: string,
-): CitationView[] {
-  return all
-    .filter((c) => c.agreementId === agreementId)
-    .map(({ messageId, seq, quote, authorName }) => ({ messageId, seq, quote, authorName }));
-}
-
-async function withCitations(
-  tx: Executor,
-  rows: Awaited<ReturnType<typeof repo.listAgreementsIn>>,
-): Promise<AgreementView[]> {
-  const cites = await repo.citationsFor(
-    tx,
-    rows.map((r) => r.id),
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    conversationId: row.conversationId,
-    conversationTitle: row.conversationTitle,
-    text: row.text,
-    status: row.status,
-    proposedBy: { id: row.proposedById, name: row.proposedByName },
-    confirmedBy: row.confirmedBy,
-    createdAt: row.createdAt,
-    citations: citesOf(cites, row.id),
-  }));
-}
-
-async function viewOf(tx: Executor, id: string, workspaceId: string): Promise<AgreementView> {
-  const all = await withCitations(tx, await repo.listAgreementsIn(tx, workspaceId));
-  const found = all.find((a) => a.id === id);
-  if (!found) throw new AgreementNotVisibleError();
-  return found;
-}
-
-export async function listAgreements(workspaceId: string): Promise<AgreementView[]> {
-  return withCitations(db, await repo.listAgreementsIn(db, workspaceId));
-}
-
-/**
- * Колонки доски. Список закрыт и здесь, и в базе — два рубежа на одно правило.
- *
- * Объявление живёт в `@amplifie/contract`: до task-012 оно было переписано
- * ещё и во фронте, третьей копией. Совпадение объявления с CHECK в базе
- * проверяет `make stages` — импортом SQL не берётся.
- */
 export { STAGES, type Stage } from "@amplifie/contract";
 
 export class TaskNotVisibleError extends Error {}
@@ -237,43 +29,22 @@ export class NotHumanError extends Error {}
 export interface TaskView {
   id: string;
   title: string;
-  /**
-   * Откуда родилась. Пусто — завели руками.
-   *
-   * Поле оставлено рядом с `fromAgreement` намеренно: `fromAgreement`
-   * отвечает экрану на «показать ли пометку», а идентификатор нужен
-   * тому, кто пойдёт по следу. Убрать его значило бы сломать договор
-   * с клиентами ради экономии одного поля.
-   */
-  agreementId: string | null;
   stage: string;
   createdAt: Date;
-  /** Откуда взялась. Пусто — завели руками. */
-  fromAgreement: boolean;
-  conversationId: string | null;
-  conversationTitle: string | null;
   assignedTo: { id: string; name: string; kind: string } | null;
   responsible: { id: string; name: string } | null;
   /** Обсуждение задачи. Пусто, пока не было ни одного прогона. */
   discussionId: string | null;
   /** Отказов подряд. Два — размыкатель разомкнут (task-011). */
   failedRuns: number;
-  citations: CitationView[];
 }
 
-function presentTask(
-  row: Awaited<ReturnType<typeof repo.listTasksIn>>[number],
-  cites: Array<CitationView & { agreementId: string }>,
-): TaskView {
+function presentTask(row: Awaited<ReturnType<typeof repo.listTasksIn>>[number]): TaskView {
   return {
     id: row.id,
     title: row.title,
-    agreementId: row.agreementId,
     stage: row.status,
     createdAt: row.createdAt,
-    fromAgreement: row.agreementId !== null,
-    conversationId: row.conversationId,
-    conversationTitle: row.conversationTitle,
     assignedTo: row.assignedToId
       ? { id: row.assignedToId, name: row.assignedToName ?? "", kind: row.assignedToKind ?? "" }
       : null,
@@ -282,27 +53,17 @@ function presentTask(
       : null,
     discussionId: row.discussionId,
     failedRuns: row.failedRuns,
-    citations: row.agreementId ? citesOf(cites, row.agreementId) : [],
   };
 }
 
-/**
- * Задачи вместе с цитатами договорённости, из которой родились.
- *
- * К5 «задача несёт контекст» — это не метафора: по задаче обязан
- * открываться путь до реплики, из которой она взялась.
- */
+/** Задачи пространства, свежие сверху. */
 export async function listTasks(workspaceId: string): Promise<TaskView[]> {
   const rows = await repo.listTasksIn(db, workspaceId);
-  const cites = await repo.citationsFor(
-    db,
-    rows.map((r) => r.agreementId).filter((id): id is string => id !== null),
-  );
-  return rows.map((row) => presentTask(row, cites));
+  return rows.map(presentTask);
 }
 
 /**
- * Завести задачу руками — без договорённости.
+ * Завести задачу.
  *
  * Ответственный обязателен и обязан быть человеком. Проверяем здесь, чтобы
  * человек получил внятный отказ, а не пятисотку от базы; но НАСТОЯЩИЙ рубеж

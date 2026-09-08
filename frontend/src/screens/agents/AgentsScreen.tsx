@@ -91,7 +91,7 @@ export function AgentsScreen() {
       {/* Заголовок «Агенты» уже стоит в шапке экрана. Второй такой же
           под ним — не структура, а эхо. */}
       {view && view.items.length === 0 ? (
-        <p className="rounded-lg border border-line bg-panel p-4 text-body text-muted">
+        <p className="rounded-xl border border-line bg-card p-4 text-body text-muted">
           Агентов пока нет. Сводка появится сама, как только её позовут впервые: напишите в любом
           канале <code>@Сводка</code> и вопрос.
         </p>
@@ -100,7 +100,7 @@ export function AgentsScreen() {
       {view?.items.map((agent) => (
         <section
           key={agent.id}
-          className="mb-6 rounded-lg border border-line bg-raised p-4 shadow-raised"
+          className="mb-6 rounded-xl border border-line bg-card p-4 shadow-raised"
         >
           <h3 className="flex items-center gap-2 text-lead font-semibold text-ink">
             <Icon name="модель" />

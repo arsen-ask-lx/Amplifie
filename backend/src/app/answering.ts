@@ -220,15 +220,9 @@ export async function answerIfAddressed(
   const envelope = readEnvelope(answer.text);
 
   // Действия выполняются ТОЛЬКО потому, что человек обратился: до этой
-  // строки мы уже убедились в обращении (`called`). Ответственный, цитата
-  // и подтверждение — от него же, и ничто из этого не читается из вывода.
-  const done = await doActions(
-    viewer,
-    agent.id,
-    conversationId,
-    { id: asking.id, body: asking.body },
-    envelope.actions,
-  );
+  // строки мы уже убедились в обращении (`called`). Ответственным становится
+  // он же, и это не читается из вывода модели.
+  const done = await doActions(viewer, agent.id, conversationId, envelope.actions);
 
   // Ключ идемпотентности — идентификатор сообщения-обращения. Двойной зов
   // (двойной клик, повтор после разрыва) даёт один ответ, а не два.

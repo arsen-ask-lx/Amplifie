@@ -175,7 +175,7 @@ export function Card({
       ref={box}
       aria-current={named ? "true" : undefined}
       className={[
-        "group rounded-lg border bg-raised p-4 shadow-raised transition-colors",
+        "group rounded-xl border bg-card p-4 shadow-raised transition-colors",
         named ? "border-accent" : "border-line hover:border-edge",
       ].join(" ")}
     >
@@ -232,7 +232,6 @@ export function Card({
       </div>
 
       <p className="mt-2 text-mark text-muted">
-        {task.fromAgreement ? "из договорённости" : "заведена руками"} ·{" "}
         <time dateTime={task.createdAt}>{день.format(new Date(task.createdAt))}</time>
       </p>
     </article>

@@ -74,7 +74,7 @@ function NewTask({
         placeholder="Новая задача"
         aria-label="Название новой задачи"
         onChange={(event) => setTitle(event.target.value)}
-        className="h-9 min-w-60 flex-1 rounded border border-edge bg-panel px-3 text-body text-ink outline-none placeholder:text-muted focus-visible:border-accent"
+        className="h-9 min-w-60 flex-1 rounded-lg border border-edge bg-card px-3 text-body text-ink outline-none placeholder:text-muted focus-visible:border-accent"
       />
       <Select value={responsibleId} onValueChange={setResponsibleId}>
         <SelectTrigger className="w-auto">
@@ -131,7 +131,7 @@ export function Board({
             <section
               key={stage}
               aria-label={stage}
-              className="flex w-72 shrink-0 flex-col gap-3 rounded-lg bg-panel p-3"
+              className="flex w-72 shrink-0 flex-col gap-3 rounded-xl bg-panel p-3"
             >
               <h4 className="flex items-center gap-2 px-1 text-aside text-muted">
                 {stage}
@@ -152,7 +152,7 @@ export function Board({
               {/* Пустая колонка говорит, что она пустая. Пустой прямоугольник
                   читается как «не загрузилось», а не как «здесь ничего нет». */}
               {here.length === 0 ? (
-                <p className="rounded border border-dashed border-line px-3 py-6 text-center text-aside text-muted">
+                <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-aside text-muted">
                   пусто
                 </p>
               ) : null}

@@ -1,3 +1,4 @@
+import { SendHorizontal } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../shared/ui/button.js";
 
@@ -11,6 +12,22 @@ import { Button } from "../../shared/ui/button.js";
  * Поле многострочное и растёт под текст. Однострочное поле в переписке —
  * не мелочь: человек не может ни перечитать длинное, ни разбить на абзацы,
  * и начинает слать обрывками. Enter отправляет, Shift+Enter переносит.
+ *
+ * ⚠️ ПОЛОСА ТОНКАЯ, И ЭТО ЗАМЕР, А НЕ ВКУС. У Телеграма на десктопе
+ * полоса ввода около 46 пикселей высотой: поле в одну строку плюс
+ * по шесть сверху и снизу. Было втрое толще — поле в 36 пикселей
+ * с полями по двенадцать, — и низ экрана выглядел тяжелее ленты
+ * (владелец, замечание с экрана).
+ *
+ * ⚠️ ВО ВСЮ ШИРИНУ, БЕЗ СТОЛБЦА ПО ЦЕНТРУ. Столбец здесь уже был дважды
+ * и дважды убирался: по бокам оставались пустые поля, а до боковой панели
+ * — заметный провал. Ширину строки ограничивает САМ ПУЗЫРЬ, и этого
+ * достаточно; полосе ввода ограничивать нечего.
+ *
+ * ⚠️ КНОПКА — КРУГЛАЯ СО СТРЕЛКОЙ, А НЕ СЛОВО «ОТПРАВИТЬ». Так в Телеграме,
+ * и дело не во вкусе: слово занимает место, которое в переписке принадлежит
+ * тексту, и повторяет то, что уже сказал Enter. Подпись никуда не делась —
+ * она в `aria-label` и во всплывающей подсказке, вместе с горячей клавишей.
  */
 
 /** Дальше поле не растёт, а прокручивается: иначе оно съест ленту. */
@@ -59,8 +76,6 @@ export function Composer({
   onSend: (body: string, clientMsgId: string) => Promise<void>;
 }) {
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
   const draftId = useRef(crypto.randomUUID());
   const field = useRef<HTMLTextAreaElement>(null);
 
@@ -79,25 +94,29 @@ export function Composer({
     if (field.current) fit(field.current, text);
   }, [text]);
 
-  async function submit(): Promise<void> {
+  /**
+   * Отправить.
+   *
+   * ⚠️ ПОЛЕ ОЧИЩАЕТСЯ СРАЗУ И НИЧЕГО НЕ ЖДЁТ. Раньше оно ждало ответа
+   * сервера, а неудачу показывало полосой над собой — «Сообщение не ушло».
+   * Так не делает ни один мессенджер: полоса говорит о СОБЫТИИ, а сломаться
+   * может конкретная реплика, и человеку нужно видеть какая. Теперь реплика
+   * встаёт в ленту сразу с часиками, а её судьба помечается на ней же
+   * (владелец, замечание с экрана).
+   *
+   * Ключ идемпотентности меняется здесь же: следующее сообщение — другое.
+   * Повтор неудавшегося пойдёт со СТАРЫМ ключом из самой реплики, когда
+   * повтор появится.
+   */
+  function submit(): void {
     const body = text.trim();
-    if (!body || busy) return;
+    if (!body) return;
 
-    setBusy(true);
-    setFailure(null);
-    try {
-      await onSend(body, draftId.current);
-      // Ключ меняется только после успеха: если отправка не удалась,
-      // человек жмёт ещё раз с ТЕМ ЖЕ ключом, и второго сообщения
-      // не появится, даже если первое всё-таки дошло.
-      draftId.current = crypto.randomUUID();
-      setText("");
-    } catch {
-      setFailure("Сообщение не ушло. Отправьте ещё раз — оно не задвоится.");
-    } finally {
-      setBusy(false);
-      field.current?.focus();
-    }
+    const key = draftId.current;
+    draftId.current = crypto.randomUUID();
+    setText("");
+    field.current?.focus();
+    void onSend(body, key);
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
@@ -106,19 +125,21 @@ export function Composer({
     // там Enter подтверждает иероглиф, а не отправляет сообщение.
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
-    void submit();
+    submit();
   }
 
   return (
     <form
-      className="border-t border-line bg-bg px-4 py-3"
+      /* Полоса ввода — своя поверхность, отделённая от ленты волосяной
+         линией. Так в Телеграме: лента живёт на фоне, а писать идёшь
+         на белое. */
+      className="border-t border-line bg-card px-3 py-1.5"
       onSubmit={(event) => {
         event.preventDefault();
-        void submit();
+        submit();
       }}
     >
-      {failure ? <p className="mb-2 text-aside text-danger">{failure}</p> : null}
-      <div className="mx-auto flex max-w-[80ch] items-end gap-2">
+      <div className="flex items-end gap-2">
         <textarea
           ref={field}
           value={text}
@@ -128,10 +149,22 @@ export function Composer({
           placeholder="Написать в канал"
           aria-label="Текст сообщения"
           maxLength={8000}
-          className="max-h-56 min-h-9 flex-1 resize-none rounded-lg border border-edge bg-panel px-3 py-2 text-body leading-relaxed text-ink outline-none placeholder:text-muted focus-visible:border-accent"
+          /* ⚠️ НИ РАМКИ, НИ СВОЕЙ ЗАЛИВКИ, НИ КОЛЬЦА ФОКУСА. Поле — это
+             вся полоса, а не коробка внутри полосы: в Телеграме курсор
+             просто стоит на белом, и очертить его нечем. Рамка здесь
+             обводила то, что и так единственное место для набора,
+             и мешала (владелец, замечание с экрана). */
+          className="max-h-56 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-body leading-normal text-ink outline-none placeholder:text-muted"
         />
-        <Button type="submit" disabled={busy || text.trim().length === 0}>
-          Отправить
+        <Button
+          type="submit"
+          size="icon-sm"
+          disabled={text.trim().length === 0}
+          aria-label="Отправить"
+          title="Отправить (Enter)"
+          className="rounded-pill"
+        >
+          <SendHorizontal />
         </Button>
       </div>
     </form>

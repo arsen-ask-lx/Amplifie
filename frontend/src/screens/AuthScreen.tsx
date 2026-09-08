@@ -47,7 +47,7 @@ export function AuthScreen({ onEntered }: { onEntered: (me: Me) => void }) {
   return (
     <div className="grid min-h-dvh place-items-center bg-bg p-6">
       <form
-        className="w-full max-w-96 rounded-lg border border-line bg-panel p-6 shadow-float"
+        className="w-full max-w-96 rounded-xl border border-line bg-card p-6 shadow-float"
         onSubmit={submit}
         noValidate
       >

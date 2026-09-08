@@ -71,6 +71,20 @@
       "when": 1788772921162,
       "tag": "0009_real_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788800666341,
+      "tag": "0010_drop_invite",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788802526801,
+      "tag": "0011_drop_agreement",
+      "breakpoints": true
     }
   ]
 }

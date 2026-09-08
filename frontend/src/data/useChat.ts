@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useMatch, useNavigate } from "react-router";
 import { troubleOf } from "../shared/trouble.js";
-import { api, type Conversation, type Message } from "./api.js";
+import { api, type Conversation, type Me, type Message } from "./api.js";
 
 /**
  * Лента разговора: загрузка, догон и живые обновления.
@@ -20,6 +20,16 @@ import { api, type Conversation, type Message } from "./api.js";
 const PAGE = 50;
 
 /** Слияние по идентификатору: звонок и ответ на отправку приносят одно и то же. */
+/**
+ * Своя реплика, ещё не дошедшая до сервера.
+ *
+ * ⚠️ ПОЛЕ ЖИВЁТ ТОЛЬКО ЗДЕСЬ И НЕ ПРИХОДИТ С СЕРВЕРА. `Message` повторяет
+ * форму ответа сервера, и дописывать в неё наши выдумки нельзя: однажды
+ * кто-то решит, что состояние доставки хранится в базе. Поэтому отдельный
+ * тип, а не лишнее поле в общем.
+ */
+export type Local = Message & { state?: "идёт" | "не ушло" };
+
 function merge(current: Message[], incoming: Message[]): Message[] {
   if (incoming.length === 0) return current;
   const byId = new Map(current.map((m) => [m.id, m]));
@@ -71,7 +81,7 @@ async function pageBackTo(
 export interface Chat {
   conversations: Conversation[];
   current: Conversation | null;
-  messages: Message[];
+  messages: Local[];
   hasOlder: boolean;
   loading: boolean;
   failure: string | null;
@@ -81,8 +91,6 @@ export interface Chat {
   openAt: (conversationId: string, seq: number) => void;
   loadOlder: () => Promise<void>;
   send: (body: string, clientMsgId: string) => Promise<void>;
-  /** Агента позвали, и он ещё думает. Пока true — в ленте «печатает…». */
-  asking: boolean;
   /** Почему агент не ответил. Показывается один раз и не как его реплика. */
   agentFailure: string | null;
   addChannel: (title: string) => Promise<void>;
@@ -105,8 +113,7 @@ function agentTrouble(error: unknown): string {
   return SAYS[troubleOf(error)] ?? "Не получилось позвать Сводку.";
 }
 
-export function useChat(): Chat {
-  const [asking, setAsking] = useState(false);
+export function useChat(me: Me): Chat {
   const [agentFailure, setAgentFailure] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -147,9 +154,27 @@ export function useChat(): Chat {
     [currentId, wanted, location.key],
   );
 
+  // Что на экране сейчас — для отправки, которой нужен последний номер,
+  // но не нужна перерисовка при каждом его изменении.
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
+
   // Курсор догона живёт в ref, а не в состоянии: он меняется чаще, чем экран,
   // и перерисовывать ленту ради него незачем.
   const cursor = useRef(0);
+
+  /**
+   * Чья лента сейчас на экране.
+   *
+   * ⚠️ БЕЗ ЭТОГО ПЕРЕКЛЮЧЕНИЕ РАЗДЕЛОВ МИГАЛО. Нажатие на «Чат» ведёт
+   * на «/», а оттуда адрес подменяется на последний канал — то есть
+   * `currentId` успевает сходить в пустоту и вернуться. Эффект ниже
+   * видел «идентификатор изменился», обнулял ленту и заново её грузил:
+   * человек между двумя кадрами видел «Загружаем…» в уже открытом
+   * разговоре. Отметка отвечает на вопрос «а это точно другой разговор?»
+   * — и в девяти случаях из десяти отвечает «нет».
+   */
+  const shown = useRef<string | null>(null);
 
   /** Догон до конца: страницами, пока сервер говорит, что есть ещё. */
   const catchUp = useCallback(async () => {
@@ -199,6 +224,9 @@ export function useChat(): Chat {
   // обязан долистать до реплики, а идентификатор при этом не меняется.
   useEffect(() => {
     if (!currentId) return;
+    // Тот же разговор и никуда не ведут по цитате — перезагружать нечего.
+    if (shown.current === currentId && wanted === null) return;
+
     let cancelled = false;
     setLoading(true);
 
@@ -209,6 +237,7 @@ export function useChat(): Chat {
         const page = wanted === null ? first : await pageBackTo(currentId, first, wanted);
         if (cancelled) return;
 
+        shown.current = currentId;
         setMessages(page.items);
         setHasOlder(page.hasMore);
         cursor.current = maxSeq(page.items);
@@ -256,24 +285,68 @@ export function useChat(): Chat {
   const send = useCallback(
     async (body: string, clientMsgId: string) => {
       if (!currentId) return;
-      // Ответ на отправку — то же самое сообщение, что придёт догоном.
-      // Показываем сразу, чтобы своё написанное не ждало оборота через звонок.
-      const sent = await api.send(currentId, body, clientMsgId);
-      setMessages((current) => merge(current, [sent]));
+
+      /**
+       * ⚠️ РЕПЛИКА ПОЯВЛЯЕТСЯ ДО ОТВЕТА СЕРВЕРА, И ЭТО НЕ УКРАШЕНИЕ.
+       * Раньше поле ввода ждало ответа, а неудачу показывало полосой над
+       * собой — «Сообщение не ушло». Так не делает ни один мессенджер,
+       * и не зря: полоса говорит о СОБЫТИИ, а сломалось КОНКРЕТНОЕ
+       * сообщение, и человеку нужно видеть какое. В Телеграме реплика
+       * встаёт в ленту сразу с часиками, а неудача помечается на ней же.
+       *
+       * Номер на пол-деления больше последнего: место в ленте занимается
+       * сразу, а настоящий номер приедет с сервера. Дробь безопасна —
+       * сортировка числовая, а курсор догона берётся не отсюда.
+       */
+      const draft: Local = {
+        id: clientMsgId,
+        conversationId: currentId,
+        body,
+        kind: "human",
+        seq: maxSeq(messagesRef.current) + 0.5,
+        createdAt: new Date().toISOString(),
+        editedAt: null,
+        author: {
+          id: me.participant.id,
+          name: me.participant.displayName,
+          kind: me.participant.kind,
+        },
+        state: "идёт",
+      };
+      setMessages((current) => [...current, draft]);
+
+      let sent: Message;
+      try {
+        sent = await api.send(currentId, body, clientMsgId);
+      } catch {
+        // Помечаем ту самую реплику и уходим. Ключ идемпотентности у неё
+        // прежний, поэтому повтор не задвоит её на сервере.
+        setMessages((current) =>
+          current.map((one) => (one.id === clientMsgId ? { ...one, state: "не ушло" } : one)),
+        );
+        return;
+      }
+
+      // Черновик заменяется настоящей записью: у неё свой идентификатор
+      // и настоящий номер. Держать обе — значит однажды показать обе.
+      setMessages((current) =>
+        merge(
+          current.filter((one) => one.id !== clientMsgId),
+          [sent],
+        ),
+      );
 
       // Зовём агента ВСЕГДА, а решает сервер.
       //
       // Почему не проверять обращение здесь: правило «звали ли агента»
       // должно жить в одном месте, иначе две копии разъедутся. Без
-      // обращения сервер отвечает 204 мгновенно, и «печатает…» мелькает
-      // незаметно; с обращением — держится, пока модель думает.
+      // обращения сервер отвечает 204 мгновенно и молча.
       //
       // ⚠️ БЕЗ await: `send` обязан завершиться, как только сообщение
       // записано. Первая редакция ждала здесь ответа модели — и поле ввода
       // держало набранный текст все пять секунд, будто отправка не прошла.
       // Найдено живым прогоном, тесты этого видеть не могли.
       setAgentFailure(null);
-      setAsking(true);
       void (async () => {
         try {
           // Ответ агента НЕ вклеиваем руками: он приедет тем же путём, что
@@ -282,12 +355,10 @@ export function useChat(): Chat {
           await api.ask(currentId);
         } catch (error) {
           setAgentFailure(agentTrouble(error));
-        } finally {
-          setAsking(false);
         }
       })();
     },
-    [currentId],
+    [currentId, me],
   );
 
   /**
@@ -354,7 +425,6 @@ export function useChat(): Chat {
     openAt,
     loadOlder,
     send,
-    asking,
     agentFailure,
     addChannel,
     addThread,

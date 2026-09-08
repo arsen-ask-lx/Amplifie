@@ -29,7 +29,7 @@ export function Field({ label, value, onChange, error, type, autoComplete }: Fie
         required
         aria-invalid={error ? "true" : undefined}
         className={[
-          "h-9 w-full rounded border bg-bg px-3 text-body text-ink outline-none",
+          "h-9 w-full rounded-lg border bg-card px-3 text-body text-ink outline-none",
           error ? "border-danger" : "border-edge focus-visible:border-accent",
         ].join(" ")}
       />
