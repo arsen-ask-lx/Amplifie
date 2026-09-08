@@ -1,7 +1,6 @@
 import { AutoLinkNode, LinkNode } from "@lexical/link";
 import { AutoLinkPlugin } from "@lexical/react/LexicalAutoLinkPlugin";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
@@ -9,19 +8,12 @@ import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import {
   $getRoot,
-  $getSelection,
-  $isRangeSelection,
   $selectAll,
-  COMMAND_PRIORITY_LOW,
-  INSERT_LINE_BREAK_COMMAND,
-  KEY_DOWN_COMMAND,
-  KEY_ENTER_COMMAND,
   type LexicalEditor,
   REDO_COMMAND,
   type TextFormatType,
   UNDO_COMMAND,
 } from "lexical";
-import { useEffect } from "react";
 import { Handle, Keys, markSelection } from "./fieldKeys.js";
 import { $fillFromMarkup, toMarkup } from "./markupNodes.js";
 
