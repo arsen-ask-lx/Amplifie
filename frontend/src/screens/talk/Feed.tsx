@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { CaretDown } from "@phosphor-icons/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
@@ -268,7 +268,7 @@ export function Feed({
           title="В конец ленты"
           className="absolute right-4 bottom-4 grid size-10 place-items-center rounded-pill border border-line bg-card text-muted shadow-float transition-colors hover:text-ink"
         >
-          <ChevronDown className="size-5" />
+          <CaretDown className="size-5" />
         </button>
       )}
     </div>

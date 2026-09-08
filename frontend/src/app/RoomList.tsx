@@ -1,4 +1,4 @@
-import { Hash } from "lucide-react";
+import { Hash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { Conversation } from "../data/api.js";
 import { SidebarSection } from "./SidebarSection.js";

@@ -1,4 +1,4 @@
-import { ChevronDown, Plus } from "lucide-react";
+import { CaretDown, Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 
 /**
@@ -48,7 +48,7 @@ export function SidebarSection({
           className="flex min-w-0 flex-1 items-center gap-1 rounded bg-transparent px-2.5 py-1 text-left text-mark tracking-wide text-muted uppercase transition-colors hover:text-ink"
         >
           <span className="truncate">{title}</span>
-          <ChevronDown
+          <CaretDown
             aria-hidden="true"
             className={[
               "size-3 shrink-0 opacity-0 transition-opacity group-focus-within/section:opacity-100 group-hover/section:opacity-100",

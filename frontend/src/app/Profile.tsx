@@ -1,4 +1,4 @@
-import { Check, LogOut, Palette } from "lucide-react";
+import { Check, Palette, SignOut } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Me } from "../data/api.js";
 import { apply, chosen, remember, THEMES, type Theme } from "../shared/theme.js";
@@ -109,7 +109,7 @@ export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
         <DropdownMenuSeparator />
 
         <DropdownMenuItem variant="destructive" onSelect={onLeave}>
-          <LogOut />
+          <SignOut />
           Выйти
         </DropdownMenuItem>
       </DropdownMenuContent>

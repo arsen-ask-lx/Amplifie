@@ -1,4 +1,4 @@
-import { AlertCircle, Check, Clock3 } from "lucide-react";
+import { Check, Clock, WarningCircle } from "@phosphor-icons/react";
 import { RichText } from "../../shared/RichText.js";
 import { ContextMenu, ContextMenuTrigger } from "../../shared/ui/context-menu.js";
 import { часы } from "../../shared/when.js";
@@ -34,10 +34,10 @@ import { forDisplay, type Row } from "./rows.js";
 function State({ row }: { row: Row }) {
   if (!row.mine) return null;
   if (row.message.state === "идёт") {
-    return <Clock3 aria-label="отправляется" className="size-3 opacity-70" />;
+    return <Clock aria-label="отправляется" className="size-3 opacity-70" />;
   }
   if (row.message.state === "не ушло") {
-    return <AlertCircle aria-label="не ушло" className="size-3 text-danger" />;
+    return <WarningCircle aria-label="не ушло" className="size-3 text-danger" />;
   }
   return <Check aria-label="доставлено" className="size-3 opacity-70" />;
 }

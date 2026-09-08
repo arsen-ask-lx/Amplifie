@@ -1,14 +1,14 @@
 import {
+  ArrowBendUpRight,
+  ArrowUUpLeft,
+  CheckSquare,
   Copy,
-  CornerUpLeft,
-  Forward,
-  Link2,
-  Pencil,
-  Pin,
-  PinOff,
-  SquareCheck,
-  Trash2,
-} from "lucide-react";
+  LinkSimple,
+  PencilSimple,
+  PushPin,
+  PushPinSlash,
+  Trash,
+} from "@phosphor-icons/react";
 import type { Message } from "../../data/api.js";
 import { copy } from "../../shared/clipboard.js";
 import {
@@ -59,20 +59,20 @@ export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
   return (
     <ContextMenuContent>
       <ContextMenuItem onSelect={() => deeds.onReply(message)}>
-        <CornerUpLeft />
+        <ArrowUUpLeft />
         Ответить
       </ContextMenuItem>
 
       {/* «Изменить» стоит вторым и есть только у своих — так у них. */}
       {row.mine ? (
         <ContextMenuItem onSelect={() => deeds.onEdit(message)}>
-          <Pencil />
+          <PencilSimple />
           Изменить
         </ContextMenuItem>
       ) : null}
 
       <ContextMenuItem onSelect={() => deeds.onPin(message, !pinned)}>
-        {pinned ? <PinOff /> : <Pin />}
+        {pinned ? <PushPinSlash /> : <PushPin />}
         {pinned ? "Открепить" : "Закрепить"}
       </ContextMenuItem>
 
@@ -85,18 +85,18 @@ export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
           void copy(`${window.location.origin}/c/${message.conversationId}/${message.seq}`)
         }
       >
-        <Link2 />
+        <LinkSimple />
         Копировать ссылку
       </ContextMenuItem>
 
       <ContextMenuItem onSelect={() => deeds.onForward(message)}>
-        <Forward />
+        <ArrowBendUpRight />
         Переслать
       </ContextMenuItem>
 
       {row.mine ? (
         <ContextMenuItem variant="destructive" onSelect={() => deeds.onRemove(message)}>
-          <Trash2 />
+          <Trash />
           Удалить
         </ContextMenuItem>
       ) : null}
@@ -104,7 +104,7 @@ export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
       <ContextMenuSeparator />
 
       <ContextMenuItem onSelect={() => deeds.onSelect(message)}>
-        <SquareCheck />
+        <CheckSquare />
         Выделить
       </ContextMenuItem>
     </ContextMenuContent>

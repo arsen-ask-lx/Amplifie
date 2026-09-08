@@ -1,4 +1,4 @@
-import { Pencil, X } from "lucide-react";
+import { PencilSimple, X } from "@phosphor-icons/react";
 import type { Message, Quote as Цитата } from "../../data/api.js";
 import { Quote } from "./Quote.js";
 
@@ -25,7 +25,7 @@ export function Above({
     <div className="mb-1 flex items-center gap-2 border-b border-line pb-1">
       {editing ? (
         <>
-          <Pencil className="size-4 shrink-0 text-accent" aria-hidden="true" />
+          <PencilSimple className="size-4 shrink-0 text-accent" aria-hidden="true" />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="text-mark font-medium text-accent-ink">Изменение сообщения</span>
             <span className="truncate text-aside text-muted">{editing.body}</span>

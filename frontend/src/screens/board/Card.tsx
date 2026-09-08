@@ -1,5 +1,5 @@
 import { BREAKER, HIDDEN_STAGE, STAGES, type Stage } from "@amplifie/contract";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { api, type Participant, type Task } from "../../data/api.js";
 import { troubleOf } from "../../shared/trouble.js";

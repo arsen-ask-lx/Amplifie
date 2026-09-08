@@ -10,7 +10,7 @@
       ],
       "project": ["tools/**/*.{mjs,ts,cjs}"],
       "ignore": ["tools/gates/**"],
-      "ignoreDependencies": ["dependency-cruiser"]
+      "ignoreDependencies": ["dependency-cruiser", "@types/react"]
     },
     "backend": {
       "entry": ["tests/**/*.test.ts", "src/**/*.test.ts"],

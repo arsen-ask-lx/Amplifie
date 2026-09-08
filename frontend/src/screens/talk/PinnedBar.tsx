@@ -1,4 +1,4 @@
-import { ChevronUp, List, Pin, X } from "lucide-react";
+import { CaretUp, List, PushPin, X } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Message } from "../../data/api.js";
 
@@ -117,7 +117,7 @@ export function PinnedBar({
   return (
     <div className="shrink-0 border-b border-line bg-card">
       <div className="flex items-center gap-2 px-3 py-1.5">
-        <Pin className="size-4 shrink-0 text-muted" aria-hidden="true" />
+        <PushPin className="size-4 shrink-0 text-muted" aria-hidden="true" />
         <Ticks count={pinned.length} at={at} />
 
         <button
@@ -141,7 +141,7 @@ export function PinnedBar({
             onClick={() => setOpen((was) => !was)}
             pressed={open}
           >
-            {open ? <ChevronUp className="size-4" /> : <List className="size-4" />}
+            {open ? <CaretUp className="size-4" /> : <List className="size-4" />}
           </Icon>
         ) : null}
 

@@ -1,4 +1,4 @@
-import { ChevronRightIcon } from "lucide-react";
+import { CaretRight } from "@phosphor-icons/react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "@/shared/utils";
@@ -109,7 +109,7 @@ function DropdownMenuSubTrigger({
       {...props}
     >
       {children}
-      <ChevronRightIcon className="ml-auto size-4" />
+      <CaretRight className="ml-auto size-4" />
     </DropdownMenuPrimitive.SubTrigger>
   );
 }

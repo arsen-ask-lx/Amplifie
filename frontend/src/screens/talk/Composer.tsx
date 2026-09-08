@@ -1,4 +1,4 @@
-import { SendHorizontal } from "lucide-react";
+import { PaperPlaneRight } from "@phosphor-icons/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Message, Quote as Цитата } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
@@ -227,7 +227,7 @@ export function Composer({
           title={editing ? "Сохранить (Enter)" : "Отправить (Enter)"}
           className="rounded-pill"
         >
-          <SendHorizontal />
+          <PaperPlaneRight />
         </Button>
       </div>
     </form>

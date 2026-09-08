@@ -1,4 +1,4 @@
-import { Copy, Forward, Trash2, X } from "lucide-react";
+import { ArrowBendUpRight, Copy, Trash, X } from "@phosphor-icons/react";
 import type { Message } from "../../data/api.js";
 
 /**
@@ -70,7 +70,7 @@ export function SelectionBar({
         onClick={onForward}
         className="flex w-auto items-center gap-2 rounded-lg bg-transparent px-3 py-1.5 text-body text-ink transition-colors hover:bg-raised"
       >
-        <Forward className="size-4" />
+        <ArrowBendUpRight className="size-4" />
         Переслать
       </button>
       {mineOnly ? (
@@ -79,7 +79,7 @@ export function SelectionBar({
           onClick={onRemove}
           className="flex w-auto items-center gap-2 rounded-lg bg-transparent px-3 py-1.5 text-body text-destructive transition-colors hover:bg-destructive/10"
         >
-          <Trash2 className="size-4" />
+          <Trash className="size-4" />
           Удалить
         </button>
       ) : null}

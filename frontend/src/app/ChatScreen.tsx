@@ -1,4 +1,4 @@
-import { PanelLeft } from "lucide-react";
+import { Sidebar } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import type { Me, Message } from "../data/api.js";
@@ -278,7 +278,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
             title={`${railOpen ? "Задвинуть" : "Выдвинуть"} панель (Ctrl+B)`}
             className="grid size-9 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
           >
-            <PanelLeft className="size-[18px]" />
+            <Sidebar className="size-[18px]" />
           </button>
 
           <h2 className="min-w-0 truncate text-head font-semibold text-ink">

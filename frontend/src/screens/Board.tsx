@@ -1,5 +1,5 @@
 import { HIDDEN_STAGE } from "@amplifie/contract";
-import { Plus } from "lucide-react";
+import { Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 import { api, type Participant, type Task } from "../data/api.js";
 

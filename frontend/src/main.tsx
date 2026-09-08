@@ -1,3 +1,4 @@
+import { IconContext } from "@phosphor-icons/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
@@ -28,9 +29,18 @@ createRoot(root).render(
     <BrowserRouter>
       {/* Один поставщик подсказок на всё приложение: он держит общую
           задержку и следит, чтобы две подсказки не висели разом. */}
-      <TooltipProvider delayDuration={300}>
-        <App />
-      </TooltipProvider>
+      {/* ⚠️ НАЧЕРТАНИЕ ЗНАЧКОВ ОБЪЯВЛЕНО ОДИН РАЗ И ЗДЕСЬ. У Phosphor их
+          шесть — тонкое, лёгкое, обычное, жирное, залитое, дуотон, — и это
+          ровно та причина, по которой набор выбран. Но выбор начертания
+          в каждом месте по отдельности означал бы, что интерфейс собран
+          из значков разной толщины: такое видно сразу и не чинится.
+          `regular` — рабочее; заливка ставится по месту там, где значок
+          обозначает включённое состояние. */}
+      <IconContext.Provider value={{ weight: "regular" }}>
+        <TooltipProvider delayDuration={300}>
+          <App />
+        </TooltipProvider>
+      </IconContext.Provider>
     </BrowserRouter>
   </StrictMode>,
 );
