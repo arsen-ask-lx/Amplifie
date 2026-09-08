@@ -10,7 +10,6 @@ import {
   $getSelection,
   $isRangeSelection,
   COMMAND_PRIORITY_LOW,
-  FORMAT_TEXT_COMMAND,
   INSERT_LINE_BREAK_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
@@ -86,20 +85,32 @@ const KEYS: Record<string, { shift: boolean; format: TextFormatType }> = {
  * а признак с него снимается: пометили слово — пишем дальше как писали.
  */
 function markSelection(editor: LexicalEditor, format: TextFormatType): void {
-  let было = false;
-  editor.getEditorState().read(() => {
-    const selection = $getSelection();
-    было = $isRangeSelection(selection) && !selection.isCollapsed();
-  });
-  if (!было) return;
-
-  editor.dispatchCommand(FORMAT_TEXT_COMMAND, format);
-
   editor.update(() => {
     const selection = $getSelection();
-    if (!$isRangeSelection(selection)) return;
-    // Схлопываем в конец: курсор встаёт за помеченным куском.
-    selection.anchor.set(selection.focus.key, selection.focus.offset, selection.focus.type);
+
+    /**
+     * ⚠️ ВСЁ ОДНИМ ОБНОВЛЕНИЕМ. Первая редакция сперва ЧИТАЛА выделение
+     * отдельно, потом слала команду, потом правила выделение третьим
+     * заходом — и разваливалась: прочитанное выделение к моменту команды
+     * уже устаревало, проверка «есть ли выделение» давала ложь, и Ctrl+B
+     * молча не делал ничего. Внутри одного обновления состояние одно
+     * и то же от первой строки до последней.
+     */
+    if (!$isRangeSelection(selection) || selection.isCollapsed()) return;
+
+    selection.formatText(format);
+
+    /**
+     * ⚠️ СХЛОПЫВАЕМ В КОНЕЦ ВЫДЕЛЕНИЯ, А НЕ В «ФОКУС». Фокус — это тот
+     * край, где отпустили мышь: при выделении СПРАВА НАЛЕВО он стоит
+     * в НАЧАЛЕ, и курсор улетал в начало сообщения. Владелец поймал это
+     * сразу; из кода не видно вовсе — в половине случаев всё верно.
+     */
+    const конец = selection.isBackward() ? selection.anchor : selection.focus;
+    const { key, offset, type } = конец;
+    selection.anchor.set(key, offset, type);
+    selection.focus.set(key, offset, type);
+
     // И гасим унаследованный признак, иначе следующее слово будет таким же.
     if (selection.hasFormat(format)) selection.toggleFormat(format);
   });
@@ -209,7 +220,7 @@ export function RichField({
                  а переносы строк не показывались вовсе. У простого поля
                  такой беды нет, и при переезде с него об этом легко
                  забыть — я и забыл. */
-              className="max-h-56 min-h-[34px] overflow-y-auto px-1 py-2 text-body leading-normal whitespace-pre-wrap text-ink outline-none"
+              className="max-h-[45vh] min-h-[34px] overflow-y-auto px-1 py-2 text-body leading-normal whitespace-pre-wrap text-ink outline-none"
             />
           }
           // Подсказка рисуется НАД полем, а не атрибутом: у редактируемой
