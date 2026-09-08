@@ -1,13 +1,13 @@
-import { Hash, Trash } from "@phosphor-icons/react";
+import { DotsThree, Hash, Trash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { Conversation } from "../data/api.js";
 import { Button } from "../shared/ui/button.js";
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "../shared/ui/context-menu.js";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../shared/ui/dropdown-menu.js";
 import { SidebarSection } from "./SidebarSection.js";
 
 /**
@@ -108,30 +108,13 @@ export function RoomList({
           {adding ? <NewChannel onCreate={onCreate} onDone={() => setAdding(false)} /> : null}
 
           {channels.map((channel) => (
-            <ContextMenu key={channel.id}>
-              <ContextMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-current={channel.id === currentId ? "page" : undefined}
-                  onClick={() => onSelect(channel.id)}
-                  className={[
-                    "flex w-auto items-center gap-2 rounded px-2.5 py-1.5 text-left text-body transition-colors",
-                    channel.id === currentId
-                      ? "bg-selected font-medium text-ink"
-                      : "bg-transparent text-muted hover:bg-raised hover:text-ink",
-                  ].join(" ")}
-                >
-                  <Hash className="size-4 shrink-0 opacity-60" />
-                  <span className="truncate">{channel.title}</span>
-                </button>
-              </ContextMenuTrigger>
-              <ContextMenuContent className="w-52">
-                <ContextMenuItem variant="destructive" onSelect={() => setRemoving(channel)}>
-                  <Trash />
-                  Удалить канал
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
+            <ChannelRow
+              key={channel.id}
+              channel={channel}
+              current={channel.id === currentId}
+              onSelect={onSelect}
+              onRemove={() => setRemoving(channel)}
+            />
           ))}
 
           {channels.length === 0 && !adding ? (
@@ -150,6 +133,82 @@ export function RoomList({
           await onRemove(id);
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * Строка канала: название и три точки справа.
+ *
+ * ⚠️ ТРИ ТОЧКИ, А НЕ ПРАВАЯ КНОПКА. Сначала действия висели на правой
+ * кнопке — как у реплики в ленте. Владелец сказал прямо: неудобно, и он
+ * прав. Правая кнопка не видна: о ней надо ЗНАТЬ. В ленте это терпимо —
+ * там так у Телеграма, и человек приходит с этой привычкой; в боковой
+ * панели привычка другая, её задали ChatGPT и Claude, и там действия
+ * живут на трёх точках.
+ *
+ * ⚠️ ТОЧКИ ПОЯВЛЯЮТСЯ ПО НАВЕДЕНИЮ, но остаются видимыми, пока меню
+ * открыто или на них фокус. Иначе меню открывалось бы и тут же теряло
+ * свою кнопку, а с клавиатуры до неё было бы не добраться вовсе.
+ *
+ * ⚠️ ДВЕ КНОПКИ РЯДОМ, А НЕ КНОПКА В КНОПКЕ. Вложенная кнопка — неверная
+ * разметка: браузер её распрямляет, и нажатие на точки выбирало бы канал
+ * заодно.
+ */
+function ChannelRow({
+  channel,
+  current,
+  onSelect,
+  onRemove,
+}: {
+  channel: Conversation;
+  current: boolean;
+  onSelect: (id: string) => void;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div
+      className={[
+        "group/room flex items-center rounded pr-1 transition-colors",
+        current ? "bg-selected" : "bg-transparent hover:bg-raised",
+      ].join(" ")}
+    >
+      <button
+        type="button"
+        aria-current={current ? "page" : undefined}
+        onClick={() => onSelect(channel.id)}
+        className={[
+          "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors",
+          current ? "font-medium text-ink" : "text-muted group-hover/room:text-ink",
+        ].join(" ")}
+      >
+        <Hash className="size-4 shrink-0 opacity-60" />
+        <span className="truncate">{channel.title}</span>
+      </button>
+
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Что сделать с каналом «${channel.title}»`}
+            className={[
+              "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
+              "hover:bg-selected hover:text-ink focus-visible:opacity-100",
+              open ? "opacity-100" : "opacity-0 group-hover/room:opacity-100",
+            ].join(" ")}
+          >
+            <DotsThree className="size-4" weight="bold" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-52">
+          <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+            <Trash />
+            Удалить канал
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
