@@ -305,6 +305,15 @@ const MESSAGE_VIEW = {
   replyToId: quoted.id,
   replyToSeq: quoted.seq,
   replyToBody: quoted.body,
+  /**
+   * Удалена ли цитируемая реплика.
+   *
+   * ⚠️ БЕЗ ЭТОГО ПОЛЯ ЦИТАТА НА УДАЛЁННОЕ ПОКАЗЫВАЛА ПУСТУЮ РАМКУ.
+   * Ссылка в базе объявлена `ON DELETE SET NULL`, но удаление у нас
+   * МЯГКОЕ: строка остаётся, ссылка тоже, а тело становится пустым.
+   * Проверка «тела нет» на это не срабатывала: пустая строка — не `null`.
+   */
+  replyToDeletedAt: quoted.deletedAt,
   replyToAuthorName: quotedAuthor.displayName,
   forwardedFromAuthorName: sourceAuthor.displayName,
 } as const;

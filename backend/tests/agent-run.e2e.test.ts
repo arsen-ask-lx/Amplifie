@@ -108,8 +108,24 @@ async function connectBridge(person: Person, machine: string) {
   return bridgeOf(token);
 }
 
-/** Агент пространства: заводится при первом разборе, теми же дверьми. */
-async function agentOf(person: Person): Promise<string> {
+/**
+ * Идентификатор участника-агента пространства.
+ *
+ * ⚠️ АГЕНТ ЗАВОДИТСЯ ТОЛЬКО ПОСЛЕ УДАЧНОГО ОТВЕТА МОДЕЛИ, и другой двери
+ * нет. Раньше здесь стоял вызов `/listen` — «разобрать разговор»;
+ * договорённости убраны целиком (владелец, 2026-09-07), и вместе с ними
+ * ушёл разбор. Теперь агент отвечает ТОЛЬКО на явное обращение (Р-017),
+ * поэтому помощник поднимает мост, зовёт «@Сводка» и отвечает за модель.
+ *
+ * ⚠️ МОСТ ПРИНИМАЕТСЯ СНАРУЖИ, А НЕ ПОДНИМАЕТСЯ СВОЙ. Второй мост
+ * того же человека заданий не получает — они уходят первому, — и
+ * помощник висел до предела времени, а тест падал по таймауту
+ * вместо внятного отказа. Мост на человека ровно один, как и в жизни.
+ *
+ * Идти в базу и вставлять участника руками было бы короче и неправдой:
+ * тест обязан пользоваться теми же дверьми, что человек.
+ */
+async function agentOf(person: Person, bridge: ReturnType<typeof bridgeOf>): Promise<string> {
   const list = (
     (await (await call("/v1/conversations", person)).json()) as {
       items: Array<{ id: string; parentId: string | null }>;
@@ -121,24 +137,48 @@ async function agentOf(person: Person): Promise<string> {
   await call(`/v1/conversations/${channel.id}/messages`, person, {
     method: "POST",
     body: JSON.stringify({
-      body: "Хорошо, я подготовлю новую редакцию договора к четвергу.",
+      body: "@Сводка привет",
       clientMsgId: crypto.randomUUID(),
     }),
   });
-  await call(`/v1/conversations/${channel.id}/listen`, person, { method: "POST", body: "{}" });
+
+  // Зов и ответ моста идут одновременно: зов ждёт модели, а модель — это мы.
+  const asked = call(`/v1/conversations/${channel.id}/ask`, person, {
+    method: "POST",
+    body: "{}",
+  });
+  const job = await waitForJob(bridge);
+  await bridge.answer(job.jobId, "Здравствуйте.");
+  await asked;
 
   const seen = (await (await call("/v1/participants", person)).json()) as {
     items: Array<{ id: string; kind: string }>;
   };
   const agent = seen.items.find((one) => one.kind === "agent");
-  if (!agent) throw new Error("агент не завёлся");
+  if (!agent) throw new Error("агент не завёлся даже после обращения");
   return agent.id;
 }
 
+/** Дождаться задания на мосту: мост опрашивают, а не подписываются на него. */
+async function waitForJob(bridge: {
+  next: () => Promise<{ jobId: string; prompt: string } | null>;
+}): Promise<{ jobId: string; prompt: string }> {
+  for (let tries = 0; tries < 100; tries++) {
+    const job = await bridge.next();
+    if (job) return job;
+    await new Promise((done) => setTimeout(done, 50));
+  }
+  throw new Error("мост не получил задания за пять секунд");
+}
+
 /** Завести задачу и назначить исполнителем агента. */
-async function taskForAgent(person: Person, title: string): Promise<TaskView> {
+async function taskForAgent(
+  person: Person,
+  bridge: ReturnType<typeof bridgeOf>,
+  title: string,
+): Promise<TaskView> {
   const me = await meOf(person);
-  const agentId = await agentOf(person);
+  const agentId = await agentOf(person, bridge);
 
   const made = await call("/v1/tasks", person, {
     method: "POST",
@@ -187,7 +227,7 @@ describe("агент делает задачу", () => {
     it("результат появляется в обсуждении, стадия «на проверке»", async () => {
       const person = await newPerson("Поручающий");
       const bridge = await connectBridge(person, "машина-1");
-      const task = await taskForAgent(person, "Свести договорённости за неделю");
+      const task = await taskForAgent(person, bridge, "Свести договорённости за неделю");
 
       const { status } = await run(person, task.id, bridge, (job) =>
         bridge.answer(job.jobId, "Свёл: три договорённости, все к четвергу."),
@@ -205,7 +245,7 @@ describe("агент делает задачу", () => {
     it("в задание уходит название задачи", async () => {
       const person = await newPerson("Заданный");
       const bridge = await connectBridge(person, "машина-2");
-      const task = await taskForAgent(person, "Проверить смету подрядчика");
+      const task = await taskForAgent(person, bridge, "Проверить смету подрядчика");
 
       const { prompt } = await run(person, task.id, bridge, (job) =>
         bridge.answer(job.jobId, "Проверил."),
@@ -218,7 +258,7 @@ describe("агент делает задачу", () => {
     it("после двух отказов подряд третий запуск не идёт к модели", async () => {
       const person = await newPerson("Неудачливый");
       const bridge = await connectBridge(person, "машина-3");
-      const task = await taskForAgent(person, "Задача, которая не даётся");
+      const task = await taskForAgent(person, bridge, "Задача, которая не даётся");
 
       const first = await run(person, task.id, bridge, (job) =>
         bridge.failed(job.jobId, "модель сломалась"),
@@ -243,7 +283,7 @@ describe("агент делает задачу", () => {
     it("счётчик неудач виден человеку", async () => {
       const person = await newPerson("Считающий");
       const bridge = await connectBridge(person, "машина-4");
-      const task = await taskForAgent(person, "Тоже не даётся");
+      const task = await taskForAgent(person, bridge, "Тоже не даётся");
 
       await run(person, task.id, bridge, (job) => bridge.failed(job.jobId, "раз"));
       expect((await tasksOf(person))[0]?.failedRuns).toBe(1);
@@ -254,7 +294,7 @@ describe("агент делает задачу", () => {
     it("отказ, успех, отказ — размыкателя нет", async () => {
       const person = await newPerson("Через раз");
       const bridge = await connectBridge(person, "машина-5");
-      const task = await taskForAgent(person, "Через раз получается");
+      const task = await taskForAgent(person, bridge, "Через раз получается");
 
       await run(person, task.id, bridge, (job) => bridge.failed(job.jobId, "первый раз мимо"));
       await run(person, task.id, bridge, (job) => bridge.answer(job.jobId, "получилось"));
@@ -293,7 +333,8 @@ describe("агент делает задачу", () => {
     it("чужую задачу запустить нельзя", async () => {
       const owner = await newPerson("Владелец задачи");
       const stranger = await newPerson("Чужак");
-      const task = await taskForAgent(owner, "Не твоё");
+      const bridge = await connectBridge(owner, "машина-владельца");
+      const task = await taskForAgent(owner, bridge, "Не твоё");
 
       const started = await call(`/v1/tasks/${task.id}/run`, stranger, {
         method: "POST",

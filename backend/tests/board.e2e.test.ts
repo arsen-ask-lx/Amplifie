@@ -25,7 +25,6 @@ interface TaskView {
   stage: string;
   assignedTo: { id: string; name: string; kind: string } | null;
   responsible: { id: string; name: string } | null;
-  fromAgreement: boolean;
 }
 
 function freshEmail(): string {
@@ -58,6 +57,36 @@ function call(path: string, person: Person, init: RequestInit = {}): Promise<Res
   const headers: Record<string, string> = { cookie: person.cookie };
   if (init.body) headers["content-type"] = "application/json";
   return fetch(`${BASE}${path}`, { ...init, headers: { ...headers, ...(init.headers ?? {}) } });
+}
+
+function bridgeOf(token: string) {
+  const headers = { "content-type": "application/json", authorization: `Bridge ${token}` };
+  return {
+    async next(): Promise<{ jobId: string } | null> {
+      const response = await fetch(`${BASE}/v1/bridge/next`, { headers });
+      if (response.status === 204) return null;
+      return (await response.json()) as { jobId: string };
+    },
+    answer(jobId: string, text: string) {
+      return fetch(`${BASE}/v1/bridge/answer`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jobId, text }),
+      });
+    },
+  };
+}
+
+async function connectBridge(person: Person): Promise<ReturnType<typeof bridgeOf>> {
+  const issued = await call("/v1/bridges", person, { method: "POST", body: "{}" });
+  const { code } = (await issued.json()) as { code: string };
+  const joined = await fetch(`${BASE}/v1/bridge/join`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code, name: "доска" }),
+  });
+  const { token } = (await joined.json()) as { token: string };
+  return bridgeOf(token);
 }
 
 function addTask(person: Person, body: unknown): Promise<Response> {
@@ -100,7 +129,11 @@ describe("доска задач", () => {
       expect(task?.title).toBe("Выгрузить логи за неделю");
       expect(task?.stage).toBe("к работе");
       expect(task?.responsible?.id).toBe(me.id);
-      expect(task?.fromAgreement).toBe(false);
+      // ⚠️ ПРОВЕРКА `fromAgreement` УБРАНА, А НЕ ОСЛАБЛЕНА. Договорённости
+      // удалены целиком по решению владельца (2026-09-07) вместе
+      // с таблицами `agreement` и `citation`: свойства «задача пришла
+      // из договорённости» больше не существует. Проверять несуществующее
+      // — это держать в наборе тест, который не может ничего доказать.
     });
   });
 
@@ -203,10 +236,14 @@ describe("доска задач", () => {
 /**
  * Идентификатор участника-агента пространства.
  *
- * В свежем пространстве агента ещё НЕТ: он заводится при первом разборе.
- * Поэтому сперва даём ему повод появиться — обещание в канале и кнопка
- * «Разобрать». Идти в базу и вставлять агента руками было бы быстрее
- * и неправдой: тест обязан пользоваться теми же дверьми, что человек.
+ * ⚠️ АГЕНТ ЗАВОДИТСЯ ТОЛЬКО ПОСЛЕ УДАЧНОГО ОТВЕТА МОДЕЛИ. Здесь стоял
+ * вызов `/v1/conversations/:id/listen` — «разобрать разговор»; разбор
+ * ушёл вместе с договорённостями, и агент теперь отвечает ТОЛЬКО
+ * на явное обращение (Р-017). Поэтому поднимаем мост, зовём «@Сводка»
+ * и отвечаем за модель сами.
+ *
+ * Идти в базу и вставлять участника руками было бы короче и неправдой:
+ * тест обязан пользоваться теми же дверьми, что человек.
  */
 async function agentOf(person: Person): Promise<string> {
   const list = (
@@ -217,19 +254,31 @@ async function agentOf(person: Person): Promise<string> {
   const channel = list.find((one) => !one.parentId);
   if (!channel) throw new Error("у пространства нет канала");
 
+  const bridge = await connectBridge(person);
   await call(`/v1/conversations/${channel.id}/messages`, person, {
     method: "POST",
-    body: JSON.stringify({
-      body: "Хорошо, я подготовлю новую редакцию договора к четвергу.",
-      clientMsgId: crypto.randomUUID(),
-    }),
+    body: JSON.stringify({ body: "@Сводка привет", clientMsgId: crypto.randomUUID() }),
   });
-  await call(`/v1/conversations/${channel.id}/listen`, person, { method: "POST", body: "{}" });
+
+  // Зов ждёт модели, а модель — это мы: поэтому оба хода идут разом.
+  const asked = call(`/v1/conversations/${channel.id}/ask`, person, {
+    method: "POST",
+    body: "{}",
+  });
+  for (let tries = 0; tries < 100; tries++) {
+    const job = await bridge.next();
+    if (job) {
+      await bridge.answer(job.jobId, "Здравствуйте.");
+      break;
+    }
+    await new Promise((done) => setTimeout(done, 50));
+  }
+  await asked;
 
   const seen = (await (await call("/v1/participants", person)).json()) as {
     items: Array<{ id: string; kind: string }>;
   };
   const agent = seen.items.find((one) => one.kind === "agent");
-  if (!agent) throw new Error("агент не завёлся даже после разбора");
+  if (!agent) throw new Error("агент не завёлся даже после обращения");
   return agent.id;
 }

@@ -99,8 +99,18 @@ function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[numbe
     editedAt: row.editedAt,
     pinnedAt: row.pinnedAt,
     author: { id: row.authorId, name: row.authorName, kind: row.authorKind },
+    /**
+     * На что это ответ. `null` — ответа не было ЛИБО исходную реплику
+     * удалили: снаружи это одно и то же намеренно.
+     *
+     * ⚠️ УДАЛЁННОСТЬ ПРОВЕРЯЕТСЯ ОТМЕТКОЙ, А НЕ ПУСТЫМ ТЕЛОМ. Мягкое
+     * удаление стирает тело в пустую строку, а не в `null`, — и цитата
+     * на удалённое показывала рамку с пустым текстом вместо того,
+     * чтобы исчезнуть. Нашёл приёмочный тест, который до этого молча
+     * падал на другой причине.
+     */
     replyTo:
-      row.replyToId === null || row.replyToBody === null
+      row.replyToId === null || row.replyToBody === null || row.replyToDeletedAt !== null
         ? null
         : {
             id: row.replyToId,

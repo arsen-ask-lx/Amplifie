@@ -19,8 +19,16 @@ import { beforeAll, describe, expect, it } from "vitest";
 const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 const PASSWORD = "правильный-конский-скотч-батарейка";
 
-function freshEmail(tag: string): string {
-  return `${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
+/**
+ * Адрес для нового пространства.
+ *
+ * ⚠️ БЕЗ МЕТКИ ЧЕЛОВЕКА В АДРЕСЕ. Метки у нас русские («Хозяин»,
+ * «Чужой»), а проверка адреса на сервере кириллицу в местной части
+ * не принимает и отвечает 422 — то есть весь файл падал ещё до первой
+ * проверки свойства. Та же ловушка поймала и набор проверок догона.
+ */
+function freshEmail(): string {
+  return `actions-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
 }
 
 function sessionCookie(response: Response): string {
@@ -35,7 +43,7 @@ async function newOwner(tag: string): Promise<string> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      email: freshEmail(tag),
+      email: freshEmail(),
       password: PASSWORD,
       displayName: tag,
       workspaceName: `Пространство ${tag}`,

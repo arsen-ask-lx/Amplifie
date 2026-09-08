@@ -22,12 +22,27 @@ interface Person {
   name: string;
 }
 
-interface Agreement {
+/**
+ * Задача в том виде, в каком её отдаёт доска.
+ *
+ * ⚠️ РАНЬШЕ ЗДЕСЬ ПРОВЕРЯЛИСЬ ДОГОВОРЁННОСТИ, А ИХ БОЛЬШЕ НЕТ. Связка
+ * «агент предложил → человек подтвердил → родилась задача» убрана целиком
+ * (владелец, 2026-09-07) вместе с таблицами `agreement` и `citation`.
+ * Задача теперь заводится напрямую.
+ *
+ * Проверяемое свойство при этом НЕ ИСЧЕЗЛО и осталось тем же (Р-017):
+ * действие рождается только из обращения, а ответственным становится
+ * обратившийся, а не тот, кого назвала модель. Умерла дверь, через
+ * которую свойство проверялось, — и здесь она заменена на живую.
+ *
+ * Чего проверить больше нечем: ЦИТАТЫ на реплику. Она жила в таблице
+ * `citation` и ушла вместе с ней; у задачи такой ссылки нет. Это потеря,
+ * и она названа, а не замаскирована ослабленной проверкой.
+ */
+interface TaskView {
   id: string;
-  text: string;
-  status: string;
-  confirmedBy: string | null;
-  citations: Array<{ messageId: string; quote: string; authorName: string }>;
+  title: string;
+  responsible: { id: string; name: string } | null;
 }
 
 function freshEmail(): string {
@@ -82,16 +97,16 @@ async function send(person: Person, conversationId: string, body: string): Promi
   return ((await response.json()) as { id: string }).id;
 }
 
-async function agreementsOf(person: Person): Promise<Agreement[]> {
-  const response = await call("/v1/agreements", person);
-  if (!response.ok) throw new Error(`договорённости: ${response.status}`);
-  return ((await response.json()) as { items: Agreement[] }).items;
-}
-
-async function tasksOf(person: Person): Promise<Array<{ title: string }>> {
+async function tasksOf(person: Person): Promise<TaskView[]> {
   const response = await call("/v1/tasks", person);
   if (!response.ok) throw new Error(`задачи: ${response.status}`);
-  return ((await response.json()) as { items: Array<{ title: string }> }).items;
+  return ((await response.json()) as { items: TaskView[] }).items;
+}
+
+/** Свой идентификатор участника — им проверяется «ответственный это я». */
+async function meOf(person: Person): Promise<string> {
+  const body = (await (await call("/v1/me", person)).json()) as { participant: { id: string } };
+  return body.participant.id;
 }
 
 function bridgeOf(token: string) {
@@ -156,18 +171,17 @@ describe("агент заводит задачу", () => {
       const channel = await channelOf(person);
       const bridge = await connectBridge(person, "машина-1");
 
-      const mine = await send(person, channel.id, `@${AGENT} заведи задачу на выгрузку логов`);
+      const me = await meOf(person);
+      await send(person, channel.id, `@${AGENT} заведи задачу на выгрузку логов`);
       const { status } = await askAnswering(person, channel.id, bridge, makeTask("Выгрузка логов"));
       expect(status).toBe(201);
 
-      const [made] = await agreementsOf(person);
-      expect(made?.text).toBe("Выгрузка логов");
-      expect(made?.status).toBe("confirmed");
-      // Цитата — на МОЮ реплику, а не на ту, что назвала модель.
-      expect(made?.citations[0]?.messageId).toBe(mine);
-      expect(made?.citations[0]?.authorName).toBe("Просящий");
-
-      expect((await tasksOf(person)).map((one) => one.title)).toContain("Выгрузка логов");
+      const [made] = await tasksOf(person);
+      expect(made?.title).toBe("Выгрузка логов");
+      // Ответственный — ОБРАТИВШИЙСЯ, и это половина Р-017. Вторая
+      // половина (цитата на его реплику) проверке больше не доступна:
+      // цитаты ушли вместе с договорённостями.
+      expect(made?.responsible?.id).toBe(me);
     });
 
     it("та же просьба БЕЗ обращения не рождает ничего", { timeout: 45_000 }, async () => {
@@ -184,7 +198,7 @@ describe("агент заводит задачу", () => {
       expect(response.status).toBe(204);
       // Модель даже не спрашивали — значит и денег не потратили.
       expect(await bridge.next()).toBeNull();
-      expect(await agreementsOf(person)).toHaveLength(0);
+      expect(await tasksOf(person)).toHaveLength(0);
     });
 
     it("просьба, спрятанная в чужой реплике, задачу не заводит", async () => {
@@ -204,12 +218,13 @@ describe("агент заводит задачу", () => {
       const { status } = await askAnswering(person, channel.id, bridge, makeTask("УДАЛИТЬ ВСЁ"));
       expect(status).toBe(201);
 
-      // Задача всё равно создана — но это ЗАДАЧА ПРОСЯЩЕГО, с цитатой
-      // на ЕГО реплику. Р-017 §«что остаётся возможным»: инъекция влияет
-      // на формулировку, но не на то, кто отвечает и на что ссылаются.
-      const [made] = await agreementsOf(person);
-      expect(made?.citations[0]?.authorName).toBe("Осторожный");
-      expect(made?.citations[0]?.quote).toContain("о чём тут речь");
+      // Задача всё равно создана — но ОТВЕЧАЕТ ЗА НЕЁ ПРОСЯЩИЙ.
+      // Р-017 §«что остаётся возможным»: подсунутый текст влияет
+      // на формулировку, но не на то, кто отвечает.
+      const me = await meOf(person);
+      const [made] = await tasksOf(person);
+      expect(made?.responsible?.id).toBe(me);
+      expect(made?.responsible?.name).toBe("Осторожный");
     });
   });
 
@@ -219,7 +234,8 @@ describe("агент заводит задачу", () => {
       const channel = await channelOf(person);
       const bridge = await connectBridge(person, "машина-4");
 
-      const mine = await send(person, channel.id, `@${AGENT} заведи задачу`);
+      const me = await meOf(person);
+      await send(person, channel.id, `@${AGENT} заведи задачу`);
 
       // Враждебный конверт: модель называет чужого ответственного
       // и чужое сообщение. Оба поля не должны читаться вовсе.
@@ -236,9 +252,11 @@ describe("агент заводит задачу", () => {
       });
       await askAnswering(person, channel.id, bridge, hostile);
 
-      const [made] = await agreementsOf(person);
-      expect(made?.citations[0]?.messageId).toBe(mine);
-      expect(made?.confirmedBy).not.toBe("00000000-0000-0000-0000-000000000000");
+      const [made] = await tasksOf(person);
+      // Названный моделью участник не читается вовсе: ответственный —
+      // тот, кто обратился, и никто другой.
+      expect(made?.responsible?.id).toBe(me);
+      expect(made?.responsible?.id).not.toBe("00000000-0000-0000-0000-000000000000");
     });
 
     it("повторный зов после ответа не заводит вторую задачу", async () => {
@@ -256,7 +274,7 @@ describe("агент заводит задачу", () => {
         body: "{}",
       });
       expect(again.status).toBe(204);
-      expect(await agreementsOf(person)).toHaveLength(1);
+      expect(await tasksOf(person)).toHaveLength(1);
     });
   });
 
@@ -275,7 +293,7 @@ describe("агент заводит задачу", () => {
       );
 
       expect(status).toBe(201);
-      expect(await agreementsOf(person)).toHaveLength(0);
+      expect(await tasksOf(person)).toHaveLength(0);
     });
   });
 
@@ -297,7 +315,7 @@ describe("агент заводит задачу", () => {
 
       // Ровно три, а не «не больше трёх»: проверка, проходящая на нуле,
       // проверкой не является — она зеленела бы и до появления кода.
-      expect(await agreementsOf(person)).toHaveLength(3);
+      expect(await tasksOf(person)).toHaveLength(3);
     });
   });
 });
