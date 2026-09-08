@@ -62,12 +62,24 @@ function visibleTo(participantId: string) {
       AND ${conversationMember.participantId} = ${participantId}
   )`;
 
+  // ⚠️ УДАЛЁННЫЙ КАНАЛ НЕВИДИМ, И ЭТО СКАЗАНО ЗДЕСЬ, А НЕ В КАЖДОМ ЗАПРОСЕ.
+  // Видимость — один вопрос и одно место, где на него отвечают. Условие,
+  // размазанное по вызывающим, однажды не поставится в одном из них,
+  // и удалённый канал вернётся к жизни в каком-нибудь углу.
+  //
+  // Удалённой считается и ВЕТКА удалённого корня: право читается у корня,
+  // значит и смерть — тоже у корня.
+  const rootAlive = sql`NOT EXISTS (
+    SELECT 1 FROM ${conversation} AS root
+    WHERE root.id = ${rootOf} AND root.deleted_at IS NOT NULL
+  )`;
+
   // ⚠️ ВНЕШНИЕ СКОБКИ ОБЯЗАТЕЛЬНЫ. Без них `and(eq(id, ...), visibleTo(...))`
   // склеивается в `id = $1 AND A OR B`, а по приоритету это `(id = $1 AND A)
   // OR B` — и доступ начинает давать членство в ЛЮБОМ другом разговоре.
   // Так и было: чужой канал открывался тому, у кого есть свой.
   // Найдено приёмочным тестом «чужой канал не виден и не читается».
-  return sql`((${openToMyWorkspace}) OR (${iAmMemberOfRoot}))`;
+  return sql`(${rootAlive} AND ((${openToMyWorkspace}) OR (${iAmMemberOfRoot})))`;
 }
 
 export async function findVisibleConversation(
@@ -148,6 +160,41 @@ export async function listConversationsFor(tx: Executor, participantId: string) 
     .from(conversation)
     .where(visibleTo(participantId))
     .orderBy(desc(lastAt));
+}
+
+/**
+ * Мягко удалить разговор.
+ *
+ * Условие «ещё не удалён» стоит в самом запросе, а не проверкой до него:
+ * два вызова подряд не должны дважды двигать отметку времени, и решать
+ * это должна база, а не порядок вызовов.
+ */
+export async function softDeleteConversation(tx: Executor, conversationId: string) {
+  const rows = await tx
+    .update(conversation)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(conversation.id, conversationId), isNull(conversation.deletedAt)))
+    .returning({ id: conversation.id });
+  return rows[0] ?? null;
+}
+
+/** Роль участника в разговоре. `null` — участника там нет вовсе. */
+export async function roleIn(
+  tx: Executor,
+  conversationId: string,
+  participantId: string,
+): Promise<string | null> {
+  const rows = await tx
+    .select({ role: conversationMember.role })
+    .from(conversationMember)
+    .where(
+      and(
+        eq(conversationMember.conversationId, conversationId),
+        eq(conversationMember.participantId, participantId),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.role ?? null;
 }
 
 export async function findMessageByClientId(

@@ -137,6 +137,7 @@ export function Rail({
             currentId={chat.current?.id ?? null}
             onSelect={(id) => chat.select(id)}
             onCreate={chat.addChannel}
+            onRemove={chat.removeChannel}
           />
         ) : (
           <div className="flex-1" />

@@ -179,6 +179,7 @@ export interface Chat {
   remove: (messageId: string) => Promise<void>;
   forward: (message: Message, toConversationId: string) => Promise<void>;
   addChannel: (title: string) => Promise<void>;
+  removeChannel: (id: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
 }
 
@@ -528,6 +529,29 @@ export function useChat(me: Me): Chat {
     [openNew],
   );
 
+  /**
+   * Удалить канал.
+   *
+   * ⚠️ СПИСОК ПЕРЕЧИТЫВАЕТСЯ, А НЕ ПРАВИТСЯ НА МЕСТЕ. Из списка уходит
+   * не только сам канал, но и всё, что от него зависело: порядок по
+   * свежести, ветки. Сервер уже умеет собрать этот список правильно —
+   * второе такое же место на клиенте разошлось бы с ним.
+   *
+   * ⚠️ ЕСЛИ УДАЛИЛИ ТОТ, ЧТО ОТКРЫТ, — уводим на первый оставшийся.
+   * Остаться на адресе снесённого канала значит показать «Загружаем…»
+   * навсегда: сервер о нём больше не расскажет.
+   */
+  const removeChannel = useCallback(
+    async (id: string) => {
+      await api.removeChannel(id);
+      const items = await reloadRooms();
+      if (currentIdRef.current !== id) return;
+      const next = items.find((room) => room.parentId === null);
+      navigate(next ? `/c/${next.id}` : "/", { replace: true });
+    },
+    [reloadRooms, navigate],
+  );
+
   const addThread = useCallback(
     async (title: string) => {
       // Ветка заводится у КОРНЯ: ветка от ветки не бывает (дерево
@@ -670,6 +694,7 @@ export function useChat(me: Me): Chat {
     send,
     agentFailure,
     addChannel,
+    removeChannel,
     addThread,
   };
 }

@@ -502,6 +502,52 @@ export async function createChannel(
 }
 
 /**
+ * Удалить канал.
+ *
+ * ⚠️ ТОЛЬКО ТОТ, КТО ЕГО ЗАВЁЛ. Канал виден всему пространству, но
+ * «видно» и «можно снести» — разные права, и слить их значило бы отдать
+ * любому участнику право стереть чужую переписку. Роль `owner` заводится
+ * создателю в тот же миг, что и сам канал (`openConversation`).
+ *
+ * ⚠️ ЧУЖОЕ И НЕСУЩЕСТВУЮЩЕЕ ОТВЕЧАЮТ ОДИНАКОВО. Отдельный отказ на чужое
+ * подтвердил бы, что канал существует, — по нему перебираются чужие
+ * пространства. Тот же приём, что у правки реплики.
+ *
+ * ⚠️ УДАЛЕНИЕ МЯГКОЕ. На сообщения канала ссылаются ответы и пересылки
+ * из других каналов; каскад превратил бы их в цитаты в пустоту.
+ */
+export async function deleteConversation(viewer: Viewer, conversationId: string): Promise<void> {
+  await withTransaction(async (tx) => {
+    const found = await repo.findVisibleConversation(tx, conversationId, viewer.participantId);
+    if (!found) throw new ConversationNotVisibleError();
+
+    // Ветка не удаляется отдельно: она живёт и умирает вместе с корнем.
+    if (found.parentId !== null) throw new ConversationNotVisibleError();
+
+    const role = await repo.roleIn(tx, conversationId, viewer.participantId);
+    if (role !== "owner") throw new ConversationNotVisibleError();
+
+    const gone = await repo.softDeleteConversation(tx, conversationId);
+    if (!gone) throw new ConversationNotVisibleError();
+
+    await appendEvent(tx, {
+      kind: "conversation.deleted",
+      workspaceId: viewer.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "conversation",
+      subjectId: conversationId,
+      // Название — чтобы по журналу было видно, ЧТО снесли: сама строка
+      // ещё лежит в базе, но в списках её больше нет.
+      payload: { title: found.title },
+    });
+  });
+
+  // Звонок только после фиксации: канал обязан исчезнуть у всех, кто его
+  // видел, без перезагрузки страницы.
+  publish(viewer.workspaceId);
+}
+
+/**
  * Обсуждение задачи — обычный разговор вида `task`.
  *
  * НЕ НОВАЯ СУЩНОСТЬ. Один слой хранит каналы, ветки и обсуждения задач;

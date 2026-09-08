@@ -1,6 +1,13 @@
-import { Hash } from "@phosphor-icons/react";
+import { Hash, Trash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { Conversation } from "../data/api.js";
+import { Button } from "../shared/ui/button.js";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "../shared/ui/context-menu.js";
 import { SidebarSection } from "./SidebarSection.js";
 
 /**
@@ -72,13 +79,24 @@ export function RoomList({
   currentId,
   onSelect,
   onCreate,
+  onRemove,
 }: {
   rooms: Conversation[];
   currentId: string | null;
   onSelect: (id: string) => void;
   onCreate: (title: string) => Promise<void>;
+  onRemove: (id: string) => Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
+  /**
+   * Какой канал спрашиваем «точно удалить?».
+   *
+   * ⚠️ СПРАШИВАЕМ, И ЭТО НЕ ПЕРЕСТРАХОВКА. Реплику удаляет её автор
+   * и только свою; канал сносит переписку целиком и у всех. Действие
+   * необратимое для того, кто смотрит, — значит между «промахнулся мышью»
+   * и «переписки нет» обязан стоять один явный шаг.
+   */
+  const [removing, setRemoving] = useState<Conversation | null>(null);
 
   // Только корневые: ветка открывается из самого разговора, а не отсюда.
   const channels = rooms.filter((room) => room.parentId === null);
@@ -90,21 +108,30 @@ export function RoomList({
           {adding ? <NewChannel onCreate={onCreate} onDone={() => setAdding(false)} /> : null}
 
           {channels.map((channel) => (
-            <button
-              key={channel.id}
-              type="button"
-              aria-current={channel.id === currentId ? "page" : undefined}
-              onClick={() => onSelect(channel.id)}
-              className={[
-                "flex w-auto items-center gap-2 rounded px-2.5 py-1.5 text-left text-body transition-colors",
-                channel.id === currentId
-                  ? "bg-selected font-medium text-ink"
-                  : "bg-transparent text-muted hover:bg-raised hover:text-ink",
-              ].join(" ")}
-            >
-              <Hash className="size-4 shrink-0 opacity-60" />
-              <span className="truncate">{channel.title}</span>
-            </button>
+            <ContextMenu key={channel.id}>
+              <ContextMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-current={channel.id === currentId ? "page" : undefined}
+                  onClick={() => onSelect(channel.id)}
+                  className={[
+                    "flex w-auto items-center gap-2 rounded px-2.5 py-1.5 text-left text-body transition-colors",
+                    channel.id === currentId
+                      ? "bg-selected font-medium text-ink"
+                      : "bg-transparent text-muted hover:bg-raised hover:text-ink",
+                  ].join(" ")}
+                >
+                  <Hash className="size-4 shrink-0 opacity-60" />
+                  <span className="truncate">{channel.title}</span>
+                </button>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="w-52">
+                <ContextMenuItem variant="destructive" onSelect={() => setRemoving(channel)}>
+                  <Trash />
+                  Удалить канал
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           ))}
 
           {channels.length === 0 && !adding ? (
@@ -114,6 +141,66 @@ export function RoomList({
           ) : null}
         </div>
       </SidebarSection>
+
+      <ConfirmRemoval
+        channel={removing}
+        onCancel={() => setRemoving(null)}
+        onConfirm={async (id) => {
+          setRemoving(null);
+          await onRemove(id);
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * «Точно удалить канал?» — своим окном, а не `window.confirm`.
+ *
+ * Родное окно браузера рисуется поверх страницы чужим видом, не знает
+ * наших тем и на Windows выглядит как ошибка системы, а не как вопрос
+ * приложения. Здесь тот же вид, что и у остального.
+ */
+function ConfirmRemoval({
+  channel,
+  onCancel,
+  onConfirm,
+}: {
+  channel: Conversation | null;
+  onCancel: () => void;
+  onConfirm: (id: string) => Promise<void>;
+}) {
+  if (!channel) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="removal-title"
+      onKeyDown={(event) => event.key === "Escape" && onCancel()}
+    >
+      <div className="w-full max-w-96 rounded-xl border border-line bg-card p-5 shadow-float">
+        <h2 id="removal-title" className="text-lead font-medium text-ink">
+          Удалить «{channel.title}»?
+        </h2>
+        <p className="mt-2 text-body leading-relaxed text-muted">
+          Канал исчезнет у всех, кто его видит, вместе со всей перепиской. Вернуть его из приложения
+          будет нельзя.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            Отмена
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            autoFocus
+            onClick={() => void onConfirm(channel.id)}
+          >
+            Удалить
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

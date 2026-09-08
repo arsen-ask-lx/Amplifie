@@ -252,6 +252,9 @@ export const api = {
     }),
 
   /** Новый канал. Виден всему пространству, если не сказано иначе (Р-010). */
+  /** Удалить канал. Мягко на сервере; здесь это просто «его больше нет». */
+  removeChannel: (id: string) => request<void>(`/v1/conversations/${id}`, { method: "DELETE" }),
+
   createChannel: (title: string) =>
     request<Conversation>("/v1/conversations", {
       method: "POST",

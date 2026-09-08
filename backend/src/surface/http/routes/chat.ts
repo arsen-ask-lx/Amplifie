@@ -10,6 +10,7 @@ import {
   ConversationNotVisibleError,
   createChannel,
   createThread,
+  deleteConversation,
   deleteMessage,
   editMessage,
   listConversations,
@@ -192,6 +193,19 @@ export function registerChatRoutes(app: FastifyInstance): void {
       // 200 на повтор, 201 на новое: клиент по коду понимает, что произошло,
       // а повтор после разрыва — нормальная работа, а не ошибка.
       return reply.code(result.replayed ? 200 : 201).send(result.message);
+    });
+  });
+
+  /**
+   * Удалить канал. Чужое и несуществующее — оба 404: см. ядро.
+   */
+  app.delete<{ Params: { id: string } }>("/v1/conversations/:id", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    return orNotFound(reply, async () => {
+      await deleteConversation(viewer, request.params.id);
+      return reply.code(204).send();
     });
   });
 

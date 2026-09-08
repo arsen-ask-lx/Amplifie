@@ -4,6 +4,7 @@ export {
   createDefaultChannel,
   createTaskDiscussion,
   createThread,
+  deleteConversation,
   deleteMessage,
   editMessage,
   listConversations,

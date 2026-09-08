@@ -51,8 +51,17 @@ export const conversation = pgTable(
     }),
     title: text("title").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Когда удалён. ⚠️ МЯГКО, ПО ТОЙ ЖЕ ПРИЧИНЕ, ЧТО И У РЕПЛИКИ:
+     * на сообщения этого канала ссылаются ответы и пересылки из ДРУГИХ
+     * каналов, и каскад превратил бы их в цитаты в пустоту.
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [index("conversation_workspace_parent_idx").on(t.workspaceId, t.parentId)],
+  (t) => [
+    index("conversation_workspace_parent_idx").on(t.workspaceId, t.parentId),
+    index("conversation_workspace_alive_idx").on(t.workspaceId).where(sql`${t.deletedAt} is null`),
+  ],
 );
 
 /**
