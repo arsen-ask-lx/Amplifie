@@ -1,4 +1,6 @@
+import { Check, Copy } from "@phosphor-icons/react";
 import { useState } from "react";
+import { copy } from "./clipboard.js";
 import { parseMarkup, type Token } from "./markup.js";
 
 /**
@@ -90,23 +92,52 @@ const VIEWS: Record<Token["kind"], (token: Token) => React.ReactNode> = {
 /**
  * Блок кода.
  *
- * ⚠️ НИКАКОЙ ШАПКИ, ПОКА ЯЗЫК НЕ НАЗВАН, И НИКАКОЙ КНОПКИ. Первая
- * редакция дописывала подпись «КОД» и кнопку «Скопировать» со словом
- * «Скопировано» после нажатия — этого нет у Телеграма, и владелец
- * поправил. Подпись появляется, только если её написал сам человек
- * в ограде (```sql): это его текст, а не наша выдумка.
+ * ⚠️ ЗНАЧОК БЕЗ ПОДПИСИ, И ПОСЛЕ НАЖАТИЯ — ГАЛОЧКА. Так у Телеграма.
+ * Сначала я написал словами «Скопировать» и «Скопировано»; владелец
+ * поправил дважды — сперва убрать надписи вовсе, потом вернуть значок
+ * с галочкой. Слово занимает место, которого у блока кода нет: справа
+ * от него живёт горизонтальная прокрутка.
+ *
+ * ⚠️ ПОДПИСЬ ЯЗЫКА — ТОЛЬКО ЕСЛИ ЕЁ НАПИСАЛ ЧЕЛОВЕК в ограде (```sql).
+ * Своей выдумки вроде «КОД» здесь нет: у Телеграма её нет тоже.
  *
  * ⚠️ ПРОКРУТКА СВОЯ, А НЕ У СТРАНИЦЫ. Широкая таблица внутри сообщения
  * не имеет права двигать всю ленту вбок — это уже было замечанием.
  */
 function CodeBlock({ text, lang }: { text: string; lang: string | undefined }) {
+  const [copied, setCopied] = useState(false);
+
   return (
-    <span className="my-1.5 block overflow-hidden rounded-md bg-current/10">
+    <span className="group/code relative my-1.5 block overflow-hidden rounded-md bg-current/10">
       {lang ? (
         <span className="block px-2.5 pt-1.5 text-mark tracking-wide text-current/60 lowercase">
           {lang}
         </span>
       ) : null}
+
+      <button
+        type="button"
+        aria-label={copied ? "Скопировано" : "Скопировать код"}
+        title={copied ? "Скопировано" : "Скопировать код"}
+        onClick={() => {
+          void copy(text).then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            // Галочка гаснет: оставшаяся навсегда, она соврёт при
+            // следующем взгляде — «а это я сейчас скопировал или вчера?»
+            setTimeout(() => setCopied(false), 1500);
+          });
+        }}
+        className={[
+          "absolute top-1 right-1 z-10 grid size-7 place-items-center rounded",
+          "bg-current/10 text-current/60 backdrop-blur-sm transition-opacity",
+          "hover:bg-current/20 hover:text-current focus-visible:opacity-100",
+          copied ? "opacity-100" : "opacity-0 group-hover/code:opacity-100",
+        ].join(" ")}
+      >
+        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+      </button>
+
       <code className="block overflow-x-auto px-2.5 py-2 font-mono text-[0.92em] leading-snug whitespace-pre">
         {text}
       </code>
