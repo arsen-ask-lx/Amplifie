@@ -52,7 +52,13 @@
   },
   "overrides": [
     {
-      "includes": ["tools/checks/**", "tools/arbiter/**", "bridge/**"],
+      "includes": [
+        "tools/checks/**",
+        "tools/arbiter/**",
+        "tools/dev/**",
+        "bridge/**",
+        "frontend/src/dev/**"
+      ],
       "linter": {
         "rules": {
           "suspicious": {

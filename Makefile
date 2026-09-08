@@ -20,6 +20,35 @@ up: env ## поднять весь стек
 >   sleep 2; \
 > done; echo "api не стал здоровым за 60с — смотри 'make logs'"; exit 1
 
+# ── ДЕВ-РЕЖИМ: ПРАВКА ВИДНА СРАЗУ, БЕЗ ПЕРЕСБОРКИ ──────────────────────
+#
+# В `make up` фронт СОБРАН И ЗАПЕЧЁН В ОБРАЗ: Caddy отдаёт готовую статику,
+# и любая правка требует пересборки образа. Это правильно для стенда и
+# невыносимо при работе руками — каждая мелочь стоит минуты.
+#
+# Здесь фронт поднимается своим сервером на этой машине: правка видна
+# в браузере через доли секунды, состояние экрана не теряется. Запросы
+# к `/v1` он проксирует на стек, поэтому `make up` всё равно нужен —
+# ради базы и бека.
+#
+# Адрес открывается свой (обычно http://localhost:5173), НЕ 8477.
+
+API_URL ?= http://localhost:8477
+
+dev: ## фронт с горячей перезагрузкой (стек уже поднят: make up)
+> API_URL=$(API_URL) npm run dev --workspace=@amplifie/frontend
+
+# То же самое для бека. Node 24 запускает TypeScript сам, поэтому сборка
+# не нужна вовсе — только перезапуск на изменение файла.
+#
+# ⚠️ ГАСИТ КОНТЕЙНЕРЫ api И caddy. Иначе на 3000 их будет двое, а Caddy
+# продолжит проксировать на контейнерный. Фронт тогда запускается так:
+#   make dev API_URL=http://localhost:3000
+# Вернуть всё как было: make up
+dev-api: ## бек на этой машине, с перезапуском на каждую правку
+> docker compose stop api caddy
+> set -a; . ./.env; set +a; DATABASE_URL="postgres://$$POSTGRES_USER:$$POSTGRES_PASSWORD@127.0.0.1:$$POSTGRES_HOST_PORT/$$POSTGRES_DB" API_PORT=3000 npm run dev --workspace=@amplifie/backend
+
 down: ## остановить стек (данные сохраняются)
 > docker compose down
 
@@ -34,6 +63,9 @@ ps: ## что запущено
 
 health: ## дёрнуть /health как пользователь (не test client)
 > curl -fsS http://localhost:$${HTTP_PORT:-8477}/health && echo
+
+demo: ## завести демо-канал с диалогом (дев-данные, стираются make reset)
+> docker compose exec -T postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie} -v ON_ERROR_STOP=1 -f - < tools/dev/demo.sql
 
 psql: ## консоль базы
 > docker compose exec postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie}
@@ -107,4 +139,4 @@ test: ## приёмочные тесты по ЖИВОМУ стеку (снач�
 check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up down reset logs ps health psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates arbiter-check model arbiter label aqk test check
+.PHONY: help env up dev dev-api down reset logs ps health demo psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates arbiter-check model arbiter label aqk test check
