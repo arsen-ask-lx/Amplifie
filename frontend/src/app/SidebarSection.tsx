@@ -39,7 +39,14 @@ export function SidebarSection({
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <section className="group/section flex min-h-0 flex-col">
+    /* ⚠️ `flex-1` И `min-h-0` НА ВСЕЙ ЦЕПОЧКЕ, СВЕРХУ ДОНИЗУ. Прокрутка
+       внутри колонки работает, только если КАЖДОЕ звено от неё до окна
+       умеет сжиматься: у флекса минимальная высота по умолчанию равна
+       содержимому, и одно звено без `min-h-0` распирает всю колонку.
+       Список каналов из-за этого выезжал под профиль, а не прокручивался
+       (замечание владельца). Оборвал цепочку я сам — отступом под
+       подписью «КАНАЛЫ». */
+    <section className="group/section flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-1 pr-1">
         <button
           type="button"
@@ -76,7 +83,7 @@ export function SidebarSection({
           строке списка (замечание владельца с экрана). Просвет —
           свойство пары «подпись плюс её содержимое», а не самого списка:
           у списка нет причины знать, что над ним что-то есть. */}
-      {collapsed ? null : <div className="pt-1.5">{children}</div>}
+      {collapsed ? null : <div className="flex min-h-0 flex-1 flex-col pt-1.5">{children}</div>}
     </section>
   );
 }

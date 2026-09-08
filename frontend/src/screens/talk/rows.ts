@@ -39,6 +39,23 @@ export function forDisplay(body: string): string {
   return body.replace(/\n{3,}/gu, "\n\n");
 }
 
+/**
+ * Чем реплика опознаётся в разметке.
+ *
+ * ⚠️ НЕ `id`, И ЭТО ГЛАВНОЕ. `id` рождается на сервере — позже, чем
+ * реплика появляется на экране: у черновика он свой, у записанной свой.
+ * Пока ключом был `id`, замена черновика записанной означала для React
+ * «одна строка исчезла, другая появилась»: узел уничтожался и создавался
+ * заново, а вместе с ним заново проигрывалось появление. Владелец видел
+ * это как мерцание первой реплики.
+ *
+ * Ключ клиента живёт с репликой от первого нажатия и до конца, поэтому
+ * им и опознаём. У чужих реплик он тоже есть — его выдал ИХ клиент.
+ */
+export function keyOf(message: Message): string {
+  return message.clientMsgId || message.id;
+}
+
 /** Кружок с инициалом — вместо картинки, которой у нас нет. */
 export function initial(name: string): string {
   return (name.trim()[0] ?? "?").toUpperCase();
@@ -67,7 +84,14 @@ export function rowsOf(messages: Local[], meId: string, wasThere: number | null)
       last: endsGroup(message, messages[index + 1]),
       handover: messages[index + 1]?.author.id !== message.author.id,
       newDay: !previous || !sameDay(new Date(message.createdAt), new Date(previous.createdAt)),
-      fresh: wasThere !== null && message.seq > wasThere,
+      /**
+       * ⚠️ СВОЯ РЕПЛИКА НИКОГДА НЕ «СВЕЖАЯ». Появление — это ответ
+       * на приход ЧУЖОГО: что-то возникло без твоего участия, и движение
+       * говорит «посмотри сюда». Своё сообщение ты только что написал сам,
+       * удивляться нечему — а анимация на нём проигрывалась дважды: один
+       * раз на черновике, второй на записанной. Так же у Телеграма.
+       */
+      fresh: message.author.id !== meId && wasThere !== null && message.seq > wasThere,
     };
   });
 }

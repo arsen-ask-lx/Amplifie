@@ -1,6 +1,6 @@
 import type { Deeds, Picking } from "./Actions.js";
 import { Bubble } from "./Bubble.js";
-import { initial, type Row } from "./rows.js";
+import { initial, keyOf, type Row } from "./rows.js";
 
 /**
  * Речь одного человека подряд — одной группой с общим кружком.
@@ -67,7 +67,7 @@ export function Group({
 
       <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
         {rows.map((row) => (
-          <Bubble key={row.message.id} row={row} deeds={deeds} onGo={onGo} picking={picking} />
+          <Bubble key={keyOf(row.message)} row={row} deeds={deeds} onGo={onGo} picking={picking} />
         ))}
       </div>
     </div>

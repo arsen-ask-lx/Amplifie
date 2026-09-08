@@ -5,7 +5,7 @@ import type { Focus } from "../../data/useChat.js";
 import { день as dayOf } from "../../shared/when.js";
 import type { Deeds, Picking } from "./Actions.js";
 import { Group } from "./Group.js";
-import { groupsOf, rowsOf } from "./rows.js";
+import { groupsOf, keyOf, rowsOf } from "./rows.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).
@@ -282,7 +282,7 @@ export function Feed({
           )}
 
           {groupsOf(rows).map((group) => (
-            <div key={group[0]?.message.id}>
+            <div key={group[0] ? keyOf(group[0].message) : "пусто"}>
               {group[0]?.newDay ? (
                 <p className="my-4 text-center">
                   <span className="rounded-pill border border-line bg-card px-3 py-1 text-mark text-muted">

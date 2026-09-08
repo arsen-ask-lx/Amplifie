@@ -58,8 +58,20 @@ export function merge(current: Message[], incoming: SyncLine[]): Message[] {
   if (incoming.length === 0) return current;
   const byId = new Map(current.map((m) => [m.id, m]));
   for (const line of incoming) {
-    if (isTombstone(line)) byId.delete(line.id);
-    else byId.set(line.id, line);
+    if (isTombstone(line)) {
+      byId.delete(line.id);
+      continue;
+    }
+    /**
+     * ⚠️ ЗАПИСАННАЯ РЕПЛИКА ВЫТЕСНЯЕТ СВОЙ ЧЕРНОВИК. Черновик лежит
+     * в ленте под своим ключом, а пришедшая с сервера — под настоящим
+     * `id`: без этой строки они уживались бы рядом как две разные
+     * реплики. Ждать ответа на отправку нельзя — догон умеет принести
+     * запись РАНЬШЕ, чем ответит сама отправка, и тогда человек на
+     * мгновение видит своё сообщение дважды.
+     */
+    if (line.clientMsgId && line.clientMsgId !== line.id) byId.delete(line.clientMsgId);
+    byId.set(line.id, line);
   }
   return [...byId.values()].sort((a, b) => a.seq - b.seq);
 }
@@ -472,7 +484,11 @@ export function useChat(me: Me): Chat {
        * сортировка числовая, а курсор догона берётся не отсюда.
        */
       const draft: Local = {
+        // ⚠️ ИМЯ ЧЕРНОВИКА — ЕГО СОБСТВЕННЫЙ КЛЮЧ, и настоящий `id`
+        // приедет с сервера позже. Оба поля заполнены сразу, поэтому
+        // опознать реплику можно с первой миллисекунды.
         id: clientMsgId,
+        clientMsgId,
         conversationId: currentId,
         body,
         kind: "human",

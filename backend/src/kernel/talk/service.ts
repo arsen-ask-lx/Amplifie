@@ -13,6 +13,8 @@ export interface Viewer {
 
 interface MessageView {
   id: string;
+  /** Ключ, выданный клиентом при наборе. Связывает черновик с записанным. */
+  clientMsgId: string;
   conversationId: string;
   body: string;
   kind: string;
@@ -88,6 +90,7 @@ function presentLine(row: Awaited<ReturnType<typeof repo.listMessagesAfter>>[num
 function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[number]): MessageView {
   return {
     id: row.id,
+    clientMsgId: row.clientMsgId,
     conversationId: row.conversationId,
     body: row.body,
     kind: row.kind,

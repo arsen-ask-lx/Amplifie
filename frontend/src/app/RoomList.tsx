@@ -104,7 +104,7 @@ export function RoomList({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SidebarSection title="Каналы" addLabel="Новый канал" onAdd={() => setAdding(true)}>
-        <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
           {adding ? <NewChannel onCreate={onCreate} onDone={() => setAdding(false)} /> : null}
 
           {channels.map((channel) => (
