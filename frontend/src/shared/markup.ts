@@ -11,16 +11,23 @@
  * XSS ровно так. Поэтому схема проверяется по белому списку, а не по
  * чёрному: запретить перечислением нельзя, схем больше, чем воображения.
  *
- * ПОДМНОЖЕСТВО НАМЕРЕННО УЗКОЕ: жирный, курсив, код, ссылка. Расширять
- * можно — сужать нельзя, потому что накопленные сообщения перестанут
- * выглядеть так, как их писали.
+ * ПОДМНОЖЕСТВО ВЗЯТО У ТЕЛЕГРАМА: жирный, курсив, подчёркнутый,
+ * зачёркнутый, моноширинный, блок кода, скрытый и ссылка. Расширять
+ * можно — сужать НЕЛЬЗЯ: накопленные сообщения перестанут выглядеть так,
+ * как их писали.
  */
 
 export type Token =
   | { kind: "text"; text: string }
   | { kind: "bold"; text: string }
   | { kind: "italic"; text: string }
+  | { kind: "underline"; text: string }
+  | { kind: "strike"; text: string }
   | { kind: "code"; text: string }
+  /** Многострочный кусок кода. Отдельно от `code`: рисуется блоком. */
+  | { kind: "pre"; text: string }
+  /** Скрытый до нажатия. У Телеграма — «спойлер». */
+  | { kind: "spoiler"; text: string }
   | { kind: "link"; text: string; href: string };
 
 /** Единственные схемы, которым разрешено оказаться в href. */
@@ -45,13 +52,25 @@ export function safeHref(raw: string): string | null {
 }
 
 /**
- * `_курсив_` намеренно НЕ поддержан: он рвёт `имя_переменной` и пути,
- * которых в рабочей переписке больше, чем курсива.
+ * ⚠️ ПОРЯДОК ВЕТОК ЗНАЧИМ, А НЕ ПРОИЗВОЛЕН. Регулярка берёт ПЕРВОЕ
+ * подошедшее из перечисленных, поэтому длинные обёртки обязаны стоять
+ * раньше коротких: тройная кавычка перед одинарной, `**` перед `*`.
+ * Переставь местами — и блок кода развалится на куски по одной кавычке,
+ * а жирный станет двумя курсивами подряд.
+ *
+ * ⚠️ ОДИНАРНОЕ `_` НЕ ПОДДЕРЖАНО, хотя у Телеграма оно есть. Оно рвёт
+ * `имя_переменной` и пути, которых в рабочей переписке больше, чем
+ * курсива; курсив пишется звёздочками. Единственное сознательное
+ * расхождение с их разметкой.
  */
 const PATTERN = new RegExp(
   [
-    "`([^`\\n]+)`", // код
+    "```\\n?([\\s\\S]+?)```", // блок кода
+    "`([^`\\n]+)`", // моноширинный
     "\\*\\*([^*\\n]+)\\*\\*", // жирный
+    "__([^_\\n]+)__", // подчёркнутый
+    "~~([^~\\n]+)~~", // зачёркнутый
+    "\\|\\|([^|\\n]+)\\|\\|", // скрытый
     "\\*([^*\\n]+)\\*", // курсив
     "\\[([^\\]\\n]+)\\]\\(([^)\\s]+)\\)", // ссылка с подписью
     "(https?://[^\\s<>()]+)", // голый адрес
@@ -79,15 +98,28 @@ function bareToken(raw: string): { token: Token; tail: string } {
   };
 }
 
-/** Один найденный кусок → токен плюс возможный хвост после него. */
+/**
+ * Какой ветке какой вид куска. Порядок пар обязан совпадать с порядком
+ * веток в самой регулярке — держать это списком, а не лестницей `if`,
+ * дешевле: при добавлении ветки видно, что список стал длиннее.
+ */
+const KINDS = ["pre", "code", "bold", "underline", "strike", "spoiler", "italic"] as const;
+
 function tokenOf(match: RegExpExecArray): { token: Token; tail: string } {
-  const [, code, bold, italic, linkText, linkHref, bare] = match;
-  if (code !== undefined) return { token: { kind: "code", text: code }, tail: "" };
-  if (bold !== undefined) return { token: { kind: "bold", text: bold }, tail: "" };
-  if (italic !== undefined) return { token: { kind: "italic", text: italic }, tail: "" };
+  for (let i = 0; i < KINDS.length; i++) {
+    const text = match[i + 1];
+    const kind = KINDS[i];
+    if (text !== undefined && kind !== undefined) return { token: { kind, text }, tail: "" };
+  }
+
+  // Ветки ссылки и голого адреса идут сразу за семью видами обёрток.
+  const linkText = match[KINDS.length + 1];
+  const linkHref = match[KINDS.length + 2];
   if (linkText !== undefined && linkHref !== undefined) {
     return { token: linkToken(linkText, linkHref), tail: "" };
   }
+
+  const bare = match[KINDS.length + 3];
   if (bare !== undefined) return bareToken(bare);
   return { token: { kind: "text", text: match[0] }, tail: "" };
 }

@@ -36,6 +36,39 @@ import { Quote } from "./Quote.js";
 const MAX_ROWS = 10;
 
 /**
+ * Сочетания клавиш для разметки — те же, что у Телеграма на десктопе.
+ *
+ * ⚠️ СВОИХ НЕ ПРИДУМЫВАЕМ. Горячая клавиша полезна ровно тем, что её уже
+ * знают: Ctrl+B, Ctrl+I, Ctrl+U — общие для всех редакторов, а
+ * Ctrl+Shift+X, Ctrl+Shift+M и Ctrl+Shift+P взяты у них один в один.
+ *
+ * Ключ — «нужен ли Shift» плюс буква. Буква латинская: при русской
+ * раскладке браузер всё равно сообщает `code`, а не `key`, и проверять
+ * по `key` значило бы сломать сочетания у всех, кто пишет по-русски.
+ */
+const WRAPS: Record<string, { shift: boolean; with: string }> = {
+  KeyB: { shift: false, with: "**" },
+  KeyI: { shift: false, with: "*" },
+  KeyU: { shift: false, with: "__" },
+  KeyX: { shift: true, with: "~~" },
+  KeyM: { shift: true, with: "`" },
+  KeyP: { shift: true, with: "||" },
+};
+
+/**
+ * Обернуть выделенное. Ничего не выделено — ставим пару и курсор внутрь:
+ * так делают все редакторы, и это избавляет от «набрал, потом выделил».
+ */
+function wrap(node: HTMLTextAreaElement, mark: string): { text: string; at: number } {
+  const { value, selectionStart: from, selectionEnd: to } = node;
+  const inside = value.slice(from, to);
+  return {
+    text: value.slice(0, from) + mark + inside + mark + value.slice(to),
+    at: from + mark.length + inside.length,
+  };
+}
+
+/**
  * Подогнать высоту поля под текст.
  *
  * Сброс в auto обязателен: без него поле умеет только расти и никогда
@@ -216,17 +249,38 @@ export function Composer({
     void onSend(body, key);
   }
 
+  /** Разметка сочетанием клавиш. Вернёт true, если сочетание сработало. */
+  function marked(event: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (!event.ctrlKey && !event.metaKey) return false;
+    const rule = WRAPS[event.code];
+    if (!rule || rule.shift !== event.shiftKey) return false;
+
+    const node = field.current;
+    if (!node) return false;
+
+    event.preventDefault();
+    const { text: next, at } = wrap(node, rule.with);
+    setText(next);
+    // Курсор ставим ПОСЛЕ отрисовки: до неё в поле ещё старое значение,
+    // и позиция уехала бы на длину вставленных знаков.
+    requestAnimationFrame(() => node.setSelectionRange(at, at));
+    return true;
+  }
+
+  /** Escape снимает и ответ, и правку — то же, что крестик в строке выше. */
+  function escaped(event: React.KeyboardEvent): boolean {
+    if (event.key !== "Escape" || (!replying && !editing)) return false;
+    event.preventDefault();
+    if (editing) onCancelEdit();
+    else onCancelReply();
+    return true;
+  }
+
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (marked(event) || escaped(event)) return;
     // Enter отправляет, Shift+Enter переносит строку — как во всех
     // переписках. Composing — набор через IME (китайский, японский):
     // там Enter подтверждает иероглиф, а не отправляет сообщение.
-    // Escape снимает и ответ, и правку — то же, что крестик в строке выше.
-    if (event.key === "Escape" && (replying || editing)) {
-      event.preventDefault();
-      if (editing) onCancelEdit();
-      else onCancelReply();
-      return;
-    }
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     submit();

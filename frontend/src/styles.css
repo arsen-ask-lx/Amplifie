@@ -162,6 +162,13 @@
      и ничего не меняет. */
   --ink-on-soft: var(--ink);
 
+  /* ⚠️ ССЫЛКА — СИНЯЯ ДАЖЕ В МОНОХРОМЕ, и это второе исключение из «цвет
+     это отсутствие» после красного у опасного. Синяя подчёркнутая ссылка —
+     не стиль, а соглашение возрастом с саму сеть: человек узнаёт её,
+     не читая. Ставить её чернильной значило бы экономить на узнаваемости
+     ради чистоты замысла. Так же поступает Телеграм в любой теме. */
+  --link: #0d74ce;
+
   --danger: var(--d11);
   /* Текст на красном. Отдельная роль, а не «белый»: на заливке опасности
      наш `--on-accent` не годится — в тёмной теме он почти чёрный. */
@@ -211,6 +218,7 @@
      капсулу, а 20 — уже нет. Радиус не отступ, на сетку он не садится. */
   --round-sm: 6px;
   --round: 10px;
+  --round-md: 12px;
   --round-lg: 18px;
   --round-xl: 24px;
   --round-pill: 999px;
@@ -231,6 +239,10 @@
     "Geist Variable", system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto,
     sans-serif;
   --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  /* Моноширинный — для кода в сообщениях. Родной ряд платформы: ставить
+     ради этого ещё один веб-шрифт значило бы платить весом за то,
+     что встречается в переписке изредка. */
+  --mono: "Cascadia Code", "SF Mono", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
 }
 
 :root[data-theme="dark"] {
@@ -259,6 +271,9 @@
        и перетягивает взгляд на время вместо текста. 12-я — тихая. */
   --muted-on-soft: var(--a12);
 
+  /* На тёмном фоне синева эталона тонет — берём ту же ступень светлее. */
+  --link: #70b8ff;
+
   --scroll: var(--n7);
   --scroll-hot: var(--n9);
 
@@ -268,6 +283,9 @@
      отсутствием. */
   --lift-raised: 0 0 0 1px rgb(255 255 255 / 6%), 0 1px 3px rgb(0 0 0 / 40%);
   --lift-float: 0 0 0 1px rgb(255 255 255 / 8%), 0 8px 24px rgb(0 0 0 / 55%);
+  /* На тёмном отделяет не тень, а кайма света: тень там почти невидима. */
+  --lift-menu:
+    0 0 0 1px rgb(255 255 255 / 10%), 0 12px 32px rgb(0 0 0 / 60%), 0 4px 12px rgb(0 0 0 / 40%);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -581,6 +599,7 @@
   --color-muted-on-soft: var(--muted-on-soft);
   --color-ink-on-soft: var(--ink-on-soft);
   --color-danger: var(--danger);
+  --color-link: var(--link);
 
   /* Шаг сетки. У Tailwind он и так 0.25rem = 4px — объявляем явно,
      чтобы наш `--step` и его размерный ряд были одним числом,
@@ -589,6 +608,7 @@
 
   --font-sans: var(--sans);
   --font-serif: var(--serif);
+  --font-mono: var(--mono);
 
   /* Шкала набора: `text-body`, `text-lead`, `text-head`. */
   --text-mark: var(--fs-mark);
@@ -601,6 +621,7 @@
   /* Слои: `shadow-raised`, `shadow-float`. */
   --shadow-raised: var(--lift-raised);
   --shadow-float: var(--lift-float);
+  --shadow-menu: var(--lift-menu);
 
   /* ── СЛОВАРЬ НАБОРА КОМПОНЕНТОВ (task-013) ────────────────────────────
      Скопированные исходники shadcn говорят своими именами: `background`,
@@ -636,6 +657,7 @@
   /* Скругления: `rounded-sm`, `rounded`, `rounded-lg`, `rounded-pill`. */
   --radius-sm: var(--round-sm);
   --radius: var(--round);
+  --radius-md: var(--round-md);
   --radius-lg: var(--round-lg);
   --radius-xl: var(--round-xl);
   --radius-pill: var(--round-pill);
@@ -768,13 +790,28 @@
     margin-left: -40px;
     padding-left: 40px;
     border-radius: var(--round-sm);
-    background: color-mix(in oklab, var(--accent) 16%, transparent);
   }
+
+  /* ⚠️ ЗАЛИВКА ЖИВЁТ ТОЛЬКО В АНИМАЦИИ, И ТОЛЬКО С `forwards`.
+     Первая редакция держала её ЕЩЁ И В САМОМ ПРАВИЛЕ — и подсветка
+     МИГАЛА ПОВТОРНО: анимация кончается на 2200 мс и отпускает элемент
+     обратно к правилу, где заливка есть, а таймер снимает класс на той же
+     миллисекунде. Кто успел, то и мигнуло. Найдено владельцем; из кода
+     это не видно вовсе, потому что оба места по отдельности верны.
+     `forwards` оставляет последний кадр — прозрачный. */
   @media (prefers-reduced-motion: no-preference) {
     .msg-found {
-      animation: found 2200ms ease-out;
+      animation: found 2200ms ease-out forwards;
     }
   }
+
+  /* Кому движение мешает — тому ровная заливка, которую снимет таймер. */
+  @media (prefers-reduced-motion: reduce) {
+    .msg-found {
+      background: color-mix(in oklab, var(--accent) 16%, transparent);
+    }
+  }
+
   @keyframes found {
     0%,
     55% {
