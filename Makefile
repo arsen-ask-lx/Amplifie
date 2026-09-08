@@ -134,13 +134,17 @@ arbiter: ## отчёт арбитра К2 — согласие людей и ч�
 label: ## выпустить лист второй разметки К2 (правится в редакторе)
 > npm run label
 
+ci-gates: ## гейты каталога AQK, поставленные пакетом (образцы — в tools/gates/)
+> bash tools/gates/gates-run-in-ci/check.sh .
+> bash tools/gates/personal-config-not-shared/check.sh .
+
 aqk: ## ступень соответствия AQK и что до следующей
-> npx --yes agent-quality-kit@0.6.0 doctor
+> npx --yes agent-quality-kit@0.7.0 doctor
 
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
-check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up dev dev-api down reset logs ps health demo psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates arbiter-check model arbiter label aqk test check
+.PHONY: help env up dev dev-api down reset logs ps health demo psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model arbiter label aqk test check

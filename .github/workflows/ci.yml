@@ -34,8 +34,15 @@ jobs:
         run: npm run unit
       - name: Запрет сырого HTML
         run: npm run no-raw-html
-      - name: Записи каталога AQK
-        run: npm run gates
+      # ⚠️ ОДИН ШАГ ВМЕСТО СПИСКА КОМАНД, И ЭТО НЕ ЛЕНЬ. `doctor --run`
+      # запускает ВСЁ, что объявлено в `.aqk.yml`. Перечислять гейты здесь
+      # поимённо значило бы завести второй список рядом с первым: добавил
+      # проверку в манифест, забыл в конвейер — и она молчит месяцами.
+      # Ровно эту дыру нашёл гейт `gates-run-in-ci`: четыре наши проверки
+      # (rhythm, failure-map, stages, duplicates) объявлены давно и НИ РАЗУ
+      # не гонялись конвейером.
+      - name: Все объявленные проверки
+        run: npx --yes agent-quality-kit@0.7.0 doctor --run
       - name: Счётчик согласия арбитра К2
         run: npm run arbiter:check
 

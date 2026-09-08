@@ -1,5 +1,4 @@
 export {
-  addToRootChannel,
   ConversationNotVisibleError,
   createChannel,
   createDefaultChannel,

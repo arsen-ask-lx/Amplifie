@@ -1,8 +1,9 @@
-import { Pencil, SendHorizontal, X } from "lucide-react";
+import { SendHorizontal } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Message, Quote as Цитата } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
-import { Quote } from "./Quote.js";
+import { Above } from "./Above.js";
+import { fit, MAX_ROWS, WRAPS, wrap } from "./compose.js";
 
 /**
  * Поле ввода сообщения.
@@ -31,127 +32,6 @@ import { Quote } from "./Quote.js";
  * тексту, и повторяет то, что уже сказал Enter. Подпись никуда не делась —
  * она в `aria-label` и во всплывающей подсказке, вместе с горячей клавишей.
  */
-
-/** Дальше поле не растёт, а прокручивается: иначе оно съест ленту. */
-const MAX_ROWS = 10;
-
-/**
- * Сочетания клавиш для разметки — те же, что у Телеграма на десктопе.
- *
- * ⚠️ СВОИХ НЕ ПРИДУМЫВАЕМ. Горячая клавиша полезна ровно тем, что её уже
- * знают: Ctrl+B, Ctrl+I, Ctrl+U — общие для всех редакторов, а
- * Ctrl+Shift+X, Ctrl+Shift+M и Ctrl+Shift+P взяты у них один в один.
- *
- * Ключ — «нужен ли Shift» плюс буква. Буква латинская: при русской
- * раскладке браузер всё равно сообщает `code`, а не `key`, и проверять
- * по `key` значило бы сломать сочетания у всех, кто пишет по-русски.
- */
-const WRAPS: Record<string, { shift: boolean; with: string }> = {
-  KeyB: { shift: false, with: "**" },
-  KeyI: { shift: false, with: "*" },
-  KeyU: { shift: false, with: "__" },
-  KeyX: { shift: true, with: "~~" },
-  KeyM: { shift: true, with: "`" },
-  KeyP: { shift: true, with: "||" },
-};
-
-/**
- * Обернуть выделенное. Ничего не выделено — ставим пару и курсор внутрь:
- * так делают все редакторы, и это избавляет от «набрал, потом выделил».
- */
-function wrap(node: HTMLTextAreaElement, mark: string): { text: string; at: number } {
-  const { value, selectionStart: from, selectionEnd: to } = node;
-  const inside = value.slice(from, to);
-  return {
-    text: value.slice(0, from) + mark + inside + mark + value.slice(to),
-    at: from + mark.length + inside.length,
-  };
-}
-
-/**
- * Подогнать высоту поля под текст.
- *
- * Сброс в auto обязателен: без него поле умеет только расти и никогда
- * не сжимается обратно. Рамки прибавляются отдельно — `scrollHeight`
- * их не считает, и высота выходила на два пикселя короче нужной,
- * отчего на ОДНОЙ строке появлялась полоса прокрутки.
- */
-function fit(node: HTMLTextAreaElement, expected: string): void {
-  // Меряем, только когда в поле УЖЕ нужное значение. Без этой проверки
-  // можно посчитать высоту по старому тексту — ровно та ошибка, из-за
-  // которой поле не сжималось после отправки многострочного сообщения.
-  if (node.value !== expected) return;
-
-  // Пустое поле не меряем вовсе: снимаем высоту и отдаём её обратно
-  // разметке, где она задана числом строк. Измерение здесь было лишним
-  // звеном — а лишнее звено и оказалось тем, что ломалось.
-  if (expected === "") {
-    node.style.height = "";
-    node.style.overflowY = "hidden";
-    return;
-  }
-
-  node.style.height = "auto";
-  const line = Number.parseFloat(getComputedStyle(node).lineHeight) || 21;
-  const borders = node.offsetHeight - node.clientHeight;
-  const needed = node.scrollHeight;
-  const limit = Math.round(line * MAX_ROWS);
-
-  node.style.height = `${Math.min(needed, limit) + borders}px`;
-  // Прокрутка включается ТОЛЬКО когда поле упёрлось в предел. Иначе
-  // дробная высота строки (21.75px) даёт расхождение в один пиксель,
-  // и на одной-единственной строке появляется полоса прокрутки.
-  // Гоняться за этим пикселем бесполезно — он зависит от шрифта.
-  node.style.overflowY = needed > limit ? "auto" : "hidden";
-}
-
-/**
- * Строка над полем: на что отвечаем либо что правим.
- *
- * ⚠️ ОДНО МЕСТО НА ДВА СОСТОЯНИЯ, И ЭТО НЕ ЭКОНОМИЯ. Ответ и правка
- * взаимно исключают друг друга — нельзя править реплику, одновременно
- * отвечая на другую, — а две полоски друг над другом как раз и обещали бы,
- * что можно.
- */
-function Above({
-  replying,
-  editing,
-  onCancel,
-}: {
-  replying: Цитата | null;
-  editing: Message | null;
-  onCancel: () => void;
-}) {
-  if (!replying && !editing) return null;
-
-  return (
-    <div className="mb-1 flex items-center gap-2 border-b border-line pb-1">
-      {editing ? (
-        <>
-          <Pencil className="size-4 shrink-0 text-accent" aria-hidden="true" />
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="text-mark font-medium text-accent-ink">Изменение сообщения</span>
-            <span className="truncate text-aside text-muted">{editing.body}</span>
-          </span>
-        </>
-      ) : replying ? (
-        <span className="min-w-0 flex-1">
-          <Quote quote={replying} />
-        </span>
-      ) : null}
-
-      <button
-        type="button"
-        onClick={onCancel}
-        aria-label="Отменить"
-        title="Отменить (Esc)"
-        className="grid size-7 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
-      >
-        <X className="size-4" />
-      </button>
-    </div>
-  );
-}
 
 export function Composer({
   onSend,

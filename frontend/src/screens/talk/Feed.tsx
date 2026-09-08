@@ -4,7 +4,9 @@ import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
 import { Button } from "../../shared/ui/button.js";
 import { день as dayOf } from "../../shared/when.js";
-import { type Deeds, Group, groupsOf, type Picking, rowsOf } from "./Bubble.js";
+import type { Deeds, Picking } from "./Actions.js";
+import { Group } from "./Group.js";
+import { groupsOf, rowsOf } from "./rows.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).

@@ -75,9 +75,13 @@ const PAIRS = [
   { fg: "--danger", bg: "--bg", need: TEXT, what: "текст ошибки" },
   { fg: "--danger", bg: "--panel", need: TEXT, what: "текст ошибки на панели" },
   { fg: "--on-accent", bg: "--accent", need: TEXT, what: "текст на акценте" },
-  { fg: "--ink", bg: "--accent-soft", need: TEXT, what: "текст в своём пузыре" },
+  // ⚠️ `--ink-on-soft`, А НЕ `--ink`. Роль разделилась (task-014): у своего
+  // пузыря может быть плотная заливка, и текст на ней свой. Гейт, оставшийся
+  // на старой роли, проверял бы пару, которой на экране нет, — и молчал бы
+  // о той, которая есть. Это ровно то, от чего он сторожит.
+  { fg: "--ink-on-soft", bg: "--accent-soft", need: TEXT, what: "текст в своём пузыре" },
   { fg: "--muted-on-soft", bg: "--accent-soft", need: TEXT, what: "время в своём пузыре" },
-  { fg: "--ink", bg: "--panel", need: TEXT, what: "текст в чужом пузыре" },
+  { fg: "--ink", bg: "--card", need: TEXT, what: "текст в чужом пузыре" },
   { fg: "--accent-ink", bg: "--panel", need: TEXT, what: "имя автора в чужом пузыре" },
   { fg: "--accent-ink", bg: "--bg", need: TEXT, what: "акцент как текст на фоне" },
   { fg: "--accent", bg: "--bg", need: EDGE, what: "акцент как граница на фоне" },
@@ -200,15 +204,56 @@ function withoutMedia(source) {
   }
 }
 
-const rawLight = allBlocks(withoutDark(withoutMedia(css)), /:root\s*\{([^{}]*)\}/gu);
+/**
+ * ⚠️ ПРОВЕРЯЮТСЯ ВСЕ ПАЛИТРЫ, А НЕ ОДНА (task-014).
+ *
+ * Акцентная шкала переехала из `:root` в блоки `[data-accent="…"]`:
+ * палитр семь, и человек выбирает любую. Проверять при этом только
+ * корневой блок значило бы объявить продукт годным по одной седьмой
+ * его состояний — а гейт при этом ещё и зеленел бы, потому что в `:root`
+ * акцентной шкалы больше нет вовсе.
+ *
+ * Так и вышло: после переезда гейт покраснел на «нет ступени 12» —
+ * и это была не поломка вида, а честный крик слепнущего арбитра.
+ */
+const ACCENTS = [...css.matchAll(/\[data-accent="([^"]+)"\]/gu)].map((m) => m[1]);
+const PALETTES = [...new Set(ACCENTS)];
+
+/**
+ * Объявления одной палитры: светлые и тёмные блоки отдельно.
+ *
+ * Светлый блок в стилях стоит с начала строки, тёмный начинается
+ * с `[data-theme="dark"]` — по этому и различаем. `[^{]*` в тёмном
+ * проглатывает вторую половину селектора: он объявлен двумя вариантами
+ * через запятую (сам корень и потомок), и оба ведут в один блок.
+ */
+function accentBlocks(name, dark) {
+  const safe = name.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+  const pattern = dark
+    ? new RegExp(
+        String.raw`\[data-theme="dark"\][^{]*\[data-accent="${safe}"\][^{]*\{([^{}]*)\}`,
+        "gu",
+      )
+    : new RegExp(String.raw`^\[data-accent="${safe}"\]\s*\{([^{}]*)\}`, "gmu");
+  return allBlocks(css, pattern);
+}
+
+const rootLight = allBlocks(withoutDark(withoutMedia(css)), /:root\s*\{([^{}]*)\}/gu);
 // В тёмной теме переопределены не все переменные — остальные наследуются.
-const rawDark = {
-  ...rawLight,
+const rootDark = {
+  ...rootLight,
   ...allBlocks(css, /:root\[data-theme="dark"\]\s*\{([^{}]*)\}/gu),
 };
 
-const light = paletteOf(rawLight);
-const dark = paletteOf(rawDark);
+/** Что проверяем: каждая палитра в каждой теме. */
+const THEMES = [];
+for (const name of PALETTES) {
+  THEMES.push([`светлая · ${name}`, paletteOf({ ...rootLight, ...accentBlocks(name, false) })]);
+  THEMES.push([
+    `тёмная · ${name}`,
+    paletteOf({ ...rootDark, ...accentBlocks(name, false), ...accentBlocks(name, true) }),
+  ]);
+}
 
 const problems = [];
 let checked = 0;
@@ -239,10 +284,7 @@ function scaleProblem(theme, scale, rule, step, palette) {
   );
 }
 
-for (const [theme, palette] of [
-  ["светлая", light],
-  ["тёмная", dark],
-]) {
+for (const [theme, palette] of THEMES) {
   // ① правила шкалы
   for (const scale of SCALES) {
     for (const rule of scale.rules) {
@@ -283,4 +325,4 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log(`контраст: ${checked} пар в двух темах — OK`);
+console.log(`контраст: ${checked} пар · ${PALETTES.length} палитр × 2 темы — OK`);

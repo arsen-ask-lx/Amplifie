@@ -51,7 +51,11 @@ gates:
   dead-code: "bash tools/gates/_native.sh . npx --yes knip@6 --directory ."
   gates-are-runnable: "bash tools/gates/gates-are-runnable/check.sh ."
   test-has-assertion: "bash tools/gates/test-has-assertion/check.sh ."
-  color-from-token: "AQK_COLOR_SOURCE=styles bash tools/gates/color-from-token/check.sh ."
+  # ⚠️ ЧЕРЕЗ `bash -c`, А НЕ ПРИСТАВКОЙ. Запись `ПЕРЕМЕННАЯ=значение команда`
+  # понятна только оболочкам POSIX; на Windows её пытается исполнить cmd
+  # и падает с «AQK_COLOR_SOURCE не является внутренней командой».
+  # Гейт при этом краснел на исправном коде — худший вид отказа.
+  color-from-token: "bash -c 'AQK_COLOR_SOURCE=styles bash tools/gates/color-from-token/check.sh .'"
   gate-not-weakened: "bash tools/gates/gate-not-weakened/check.sh ."
   ci-actually-fails: "bash tools/gates/ci-actually-fails/check.sh ."
   gate-has-samples: "bash tools/gates/gate-has-samples/check.sh ."
@@ -59,6 +63,8 @@ gates:
   commit-explains-itself: "bash tools/gates/commit-explains-itself/check.sh ."
   duplicate-code: "npm run duplicates"
   secrets-not-in-code: "bash tools/gates/secrets-not-in-code/check.sh ."
+  gates-run-in-ci: "bash tools/gates/gates-run-in-ci/check.sh ."
+  personal-config-not-shared: "bash tools/gates/personal-config-not-shared/check.sh ."
 
 # AQK-2 — образцы и реестры долга. Заполняется по мере установки записей.
 samples: tools/gates

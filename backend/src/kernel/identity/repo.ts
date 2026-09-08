@@ -140,12 +140,6 @@ export async function touchSession(tx: Executor, sessionId: string, now: Date) {
  * Здесь только «есть ли вообще смысл заводить аккаунт».
  */
 
-/** Пространство по идентификатору — нужно, чтобы вернуть его имя вошедшему. */
-export async function findWorkspaceById(tx: Executor, workspaceId: string) {
-  const rows = await tx.select().from(workspace).where(eq(workspace.id, workspaceId)).limit(1);
-  return rows[0] ?? null;
-}
-
 /** Участник-агент пространства, если он уже заведён. */
 export async function findAgent(tx: Executor, workspaceId: string) {
   const rows = await tx

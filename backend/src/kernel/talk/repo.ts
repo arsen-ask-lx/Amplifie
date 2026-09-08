@@ -392,20 +392,3 @@ export async function currentSeq(tx: Executor, workspaceId: string): Promise<num
     .limit(1);
   return Number(rows[0]?.seq ?? 0);
 }
-
-/** Единственный канал пространства — нужен при регистрации. */
-export async function findRootChannel(tx: Executor, workspaceId: string) {
-  const rows = await tx
-    .select()
-    .from(conversation)
-    .where(
-      and(
-        eq(conversation.workspaceId, workspaceId),
-        eq(conversation.kind, "channel"),
-        isNull(conversation.parentId),
-      ),
-    )
-    .orderBy(asc(conversation.createdAt))
-    .limit(1);
-  return rows[0] ?? null;
-}

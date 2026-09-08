@@ -81,9 +81,13 @@ function box(node: Element): HTMLDivElement {
     `top:${at.top}px`,
     `width:${at.width}px`,
     `height:${at.height}px`,
-    "border:2px solid #e7000b",
+    // ⚠️ ТОКЕНЫ ТЕМЫ, А НЕ ЛИТЕРАЛЫ, даже в дев-оснастке. Гейт цвета
+    // ловит литералы во всём проекте, и он прав: подсветка, крашенная
+    // жёстко, в другой теме станет чужим пятном. Опасный красный —
+    // ровно та роль, что нужна: «смотри сюда, это разбор, а не интерфейс».
+    "border:2px solid var(--d9)",
     "border-radius:4px",
-    "background:rgb(231 0 11 / 8%)",
+    "background:color-mix(in oklab, var(--d9) 10%, transparent)",
     "pointer-events:none",
     "z-index:2147483646",
   ].join(";");
@@ -113,7 +117,7 @@ function ask(node: Element): Promise<string | null> {
       "z-index:2147483647",
       "padding:8px",
       "border-radius:12px",
-      "background:#171717",
+      "background:var(--card)",
       "box-shadow:0 8px 24px rgb(0 0 0 / 40%)",
       "font:14px system-ui",
     ].join(";");
@@ -121,7 +125,7 @@ function ask(node: Element): Promise<string | null> {
     const field = document.createElement("input");
     field.placeholder = "что не так? Enter — записать, Esc — отмена";
     field.style.cssText =
-      "width:300px;padding:8px 10px;border:0;border-radius:8px;background:#0a0a0a;color:#fafafa;outline:none";
+      "width:300px;padding:8px 10px;border:0;border-radius:8px;background:var(--bg);color:var(--ink);outline:none";
 
     box.append(field);
     document.body.append(box);

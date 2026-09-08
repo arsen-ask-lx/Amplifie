@@ -206,18 +206,19 @@ function DropdownMenuSubContent({
   );
 }
 
+/**
+ * ⚠️ ВЫВОЗИМ ТОЛЬКО ТО, ЧЕМ ПОЛЬЗУЕМСЯ. Набор shadcn копируется целиком,
+ * и вместе с ним приезжают части, которых у нас нет в разметке: галочки,
+ * радиокнопки, подписи сочетаний. Гейт мёртвого кода прав — невывезенная
+ * часть остаётся в файле и ждёт своего часа, а вывезенная выглядит
+ * работающей возможностью. Понадобится — строка сюда добавится обратно.
+ */
 export {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
