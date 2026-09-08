@@ -1,3 +1,4 @@
+import { $createLinkNode, $isLinkNode } from "@lexical/link";
 import {
   $createParagraphNode,
   $createTextNode,
@@ -22,13 +23,26 @@ import { parseMarkup } from "../../shared/markup.js";
  * по разным правилам, и однажды они разойдутся на каком-нибудь углу.
  */
 
-/** Наши виды разметки ↔ признаки Lexical. Ссылка и блок кода — особые. */
+/**
+ * Наши виды разметки ↔ признаки Lexical.
+ *
+ * ⚠️ СКРЫТЫЙ ТЕКСТ ЕДЕТ НА ПРИЗНАКЕ `highlight`, И ЭТО НЕ ПОДЛОГ.
+ * Своего признака «скрытое» у редактора нет, а заводить ради него узел
+ * — это своя сериализация, своя вставка и свой разбор буфера обмена.
+ * `highlight` — единственный признак, которым мы больше нигде не
+ * пользуемся, и весь его смысл задаётся НАШИМ классом в теме. Появится
+ * настоящая подсветка — вот тогда и понадобится свой узел.
+ *
+ * Блок кода признака не получает: он не свойство куска текста, а свой
+ * вид узла, и в поле показывается обычным текстом вместе с оградой.
+ */
 const AS_FORMAT: Partial<Record<string, TextFormatType>> = {
   bold: "bold",
   italic: "italic",
   underline: "underline",
   strike: "strikethrough",
   code: "code",
+  spoiler: "highlight",
 };
 
 /** Чем обёрнут каждый вид при обратном превращении. */
@@ -37,6 +51,7 @@ const AS_MARKS: Array<{ format: TextFormatType; with: string }> = [
   { format: "bold", with: "**" },
   { format: "underline", with: "__" },
   { format: "strikethrough", with: "~~" },
+  { format: "highlight", with: "||" },
   { format: "italic", with: "*" },
 ];
 
@@ -52,21 +67,47 @@ export function $fillFromMarkup(text: string): void {
 
   const paragraph = $createParagraphNode();
   for (const token of parseMarkup(text)) {
-    const node = $createTextNode(token.kind === "link" ? token.text : token.text);
+    /**
+     * ⚠️ ССЫЛКА СТАНОВИТСЯ УЗЛОМ ССЫЛКИ, А НЕ ПРОСТО ТЕКСТОМ. Раньше здесь
+     * бралась только подпись, и адрес ТЕРЯЛСЯ МОЛЧА: реплика
+     * `[договор](https://…)`, открытая на правку и сохранённая обратно,
+     * превращалась в слово «договор» без адреса. Ни одна проверка этого
+     * не видела — круг «строка → дерево → строка» на ссылках не гонялся.
+     * Ровно то расхождение, о котором предупреждало Р-020.
+     */
+    if (token.kind === "link") {
+      const link = $createLinkNode(token.href);
+      link.append($createTextNode(token.text));
+      paragraph.append(link);
+      continue;
+    }
+
+    const node = $createTextNode(token.text);
     const format = AS_FORMAT[token.kind];
     if (format) node.toggleFormat(format);
-    // Скрытый и блок кода показываем обычным текстом: своих узлов для них
-    // мы не заводим, пока владелец не скажет, что они нужны В ПОЛЕ.
-    // В ленте они рисуются как положено — там разбор тот же.
+    // Блок кода показываем обычным текстом вместе с оградой: он не
+    // свойство куска, а свой вид узла, и в одну строку ввода не ложится.
     paragraph.append(node);
   }
   root.append(paragraph);
 }
 
-/** Один текстовый кусок → строка с обёртками. */
+/** Один кусок дерева → строка с обёртками. */
 function markupOf(node: unknown): string {
   const text = (node as { getTextContent?: () => string }).getTextContent?.() ?? "";
   if (!text) return "";
+
+  /**
+   * Ссылка собирается обратно в нашу запись.
+   *
+   * Голый адрес остаётся голым: `[https://a](https://a)` — это тот же
+   * адрес, записанный вчетверо длиннее, и разборщик всё равно превратит
+   * голый в ссылку сам.
+   */
+  if ($isLinkNode(node as never)) {
+    const href = (node as { getURL: () => string }).getURL();
+    return text === href ? text : `[${text}](${href})`;
+  }
 
   // `hasFormat` есть только у текстовых узлов; у остальных обёрток нет.
   const marked = node as { hasFormat?: (f: TextFormatType) => boolean };

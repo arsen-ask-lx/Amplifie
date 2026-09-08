@@ -1,3 +1,5 @@
+import { AutoLinkNode, LinkNode } from "@lexical/link";
+import { AutoLinkPlugin } from "@lexical/react/LexicalAutoLinkPlugin";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -54,7 +56,17 @@ function тихо(): void {
   // Тело намеренно пустое, и это сказано словами выше.
 }
 
-/** Что показывает разметку. Классы наши, поведение — редактора. */
+/**
+ * Что показывает разметку. Классы наши, поведение — редактора.
+ *
+ * ⚠️ ЭТО НЕ КОПИЯ ВИДА ИЗ ЛЕНТЫ, А ЕГО ПАРА, и они обязаны сходиться
+ * глазами: человек набирает здесь, а читает там. Разъедутся — набранное
+ * будет выглядеть одним, а отправленное другим, и заметит это только он.
+ *
+ * `highlight` — это наш СКРЫТЫЙ текст (см. `markupNodes.ts`): в поле он
+ * закрашен, но читаем, потому что скрывать текст от того, кто его сейчас
+ * пишет, — бессмыслица. Закрашивается он в ленте.
+ */
 const LOOK = {
   text: {
     bold: "font-semibold",
@@ -62,8 +74,28 @@ const LOOK = {
     underline: "underline underline-offset-2",
     strikethrough: "line-through",
     code: "rounded-sm bg-current/12 px-1 py-0.5 font-mono text-[0.92em]",
+    highlight: "rounded-sm bg-current/12 px-0.5 decoration-dotted underline underline-offset-2",
   },
+  link: "text-link underline underline-offset-2",
 };
+
+/**
+ * Что считать адресом прямо во время набора.
+ *
+ * ⚠️ ТОТ ЖЕ НАБОР СХЕМ, ЧТО У РАЗБОРЩИКА ЛЕНТЫ, и это не совпадение:
+ * подсветить в поле то, что лента ссылкой не считает, — обещание, которое
+ * не сдержится после отправки.
+ */
+const URL_MATCHERS = [
+  (text: string) => {
+    const found = /https?:\/\/[^\s<>()]+/u.exec(text);
+    if (!found) return null;
+    const at = found.index;
+    // Хвостовая пунктуация к адресу не относится: «см. http://a.b.»
+    const url = found[0].replace(/[.,!?;:»"']+$/u, "");
+    return { index: at, length: url.length, text: url, url };
+  },
+];
 
 /**
  * Вернуть фокус в поле ПОСЛЕ того, как меню доиграет закрытие.
@@ -106,6 +138,9 @@ export function RichField({
       initialConfig={{
         namespace: "поле",
         theme: LOOK,
+        // Узлы ссылки объявляются заранее: редактор отказывается работать
+        // с узлом, о котором его не предупредили при создании.
+        nodes: [LinkNode, AutoLinkNode],
         onError: тихо,
       }}
     >
@@ -134,6 +169,8 @@ export function RichField({
           ErrorBoundary={LexicalErrorBoundary}
         />
         <HistoryPlugin />
+        {/* Адрес подсвечивается синим прямо во время набора — как везде. */}
+        <AutoLinkPlugin matchers={URL_MATCHERS} />
         <OnChangePlugin
           ignoreSelectionChange={true}
           onChange={(_, editor) => onChange(toMarkup(editor))}

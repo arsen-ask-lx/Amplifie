@@ -13,6 +13,7 @@
  * ошибкой в другой.
  */
 import { createHeadlessEditor } from "@lexical/headless";
+import { AutoLinkNode, LinkNode } from "@lexical/link";
 import { describe, expect, it } from "vitest";
 import { $fillFromMarkup, toMarkup } from "./markupNodes.js";
 
@@ -20,6 +21,9 @@ import { $fillFromMarkup, toMarkup } from "./markupNodes.js";
 function круг(markup: string): string {
   const editor = createHeadlessEditor({
     namespace: "проверка",
+    // Те же узлы, что и у настоящего поля: круг, прогнанный на другом
+    // наборе узлов, доказывает свойство другого поля, а не нашего.
+    nodes: [LinkNode, AutoLinkNode],
     onError: (error) => {
       throw error;
     },
@@ -55,6 +59,29 @@ describe("превращение разметки", () => {
 
   it("пустая строка даёт пустую строку", () => {
     expect(круг("")).toBe("");
+  });
+
+  it("скрытый текст переживает круг", () => {
+    expect(круг("||секрет||")).toBe("||секрет||");
+  });
+
+  it("ссылка с подписью не теряет адрес", () => {
+    // ⚠️ РОВНО ЭТО И ТЕРЯЛОСЬ. В поле уезжала только подпись, адрес
+    // пропадал молча, и реплика, открытая на правку, возвращалась
+    // на сервер словом без ссылки.
+    const было = "смотри [договор](https://example.test/dogovor) внутри";
+    expect(круг(было)).toBe(было);
+  });
+
+  it("голый адрес остаётся голым, а не обрастает скобками", () => {
+    expect(круг("вот https://example.test/x")).toBe("вот https://example.test/x");
+  });
+
+  it("негодная схема адреса остаётся текстом", () => {
+    // `javascript:` разборщик ссылкой не считает — и круг обязан
+    // вернуть ровно то, что человек написал, а не съесть это.
+    const было = "[тык](javascript:alert(1))";
+    expect(круг(было)).toBe(было);
   });
 
   it("незакрытая разметка остаётся текстом, а не съедается", () => {

@@ -81,11 +81,20 @@ const PATTERN = new RegExp(
 /** Хвостовая пунктуация к адресу не относится: «см. http://a.b.» */
 const TRAILING = /[.,!?;:»"']+$/u;
 
-function linkToken(text: string, rawHref: string): Token {
+/**
+ * Ссылка с подписью.
+ *
+ * ⚠️ ПРИ НЕГОДНОЙ СХЕМЕ ПОКАЗЫВАЕМ ЗАПИСЬ ЦЕЛИКОМ, А НЕ ОДНУ ПОДПИСЬ.
+ * Так и было сказано в этом комментарии с самого начала — «человек
+ * написал это и должен увидеть, что именно он написал», — а код отдавал
+ * только подпись и молча съедал адрес. Разошлись они незаметно: в ленте
+ * подпись выглядит осмысленно, и никому не приходит в голову, что
+ * `[тык](javascript:…)` показан не полностью. Поймано кругом
+ * «строка → поле → строка»: правка такой реплики переписывала её.
+ */
+function linkToken(raw: string, text: string, rawHref: string): Token {
   const href = safeHref(rawHref);
-  // Негодная схема — показываем подпись обычным текстом. Не выбрасываем:
-  // человек написал это и должен увидеть, что именно он написал.
-  return href ? { kind: "link", text, href } : { kind: "text", text };
+  return href ? { kind: "link", text, href } : { kind: "text", text: raw };
 }
 
 function bareToken(raw: string): { token: Token; tail: string } {
@@ -116,7 +125,7 @@ function tokenOf(match: RegExpExecArray): { token: Token; tail: string } {
   const linkText = match[KINDS.length + 1];
   const linkHref = match[KINDS.length + 2];
   if (linkText !== undefined && linkHref !== undefined) {
-    return { token: linkToken(linkText, linkHref), tail: "" };
+    return { token: linkToken(match[0], linkText, linkHref), tail: "" };
   }
 
   const bare = match[KINDS.length + 3];
