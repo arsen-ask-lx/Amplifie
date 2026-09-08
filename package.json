@@ -12,7 +12,7 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc --build && tsc -p frontend --noEmit && tsc -p frontend/tsconfig.node.json --noEmit",
+    "typecheck": "tsc --build && tsc -p frontend --noEmit && tsc -p frontend/tsconfig.node.json --noEmit && tsc -p frontend/tsconfig.ui.json --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
     "arch": "node tools/checks/check-arch.mjs",
@@ -29,10 +29,12 @@
     "arbiter": "node tools/arbiter/report.mjs",
     "label": "node tools/arbiter/label.mjs",
     "test": "vitest run --config tools/vitest.acceptance.ts",
+    "test-ui": "playwright test",
     "bridge": "tsc --build bridge && node bridge/dist/main.js"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.12",
+    "@playwright/test": "1.63.0",
     "@types/react": "^19.2.18",
     "dependency-cruiser": "^18.2.0",
     "drizzle-kit": "0.31.10",

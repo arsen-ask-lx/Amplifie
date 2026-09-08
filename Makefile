@@ -152,7 +152,18 @@ aqk: ## ступень соответствия AQK и что до следую�
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
+# ⚠️ УСТАНОВКА БРАУЗЕРА СТОИТ ЗДЕСЬ, А НЕ В ЧЬЕЙ-ТО ПАМЯТИ. Самая частая
+# поломка Playwright у других — версия пакета уехала, браузеры остались
+# старые, и прогон падает «нет браузера» на исправном коде. Команда
+# доводит браузер до версии пакета сама; уже стоящий не перекачивается.
+#
+# ⚠️ ВНЕ `make check`. Быстрым проверкам нельзя требовать поднятого стека
+# и браузера — иначе их перестают гонять. Тот же довод, что у `make test`.
+test-ui: ## проверки интерфейса настоящим браузером (сначала: make up)
+> npx playwright install chromium
+> npm run test-ui
+
 check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model arbiter label aqk test check
+.PHONY: help env up dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui check
