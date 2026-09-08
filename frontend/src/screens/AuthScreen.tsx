@@ -51,7 +51,7 @@ export function AuthScreen({ onEntered }: { onEntered: (me: Me) => void }) {
         onSubmit={submit}
         noValidate
       >
-        <h1 className="mb-1 font-serif text-brand leading-tight text-ink">
+        <h1 className="mb-1 text-brand leading-tight text-ink">
           {isRegister ? "Создать пространство" : "Вход"}
         </h1>
         <p className="mt-2 text-body leading-relaxed text-muted">

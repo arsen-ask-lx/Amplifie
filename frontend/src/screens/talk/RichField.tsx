@@ -220,7 +220,7 @@ export function RichField({
                  а переносы строк не показывались вовсе. У простого поля
                  такой беды нет, и при переезде с него об этом легко
                  забыть — я и забыл. */
-              className="max-h-[45vh] min-h-[34px] overflow-y-auto px-1 py-2 text-body leading-normal whitespace-pre-wrap text-ink outline-none"
+              className="field-scroll max-h-[45vh] min-h-[34px] overflow-y-auto px-1 py-2 text-body leading-normal whitespace-pre-wrap text-ink outline-none"
             />
           }
           // Подсказка рисуется НАД полем, а не атрибутом: у редактируемой
