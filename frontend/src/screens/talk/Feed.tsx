@@ -20,10 +20,15 @@ import { groupsOf, rowsOf } from "./rows.js";
  */
 
 function Empty() {
+  // Прижато книзу по той же причине, что и сама лента: приглашение
+  // написать первое сообщение стоит рядом с полем, в которое пишут,
+  // а не под заголовком в другом конце экрана.
   return (
-    <p className="p-8 text-center text-body text-muted">
-      Здесь пока пусто. Напишите первое сообщение — с него начнётся канал.
-    </p>
+    <div className="flex min-h-0 flex-1 flex-col justify-end">
+      <p className="p-8 text-center text-body text-muted">
+        Здесь пока пусто. Напишите первое сообщение — с него начнётся канал.
+      </p>
+    </div>
   );
 }
 
@@ -250,35 +255,45 @@ export function Feed({
     <div className="relative flex min-h-0 flex-1 flex-col">
       {/* role="log" — новые сообщения читаются вслух программой чтения экрана. */}
       <div
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        /* ⚠️ ЛЕНТА ПРИЖАТА КНИЗУ, А НЕ КВЕРХУ. Пока сообщений мало, они
+           обязаны лежать НАД полем ввода, а не висеть под заголовком:
+           разговор растёт снизу вверх, и в Телеграме, Слаке и Дискорде
+           это так у всех (замечание владельца с экрана).
+           Приём: сама область прокрутки — колонка, а содержимое отжато
+           вниз внешним отступом `mt-auto`. Прокрутка при этом работает
+           как работала: когда содержимое перерастает высоту, отжимать
+           уже нечего, и `mt-auto` перестаёт что-либо значить сам. */
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-3"
         role="log"
         aria-live="polite"
         aria-relevant="additions"
         ref={box}
         onScroll={onScroll}
       >
-        {hasOlder ? (
-          <p className="mb-3 text-center text-aside text-muted" aria-live="polite">
-            Загружаем более раннее…
-          </p>
-        ) : (
-          <p className="mb-4 text-center text-aside text-muted">
-            {title ? `Начало канала «${title}»` : "Начало канала"}
-          </p>
-        )}
+        <div className="mt-auto">
+          {hasOlder ? (
+            <p className="mb-3 text-center text-aside text-muted" aria-live="polite">
+              Загружаем более раннее…
+            </p>
+          ) : (
+            <p className="mb-4 text-center text-aside text-muted">
+              {title ? `Начало канала «${title}»` : "Начало канала"}
+            </p>
+          )}
 
-        {groupsOf(rows).map((group) => (
-          <div key={group[0]?.message.id}>
-            {group[0]?.newDay ? (
-              <p className="my-4 text-center">
-                <span className="rounded-pill border border-line bg-card px-3 py-1 text-mark text-muted">
-                  {dayOf.format(new Date(group[0].message.createdAt))}
-                </span>
-              </p>
-            ) : null}
-            <Group rows={group} deeds={deeds} onGo={onGo} picking={picking} />
-          </div>
-        ))}
+          {groupsOf(rows).map((group) => (
+            <div key={group[0]?.message.id}>
+              {group[0]?.newDay ? (
+                <p className="my-4 text-center">
+                  <span className="rounded-pill border border-line bg-card px-3 py-1 text-mark text-muted">
+                    {dayOf.format(new Date(group[0].message.createdAt))}
+                  </span>
+                </p>
+              ) : null}
+              <Group rows={group} deeds={deeds} onGo={onGo} picking={picking} />
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ⚠️ ПОЯВЛЯЕТСЯ, ТОЛЬКО КОГДА ЛЕНТА НЕ В КОНЦЕ. Кнопка «вниз», видная
