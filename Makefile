@@ -124,6 +124,9 @@ failure-map: ## код отказа разбирается в одном сло�
 stages: ## список стадий задачи совпадает с CHECK в базе
 > npm run stages
 
+favicon: ## знак на вкладке не разошёлся со знаком в интерфейсе
+> npm run favicon
+
 model: ## спросить подключённую модель вживую (не гейт, а проверка связи)
 > npm run model
 
@@ -163,7 +166,7 @@ test-ui: ## проверки интерфейса настоящим брауз�
 > npx playwright install chromium
 > npm run test-ui
 
-check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui check
+.PHONY: help env up dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui check

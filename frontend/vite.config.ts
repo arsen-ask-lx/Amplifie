@@ -1,11 +1,8 @@
 import { fileURLToPath } from "node:url";
 import tailwind from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { agentUiKit } from "agent-ui-kit";
 import { defineConfig } from "vite";
-// @ts-expect-error — плагин на чистом JS, без объявлений типов. Заводить
-// их ради дев-оснастки, которая в продукт не попадает, — лишний файл,
-// который придётся держать в согласии с кодом.
-import { aimNotes } from "../tools/dev/aim-notes.mjs";
 
 /** Адрес сервера для дев-режима. Значение по умолчанию — стек из compose. */
 const API = process.env.API_URL ?? "http://localhost:8477";
@@ -13,7 +10,14 @@ const API = process.env.API_URL ?? "http://localhost:8477";
 export default defineConfig({
   // Плагин даёт быстрое обновление при правке. Без него JSX собирается,
   // но каждая правка перезагружает страницу целиком.
-  plugins: [react(), tailwind(), aimNotes()],
+  plugins: [
+    react(),
+    tailwind(),
+    // Путь к заметкам — от каталога запуска: дев поднимается из frontend/
+    // (`npm run dev --workspace=@amplifie/frontend`), а копятся они там же,
+    // где копились всегда.
+    agentUiKit({ file: "../dock/замечания.md" }),
+  ],
   // Тот же короткий путь, что в tsconfig: его ждёт CLI набора компонентов,
   // и без него скопированные исходники не соберутся.
   resolve: {

@@ -7,7 +7,9 @@
       "!**/node_modules",
       "!dock",
       "!tools/gates",
-      "!**/migrations/meta"
+      "!**/migrations/meta",
+      "!test-results",
+      "!playwright-report"
     ]
   },
   "css": {
