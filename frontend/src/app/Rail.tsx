@@ -121,8 +121,8 @@ export function Rail({
           входа её примерил и потерял — там это заголовок экрана, а не имя.
           Имя пространства и человека уехали в профиль внизу: там всё,
           что относится «ко мне». */}
-        <h1 className="flex items-center gap-2 px-2.5 pt-2 text-lead leading-tight text-ink">
-          <Logo className="size-6 shrink-0" />
+        <h1 className="lockup px-2.5 pt-2 text-ink">
+          <Logo />
           <span className="font-brand">Amplifie</span>
         </h1>
 
