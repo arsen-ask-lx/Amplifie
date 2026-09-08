@@ -10,6 +10,8 @@ import { Composer } from "../screens/talk/Composer.js";
 import { Feed } from "../screens/talk/Feed.js";
 import { ForwardPicker } from "../screens/talk/ForwardPicker.js";
 import { PinnedBar } from "../screens/talk/PinnedBar.js";
+import { SelectionBar } from "../screens/talk/SelectionBar.js";
+import { copy } from "../shared/clipboard.js";
 import { Rail, type Section, sectionOf } from "./Rail.js";
 
 /** Заголовок середины экрана. Разговор подписывается своим названием. */
@@ -56,6 +58,25 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
   const [forwarding, setForwarding] = useState<Message | null>(null);
   /** Какую реплику правим. Правка идёт в том же поле ввода, что и отправка. */
   const [editing, setEditing] = useState<Message | null>(null);
+  /**
+   * Что выделено. `null` — режима выделения нет вовсе.
+   *
+   * Пустое множество и `null` — разные состояния: в первом человек вошёл
+   * в режим и снял все галочки, во втором режима нет. Слив их, мы бы
+   * закрывали режим на каждое снятие последней галочки.
+   */
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+
+  const chosen = picked ? chat.messages.filter((one) => picked.has(one.id)) : [];
+
+  function toggle(message: Message) {
+    setPicked((was) => {
+      const next = new Set(was ?? []);
+      if (next.has(message.id)) next.delete(message.id);
+      else next.add(message.id);
+      return next;
+    });
+  }
 
   // Переход к реплике — тем же адресом, что и переход по ссылке на неё.
   // Второго способа доехать до сообщения заводить нельзя: они разойдутся.
@@ -69,6 +90,7 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
     onPin: (message: Message, pinned: boolean) => void chat.pin(message.id, pinned),
     onEdit: (message: Message) => setEditing(message),
     onRemove: (message: Message) => void chat.remove(message.id),
+    onSelect: (message: Message) => setPicked(new Set([message.id])),
   };
 
   // «Загружаем…» только когда показать НЕЧЕГО. Если лента уже на экране,
@@ -106,8 +128,37 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
         focus={chat.focus}
         deeds={deeds}
         onGo={go}
+        picking={picked ? { chosen: picked, toggle } : null}
       />
       <AgentFailure failure={chat.agentFailure} />
+
+      {picked ? (
+        <SelectionBar
+          chosen={chosen}
+          meId={meId}
+          onCancel={() => setPicked(null)}
+          // Копируется одним куском с именами: так выделенное и вставляется
+          // потом — в письмо или в задачу, а не по одной строке.
+          onCopy={() => {
+            void copy(chosen.map((one) => `${one.author.name}: ${one.body}`).join("\n"));
+            setPicked(null);
+          }}
+          onForward={() => {
+            const first = chosen[0];
+            if (first) setForwarding(first);
+          }}
+          onRemove={() => {
+            // Последовательно, а не пачкой: ручки «удалить много» на сервере
+            // нет, и выдумывать её на клиенте циклом с молчаливыми отказами
+            // нельзя. Первая же неудача остановит и скажет.
+            void (async () => {
+              for (const one of chosen) await chat.remove(one.id);
+              setPicked(null);
+            })();
+          }}
+        />
+      ) : null}
+
       <Composer
         onSend={chat.send}
         replying={chat.replying}

@@ -9,6 +9,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  SquareCheck,
   Trash2,
 } from "lucide-react";
 import type { Message } from "../../data/api.js";
@@ -134,10 +135,24 @@ export interface Deeds {
   onPin: (message: Message, pinned: boolean) => void;
   onEdit: (message: Message) => void;
   onRemove: (message: Message) => void;
+  /** Войти в режим выделения, начав с этой реплики. */
+  onSelect: (message: Message) => void;
+}
+
+/** Что сейчас с выделением. `null` — режима выделения нет. */
+export interface Picking {
+  chosen: Set<string>;
+  toggle: (message: Message) => void;
 }
 
 /**
  * Меню реплики по правой кнопке.
+ *
+ * ⚠️ ПОРЯДОК ПУНКТОВ ВЗЯТ У ТЕЛЕГРАМА, А НЕ ПРИДУМАН: ответить, изменить,
+ * закрепить, копировать текст, копировать ссылку, переслать, удалить,
+ * выделить. Он выглядит произвольным, но им пользуются миллионы рук,
+ * и «Ответить» первым, а «Удалить» у самого низа — не вкус, а защита
+ * от промаха.
  *
  * ⚠️ «ИЗМЕНИТЬ» И «УДАЛИТЬ» ЕСТЬ ТОЛЬКО У СВОИХ. Показать их у чужой
  * реплики и получить отказ от сервера — худшее из решений: меню обещает
@@ -157,16 +172,19 @@ function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
         <CornerUpLeft />
         Ответить
       </ContextMenuItem>
-      <ContextMenuItem onSelect={() => deeds.onForward(message)}>
-        <Forward />
-        Переслать
-      </ContextMenuItem>
+
+      {/* «Изменить» стоит вторым и есть только у своих — так у них. */}
+      {row.mine ? (
+        <ContextMenuItem onSelect={() => deeds.onEdit(message)}>
+          <Pencil />
+          Изменить
+        </ContextMenuItem>
+      ) : null}
+
       <ContextMenuItem onSelect={() => deeds.onPin(message, !pinned)}>
         {pinned ? <PinOff /> : <Pin />}
         {pinned ? "Открепить" : "Закрепить"}
       </ContextMenuItem>
-
-      <ContextMenuSeparator />
 
       <ContextMenuItem onSelect={() => void copy(message.body)}>
         <Copy />
@@ -181,19 +199,24 @@ function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
         Копировать ссылку
       </ContextMenuItem>
 
+      <ContextMenuItem onSelect={() => deeds.onForward(message)}>
+        <Forward />
+        Переслать
+      </ContextMenuItem>
+
       {row.mine ? (
-        <>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => deeds.onEdit(message)}>
-            <Pencil />
-            Изменить
-          </ContextMenuItem>
-          <ContextMenuItem variant="destructive" onSelect={() => deeds.onRemove(message)}>
-            <Trash2 />
-            Удалить
-          </ContextMenuItem>
-        </>
+        <ContextMenuItem variant="destructive" onSelect={() => deeds.onRemove(message)}>
+          <Trash2 />
+          Удалить
+        </ContextMenuItem>
       ) : null}
+
+      <ContextMenuSeparator />
+
+      <ContextMenuItem onSelect={() => deeds.onSelect(message)}>
+        <SquareCheck />
+        Выделить
+      </ContextMenuItem>
     </ContextMenuContent>
   );
 }
@@ -233,10 +256,12 @@ export function Group({
   rows,
   deeds,
   onGo,
+  picking,
 }: {
   rows: Row[];
   deeds: Deeds;
   onGo: (seq: number) => void;
+  picking: Picking | null;
 }) {
   const first = rows[0];
   const last = rows[rows.length - 1];
@@ -261,7 +286,7 @@ export function Group({
 
       <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
         {rows.map((row) => (
-          <Bubble key={row.message.id} row={row} deeds={deeds} onGo={onGo} />
+          <Bubble key={row.message.id} row={row} deeds={deeds} onGo={onGo} picking={picking} />
         ))}
       </div>
     </div>
@@ -299,6 +324,49 @@ function State({ row }: { row: Row }) {
     return <AlertCircle aria-label="не ушло" className="size-3 text-danger" />;
   }
   return <Check aria-label="доставлено" className="size-3 opacity-70" />;
+}
+
+/**
+ * Щелчок по строке в режиме выделения.
+ *
+ * ⚠️ РЯДОМ С НИМ ОБЯЗАН БЫТЬ ОБРАБОТЧИК КЛАВИАТУРЫ. Строка — не кнопка,
+ * и без него она нажимается только мышью: тот, кто ходит по интерфейсу
+ * с клавиатуры, выделить ничего не сможет.
+ */
+function pickHandlers(row: Row, picking: Picking | null) {
+  if (!picking) return {};
+  return {
+    onClick: () => picking.toggle(row.message),
+    onKeyDown: (event: React.KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      picking.toggle(row.message);
+    },
+  };
+}
+
+/** Галочка выделения справа от пузыря. */
+function Tick({ row, picking, chosen }: { row: Row; picking: Picking | null; chosen: boolean }) {
+  if (!picking) return null;
+  return (
+    <button
+      type="button"
+      aria-pressed={chosen}
+      aria-label={chosen ? "Снять выделение" : "Выделить"}
+      onClick={(event) => {
+        // Щелчок по галочке не должен сработать дважды: строка выше
+        // слушает то же событие.
+        event.stopPropagation();
+        picking.toggle(row.message);
+      }}
+      className={[
+        "mt-auto mb-1 ml-2 grid size-5 shrink-0 place-items-center rounded-pill border transition-colors",
+        chosen ? "border-accent bg-accent text-on-accent" : "border-edge bg-transparent",
+      ].join(" ")}
+    >
+      {chosen ? <Check className="size-3" /> : null}
+    </button>
+  );
 }
 
 /** Шапка пузыря: откуда переслано и кто говорит. */
@@ -360,11 +428,16 @@ export function Bubble({
   row,
   deeds,
   onGo,
+  picking,
 }: {
   row: Row;
   deeds: Deeds;
   onGo: (seq: number) => void;
+  /** Идёт выделение. `null` — обычный режим. */
+  picking: Picking | null;
 }) {
+  const chosen = picking?.chosen.has(row.message.id) ?? false;
+  const pick = pickHandlers(row, picking);
   return (
     // data-seq — по нему лента находит реплику при переходе из цитаты.
     <article
@@ -373,7 +446,21 @@ export function Bubble({
          кнопке стала блочной: Radix рисует её строчным тегом, а строчный
          не слушается ни ширины, ни полей — пузыри складывались в полоску
          шириной в один знак. */
-      className={["msg flex max-w-full", row.fresh ? "msg-fresh" : ""].filter(Boolean).join(" ")}
+      /* `w-full`, чтобы подсветка перехода легла ПОЛОСОЙ, а не по контуру
+         пузыря: без этого строка сжимается до ширины текста, и заливать
+         нечего. Пузырь внутри всё равно ограничен своими 52 знаками. */
+      className={[
+        "msg flex w-full max-w-full",
+        row.fresh ? "msg-fresh" : "",
+        // В режиме выделения щелчок по всей строке переключает выбор,
+        // поэтому строка целиком становится нажимаемой и подсвечивается.
+        picking ? "cursor-pointer rounded-sm" : "",
+        chosen ? "bg-selected" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onClick={pick.onClick}
+      onKeyDown={pick.onKeyDown}
     >
       <ContextMenu>
         <ContextMenuTrigger
@@ -418,6 +505,10 @@ export function Bubble({
         </ContextMenuTrigger>
         <Actions row={row} deeds={deeds} />
       </ContextMenu>
+
+      {/* Галочка справа от пузыря, а не внутри: внутри она соревновалась бы
+          с текстом за место и уезжала бы под время. */}
+      <Tick row={row} picking={picking} chosen={chosen} />
     </article>
   );
 }

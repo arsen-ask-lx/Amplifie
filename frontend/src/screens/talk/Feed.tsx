@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { ChevronDown } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
 import { Button } from "../../shared/ui/button.js";
 import { день as dayOf } from "../../shared/when.js";
-import { type Deeds, Group, groupsOf, rowsOf } from "./Bubble.js";
+import { type Deeds, Group, groupsOf, type Picking, rowsOf } from "./Bubble.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).
@@ -37,6 +38,7 @@ export function Feed({
   focus,
   deeds,
   onGo,
+  picking,
 }: {
   messages: Message[];
   hasOlder: boolean;
@@ -49,6 +51,8 @@ export function Feed({
   deeds: Deeds;
   /** Перейти к реплике по её номеру — цитата и полоска ведут сюда же. */
   onGo: (seq: number) => void;
+  /** Идёт выделение. `null` — обычный режим. */
+  picking: Picking | null;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const newest = messages.at(-1)?.seq ?? 0;
@@ -84,10 +88,23 @@ export function Feed({
    * старое, приходит чужая реплика, и лента уезжает у него из-под глаз.
    */
   const stuckToBottom = useRef(true);
+  /**
+   * То же самое, но состоянием — ради кнопки «вниз».
+   *
+   * ⚠️ ДВА ХРАНИЛИЩА ОДНОГО ФАКТА, И ЭТО НЕ НЕДОСМОТР. Ссылка нужна внутри
+   * обработчиков и кадров, где перерисовка не только не нужна, но и вредна:
+   * лента дёргалась бы на каждый пиксель прокрутки. Состояние нужно ровно
+   * одному — кнопке. Поэтому ссылка ведущая, состояние ведомое, и меняются
+   * они в одной строке, а не в разных местах.
+   */
+  const [atBottom, setAtBottom] = useState(true);
+
   const onScroll = () => {
     const node = box.current;
     if (!node) return;
-    stuckToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+    const near = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+    stuckToBottom.current = near;
+    setAtBottom((was) => (was === near ? was : near));
   };
 
   // Догон после открытия дорисовывает ленту: доводим до низа мгновенно,
@@ -148,44 +165,71 @@ export function Feed({
     };
   }, [focus]);
 
+  function toBottom() {
+    const node = box.current;
+    if (!node) return;
+    stuckToBottom.current = true;
+    setAtBottom(true);
+    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+  }
+
   if (messages.length === 0) return <Empty />;
 
   const rows = rowsOf(messages, meId, wasThereAtFirst.current);
 
   return (
-    // role="log" — новые сообщения читаются вслух программой чтения экрана.
-    <div
-      className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
-      role="log"
-      aria-live="polite"
-      aria-relevant="additions"
-      ref={box}
-      onScroll={onScroll}
-    >
-      {hasOlder ? (
-        <div className="mb-3 text-center">
-          <Button variant="ghost" size="sm" onClick={onLoadOlder}>
-            Показать более раннее
-          </Button>
-        </div>
-      ) : (
-        <p className="mb-4 text-center text-aside text-muted">
-          {title ? `Начало канала «${title}»` : "Начало канала"}
-        </p>
-      )}
+    // Обёртка нужна кнопке «вниз»: она висит НАД лентой и не должна
+    // ни ездить вместе с ней, ни попадать в поток сообщений.
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* role="log" — новые сообщения читаются вслух программой чтения экрана. */}
+      <div
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        ref={box}
+        onScroll={onScroll}
+      >
+        {hasOlder ? (
+          <div className="mb-3 text-center">
+            <Button variant="ghost" size="sm" onClick={onLoadOlder}>
+              Показать более раннее
+            </Button>
+          </div>
+        ) : (
+          <p className="mb-4 text-center text-aside text-muted">
+            {title ? `Начало канала «${title}»` : "Начало канала"}
+          </p>
+        )}
 
-      {groupsOf(rows).map((group) => (
-        <div key={group[0]?.message.id}>
-          {group[0]?.newDay ? (
-            <p className="my-4 text-center">
-              <span className="rounded-pill border border-line bg-card px-3 py-1 text-mark text-muted">
-                {dayOf.format(new Date(group[0].message.createdAt))}
-              </span>
-            </p>
-          ) : null}
-          <Group rows={group} deeds={deeds} onGo={onGo} />
-        </div>
-      ))}
+        {groupsOf(rows).map((group) => (
+          <div key={group[0]?.message.id}>
+            {group[0]?.newDay ? (
+              <p className="my-4 text-center">
+                <span className="rounded-pill border border-line bg-card px-3 py-1 text-mark text-muted">
+                  {dayOf.format(new Date(group[0].message.createdAt))}
+                </span>
+              </p>
+            ) : null}
+            <Group rows={group} deeds={deeds} onGo={onGo} picking={picking} />
+          </div>
+        ))}
+      </div>
+
+      {/* ⚠️ ПОЯВЛЯЕТСЯ, ТОЛЬКО КОГДА ЛЕНТА НЕ В КОНЦЕ. Кнопка «вниз», видная
+          всегда, — это кнопка, которая в девяти случаях из десяти ничего
+          не делает; такие перестают замечать. Так же у Телеграма. */}
+      {atBottom ? null : (
+        <button
+          type="button"
+          onClick={toBottom}
+          aria-label="В конец ленты"
+          title="В конец ленты"
+          className="absolute right-4 bottom-4 grid size-10 place-items-center rounded-pill border border-line bg-card text-muted shadow-float transition-colors hover:text-ink"
+        >
+          <ChevronDown className="size-5" />
+        </button>
+      )}
     </div>
   );
 }
