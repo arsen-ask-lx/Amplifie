@@ -38,10 +38,16 @@ import type { FieldApi } from "./RichField.js";
  * Названо здесь, а не забыто: если владелец решит, что подсказки важнее,
  * меню снимается одной строкой в `Composer.tsx`.
  *
- * ⚠️ ОТМЕНА И ПОВТОР — ЧЕРЕЗ `execCommand`, ХОТЯ ОН И ОБЪЯВЛЕН УСТАРЕВШИМ.
- * Это единственный способ тронуть РОДНУЮ стопку отмены поля. Своя стопка
- * означала бы, что Ctrl+Z и пункт меню отменяют разное — а это хуже,
- * чем устаревший вызов.
+ * ⚠️ ОТМЕНА, ПОВТОР И «ВЫБРАТЬ ВСЁ» ИДУТ ЧЕРЕЗ РЕДАКТОР, А НЕ ЧЕРЕЗ
+ * `execCommand`. Сначала было наоборот, и это оказалось неверно дважды:
+ * у Lexical своя стопка отмены — родную он не наполняет, поэтому
+ * «Повторить» не делал НИЧЕГО (поймал владелец); а `selectAll` работает
+ * над выделением в документе, которого в момент нажатия пункта меню нет
+ * — фокус ещё у меню. Обе команды теперь живут в состоянии редактора,
+ * и Ctrl+Z с пунктом меню ходят в одну стопку.
+ *
+ * Вырезать, копировать и удалить остались на `execCommand`: они работают
+ * над УЖЕ выделенным, и это выделение переживает открытие меню.
  */
 
 /** Что умеет поле. Всё — над настоящим узлом, а не над состоянием React. */
@@ -101,11 +107,11 @@ export function FieldMenu({
       <ContextMenuTrigger className="min-w-0 flex-1">{children}</ContextMenuTrigger>
 
       <ContextMenuContent className="w-56">
-        <ContextMenuItem onSelect={() => act(field.current, "undo")}>
+        <ContextMenuItem onSelect={() => field.current?.undo()}>
           <ArrowArcLeft />
           Отменить
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => act(field.current, "redo")}>
+        <ContextMenuItem onSelect={() => field.current?.redo()}>
           <ArrowArcRight />
           Повторить
         </ContextMenuItem>
@@ -152,7 +158,7 @@ export function FieldMenu({
           </ContextMenuSubContent>
         </ContextMenuSub>
 
-        <ContextMenuItem onSelect={() => act(field.current, "selectAll")}>
+        <ContextMenuItem onSelect={() => field.current?.selectAll()}>
           <Selection />
           Выбрать всё
         </ContextMenuItem>
