@@ -48,7 +48,11 @@ gates:
   entry-links-exist: "bash tools/gates/entry-links-exist/check.sh ."
   deps-are-pinned: "bash tools/gates/deps-are-pinned/check.sh ."
   lesson-has-outcome: "bash tools/gates/lesson-has-outcome/check.sh ."
-  dead-code: "bash tools/gates/_native.sh . npx --yes knip@6 --directory ."
+  # ⚠️ ЧЕРЕЗ ОБЁРТКУ: knip шестой версии резервирует под разбор шесть
+  # гибибайт и падает там, где столько не набирается. Выключатель — его
+  # собственный (`KNIP_DISABLE_RAW_TRANSFER`), а не понижение версии.
+  # Подробности рядом с кодом обёртки.
+  dead-code: "bash tools/gates/dead-code/ours.sh ."
   gates-are-runnable: "bash tools/gates/gates-are-runnable/check.sh ."
   test-has-assertion: "bash tools/gates/test-has-assertion/check.sh ."
   # ⚠️ ЧЕРЕЗ `bash -c`, А НЕ ПРИСТАВКОЙ. Запись `ПЕРЕМЕННАЯ=значение команда`
