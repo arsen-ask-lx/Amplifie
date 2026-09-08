@@ -175,7 +175,23 @@ export async function listMessages(
 ) {
   await requireVisible(db, viewer, conversationId);
   const rows = await repo.listMessages(db, conversationId, limit, before);
-  return { items: rows.map(presentMessage), hasMore: rows.length === limit };
+  /**
+   * ⚠️ ГОЛОВА ПРОСТРАНСТВА ОТДАЁТСЯ ВМЕСТЕ СО СТРАНИЦЕЙ, И ЭТО НЕ
+   * НАГРУЗКА, А ЕЁ СНЯТИЕ.
+   *
+   * Свежая вкладка нигде не была, и догонять ей нечего: догон отвечает
+   * на вопрос «что изменилось, пока меня не было». Без этого числа
+   * клиент брал начальный курсор из последней страницы ОТКРЫТОГО
+   * разговора — и, открыв тихий канал, оказывался далеко позади головы.
+   * Дальше он переигрывал историю страницами по пятьдесят: до тысячи
+   * чужих сообщений на каждую перезагрузку страницы. Замерено
+   * в браузере (Д-19).
+   *
+   * Один дешёвый запрос по первичному ключу против двадцати страниц
+   * догона — обмен, который не требует размышлений.
+   */
+  const head = await repo.currentSeq(db, viewer.workspaceId);
+  return { items: rows.map(presentMessage), hasMore: rows.length === limit, head };
 }
 
 /**

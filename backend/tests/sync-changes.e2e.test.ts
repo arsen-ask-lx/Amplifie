@@ -143,6 +143,14 @@ async function pin(person: Person, id: string, on: boolean): Promise<void> {
   if (response.status !== 204) throw new Error(`закрепление: ${response.status}`);
 }
 
+/** Страница разговора вместе с головой пространства. */
+async function roomPage(person: Person): Promise<{ items: Line[]; head: number }> {
+  const response = await fetch(`${BASE}/v1/conversations/${person.roomId}/messages`, {
+    headers: { cookie: person.cookie },
+  });
+  return (await response.json()) as { items: Line[]; head: number };
+}
+
 async function roomLines(person: Person): Promise<Line[]> {
   const response = await fetch(`${BASE}/v1/conversations/${person.roomId}/messages`, {
     headers: { cookie: person.cookie },
@@ -238,6 +246,45 @@ describe("догон отдаёт изменения", () => {
     const unpinned = await syncFrom(person.cookie, pinned.cursor);
     expect(unpinned.lines.find((l) => l.id === said.id)).toBeDefined();
     expect(unpinned.lines.find((l) => l.id === said.id)?.pinnedAt ?? null).toBeNull();
+  });
+
+  it("страница разговора называет голову пространства", async () => {
+    // ⚠️ ЭТО ЛЕЧИТ Д-19. Свежая вкладка нигде не была, и догонять ей
+    // нечего. Без этого числа начальный курсор брался из ленты открытой
+    // комнаты: откроешь тихий канал — и каждая перезагрузка страницы
+    // переигрывает историю пространства страницами по пятьдесят.
+    const person = await newPerson("Свежий");
+    const said = await send(person, "одна реплика");
+
+    const page = await roomPage(person);
+    expect(page.head).toBeGreaterThanOrEqual(said.seq);
+
+    // Догон от головы обязан быть пустым: догонять нечего.
+    const got = await syncFrom(person.cookie, page.head);
+    expect(got.lines).toEqual([]);
+    expect(got.cursor).toBe(page.head);
+  });
+
+  it("голова пространства не отстаёт от чужих разговоров", async () => {
+    // Голова — про ПРОСТРАНСТВО, а не про комнату: реплика в соседнем
+    // канале двигает её, даже если в открытом ничего не менялось.
+    const person = await newPerson("Двухканальный");
+    const first = await roomPage(person);
+
+    const room = await fetch(`${BASE}/v1/conversations`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: person.cookie },
+      body: JSON.stringify({ title: "второй" }),
+    });
+    const second = ((await room.json()) as { id: string }).id;
+    await fetch(`${BASE}/v1/conversations/${second}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: person.cookie },
+      body: JSON.stringify({ body: "в соседнем", clientMsgId: crypto.randomUUID() }),
+    });
+
+    const after = await roomPage(person);
+    expect(after.head).toBeGreaterThan(first.head);
   });
 
   it("чужая переписка не просвечивает", async () => {

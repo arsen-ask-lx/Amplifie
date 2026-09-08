@@ -150,9 +150,9 @@ const BACK_PAGES = 10;
 
 async function pageBackTo(
   conversationId: string,
-  start: { items: Message[]; hasMore: boolean },
+  start: { items: Message[]; hasMore: boolean; head: number },
   want: number,
-): Promise<{ items: Message[]; hasMore: boolean }> {
+): Promise<{ items: Message[]; hasMore: boolean; head: number }> {
   let all = start.items;
   let more = start.hasMore;
 
@@ -163,7 +163,9 @@ async function pageBackTo(
     all = merge(all, older.items);
     more = older.hasMore;
   }
-  return { items: all, hasMore: more };
+  // Голова остаётся той, что назвал сервер при первой странице: догрузка
+  // старого не двигает конец пространства.
+  return { items: all, hasMore: more, head: start.head };
 }
 
 export interface Chat {
@@ -403,21 +405,21 @@ export function useChat(me: Me): Chat {
         });
         setHasOlder(page.hasMore);
         /**
-         * ⚠️ КУРСОР ДОГОНА ОБЩИЙ НА ПРОСТРАНСТВО И НАЗАД НЕ ХОДИТ.
+         * ⚠️ КУРСОР ДОГОНА — ЭТО ГОЛОВА ПРОСТРАНСТВА, А НЕ НОМЕР ИЗ ЭТОЙ
+         * КОМНАТЫ. И назад он не ходит никогда.
          *
-         * Здесь стояло `cursor.current = maxSeq(page.items)` — номер
-         * самой свежей реплики ОДНОЙ комнаты. У пустой комнаты это ноль,
-         * и следующий догон уходил с `after=0`: клиент заново скачивал
-         * ВСЁ пространство четырьмя заходами. Замерено в браузере на
-         * новом канале — 118 чужих сообщений и четыре перерисовки ленты
-         * ровно в те миллисекунды, когда человек печатает первую реплику.
-         * Отсюда и мигание, которое я до этого дважды чинил не там.
+         * Сперва здесь стояло `maxSeq(page.items)` — номер самой свежей
+         * реплики ОДНОЙ комнаты. У пустой комнаты это ноль, и догон
+         * уходил с `after=0`, заново скачивая всё пространство; у тихой
+         * комнаты — число далеко позади головы, и он переигрывал историю
+         * страницами по пятьдесят. И то и другое замерено в браузере.
          *
-         * Курсор отвечает на вопрос «до какого места я уже всё видел»,
-         * и вопрос этот про пространство, а не про комнату. Двигаться
-         * назад ему поэтому незачем никогда.
+         * Голову называет сервер вместе со страницей. Свежая вкладка
+         * нигде не была — догонять ей нечего: догон отвечает на вопрос
+         * «что изменилось, пока меня не было». История приезжает другим
+         * путём, постраничной загрузкой разговора, и он уже написан.
          */
-        cursor.current = Math.max(cursor.current, maxSeq(page.items));
+        cursor.current = Math.max(cursor.current, page.head);
         await catchUp();
       })
       .catch(() => {

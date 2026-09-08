@@ -179,7 +179,7 @@ export const api = {
     if (options.limit) query.set("limit", String(options.limit));
     if (options.before) query.set("before", String(options.before));
     const tail = query.size > 0 ? `?${query}` : "";
-    return request<{ items: Message[]; hasMore: boolean }>(
+    return request<{ items: Message[]; hasMore: boolean; head: number }>(
       `/v1/conversations/${id}/messages${tail}`,
     );
   },
