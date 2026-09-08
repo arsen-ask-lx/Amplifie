@@ -390,7 +390,22 @@ export function useChat(me: Me): Chat {
           return свои.length === 0 ? page.items : merge(свои, page.items);
         });
         setHasOlder(page.hasMore);
-        cursor.current = maxSeq(page.items);
+        /**
+         * ⚠️ КУРСОР ДОГОНА ОБЩИЙ НА ПРОСТРАНСТВО И НАЗАД НЕ ХОДИТ.
+         *
+         * Здесь стояло `cursor.current = maxSeq(page.items)` — номер
+         * самой свежей реплики ОДНОЙ комнаты. У пустой комнаты это ноль,
+         * и следующий догон уходил с `after=0`: клиент заново скачивал
+         * ВСЁ пространство четырьмя заходами. Замерено в браузере на
+         * новом канале — 118 чужих сообщений и четыре перерисовки ленты
+         * ровно в те миллисекунды, когда человек печатает первую реплику.
+         * Отсюда и мигание, которое я до этого дважды чинил не там.
+         *
+         * Курсор отвечает на вопрос «до какого места я уже всё видел»,
+         * и вопрос этот про пространство, а не про комнату. Двигаться
+         * назад ему поэтому незачем никогда.
+         */
+        cursor.current = Math.max(cursor.current, maxSeq(page.items));
         await catchUp();
       })
       .catch(() => {
@@ -461,7 +476,14 @@ export function useChat(me: Me): Chat {
         conversationId: currentId,
         body,
         kind: "human",
-        seq: maxSeq(messagesRef.current) + 0.5,
+        /**
+         * ⚠️ НОМЕР СЧИТАЕТСЯ ПО ЭТОЙ КОМНАТЕ, А НЕ ПО ВСЕЙ ЛЕНТЕ. В
+         * состоянии лежат реплики ВСЕХ комнат сразу (наружу они уходят
+         * отфильтрованными), и общий максимум брался из чужого разговора.
+         * В пустом канале черновик получал номер на сотню больше соседей
+         * и прыгал по ленте, когда приезжал настоящий.
+         */
+        seq: maxSeq(messagesRef.current.filter((one) => one.conversationId === currentId)) + 0.5,
         createdAt: new Date().toISOString(),
         editedAt: null,
         pinnedAt: null,
