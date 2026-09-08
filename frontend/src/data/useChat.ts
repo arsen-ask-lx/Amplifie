@@ -363,7 +363,27 @@ export function useChat(me: Me): Chat {
         if (cancelled) return;
 
         shown.current = currentId;
-        setMessages(page.items);
+        /**
+         * ⚠️ НЕ ПРОСТО `setMessages(page.items)`, И ВОТ ПОЧЕМУ.
+         *
+         * В только что заведённом канале человек успевает отправить
+         * первое сообщение РАНЬШЕ, чем долетит ответ на загрузку ленты.
+         * Ответ приходит пустым — канал в момент запроса был пуст, — и
+         * прямая подстановка стирала уже показанную реплику. Через
+         * мгновение её возвращал догон: на экране это выглядело как
+         * мигание, и только у первого сообщения и только в новом канале.
+         * Владелец поймал это глазами; из кода не видно вовсе.
+         *
+         * Поэтому свои неотправленные реплики переносятся в новую ленту.
+         * Их видно по метке состояния: она есть только у того, что ещё
+         * не подтверждено сервером.
+         */
+        setMessages((current) => {
+          const своё = current.filter(
+            (one) => one.conversationId === currentId && (one as Local).state !== undefined,
+          );
+          return своё.length === 0 ? page.items : merge(page.items, своё);
+        });
         setHasOlder(page.hasMore);
         cursor.current = maxSeq(page.items);
         await catchUp();
