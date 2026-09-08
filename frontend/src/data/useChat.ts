@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useMatch, useNavigate } from "react-router";
 import { troubleOf } from "../shared/trouble.js";
-import { api, type Conversation, type Me, type Message, type Quote } from "./api.js";
+import {
+  api,
+  type Conversation,
+  isTombstone,
+  type Me,
+  type Message,
+  type Quote,
+  type SyncLine,
+} from "./api.js";
 
 /**
  * Лента разговора: загрузка, догон и живые обновления.
@@ -19,7 +27,6 @@ import { api, type Conversation, type Me, type Message, type Quote } from "./api
 
 const PAGE = 50;
 
-/** Слияние по идентификатору: звонок и ответ на отправку приносят одно и то же. */
 /**
  * Своя реплика, ещё не дошедшая до сервера.
  *
@@ -30,11 +37,80 @@ const PAGE = 50;
  */
 export type Local = Message & { state?: "идёт" | "не ушло" };
 
-function merge(current: Message[], incoming: Message[]): Message[] {
+/**
+ * Слияние по идентификатору: догон отвечает «вот как теперь», а не «вот
+ * что дописали».
+ *
+ * ⚠️ ДОГОН МОЖЕТ ПРИНЕСТИ РЕПЛИКУ, КОТОРАЯ УЖЕ ЕСТЬ. Так и должно быть:
+ * правка старой реплики приезжает ею же самой. Поэтому известный
+ * идентификатор ЗАМЕЩАЕТСЯ, а не добавляется, — иначе исправленная
+ * реплика встала бы в ленту второй раз.
+ *
+ * ⚠️ МЕСТО В ЛЕНТЕ БЕРЁТСЯ ИЗ `seq`, А НЕ ИЗ ПОРЯДКА ОТВЕТА. Сервер
+ * упорядочивает догон по номеру ИЗМЕНЕНИЯ, и исправленная позавчерашняя
+ * реплика приезжает последней. Место в разговоре у неё при этом прежнее.
+ *
+ * ⚠️ НАДГРОБИЕ УБИРАЕТ РЕПЛИКУ, А НЕ ДОБАВЛЯЕТ ПУСТУЮ. Текста в нём нет,
+ * и показывать нечего: удалённое исчезает с экрана у всех, а не только
+ * у того, кто удалил.
+ */
+export function merge(current: Message[], incoming: SyncLine[]): Message[] {
   if (incoming.length === 0) return current;
   const byId = new Map(current.map((m) => [m.id, m]));
-  for (const message of incoming) byId.set(message.id, message);
+  for (const line of incoming) {
+    if (isTombstone(line)) byId.delete(line.id);
+    else byId.set(line.id, line);
+  }
   return [...byId.values()].sort((a, b) => a.seq - b.seq);
+}
+
+/**
+ * Полоска закреплённого после догона.
+ *
+ * ⚠️ ПЕРЕСТРАИВАЕТСЯ ИЗ ТОГО ЖЕ ОТВЕТА, ЧТО И ЛЕНТА. Раньше закрепление
+ * приезжало ОТДЕЛЬНЫМ запросом по звонку — второй путь к тому же событию.
+ * Два пути к одному событию расходятся молча: у нас это уже случалось.
+ *
+ * Первая загрузка полоски всё равно остаётся отдельной дверью, и это не
+ * противоречие: закреплённая реплика может лежать на тысячу строк выше
+ * загруженного окна, и догон о ней ничего не скажет — он рассказывает
+ * про ИЗМЕНЕНИЯ, а не про историю.
+ *
+ * Порядок — свежие сверху, по времени закрепления: тот же, что у сервера.
+ */
+export function mergePinned(
+  current: Message[],
+  incoming: SyncLine[],
+  roomId: string | null,
+): Message[] {
+  if (!roomId || incoming.length === 0) return current;
+
+  const mine = incoming.filter((line) => line.conversationId === roomId);
+  if (mine.length === 0) return current;
+
+  const byId = new Map(current.map((m) => [m.id, m]));
+  const before = byId.size;
+  let added = 0;
+
+  for (const line of mine) {
+    // Закреплённой реплика остаётся, только пока жива и пока отметка стоит.
+    // Оба «нет» ведут в одно и то же место, и хорошо, что в одно.
+    if (isTombstone(line) || line.pinnedAt === null) byId.delete(line.id);
+    else {
+      byId.set(line.id, line);
+      added += 1;
+    }
+  }
+
+  // Полоска не изменилась — отдаём ТУ ЖЕ ссылку, а не новый список:
+  // иначе каждая перерисовка ленты перерисовывала бы и её.
+  if (byId.size === before && added === 0) return current;
+  return [...byId.values()].sort(byPinnedAtDesc);
+}
+
+/** Свежее закрепление сверху — тот же порядок, что отдаёт сервер. */
+function byPinnedAtDesc(a: Message, b: Message): number {
+  return (b.pinnedAt ?? "").localeCompare(a.pinnedAt ?? "");
 }
 
 const maxSeq = (messages: Message[]) => messages.reduce((top, m) => Math.max(top, m.seq), 0);
@@ -214,6 +290,7 @@ export function useChat(me: Me): Chat {
       cursor.current = batch.seq;
       if (batch.messages.length > 0) {
         setMessages((current) => merge(current, batch.messages));
+        setPinned((current) => mergePinned(current, batch.messages, currentIdRef.current));
       }
       if (!batch.hasMore) return;
     }
@@ -307,15 +384,14 @@ export function useChat(me: Me): Chat {
     const stream = new EventSource("/v1/stream");
     const onChanged = () => {
       catchUp().catch(() => setFailure("Обновления не доходят — обновите страницу"));
-      // Каналы и закреплённое приезжают тем же звонком. Молча: не приехали —
-      // человек читает то, что уже на экране, и это не повод его пугать.
+      // Каналы приезжают тем же звонком. Молча: не приехали — человек
+      // читает то, что уже на экране, и это не повод его пугать.
+      //
+      // ⚠️ ЗАКРЕПЛЁННОЕ ЗДЕСЬ БОЛЬШЕ НЕ ЧИТАЕТСЯ. Оно приходит догоном
+      // вместе с самой репликой: закрепление двигает номер изменения,
+      // как правка и удаление. Отдельный запрос был вторым путём к тому
+      // же событию.
       reloadRooms().catch(ignore);
-      if (currentIdRef.current) {
-        api
-          .pinned(currentIdRef.current)
-          .then(({ items }) => setPinned(items))
-          .catch(ignore);
-      }
     };
     stream.addEventListener("changed", onChanged);
     return () => {
@@ -525,16 +601,18 @@ export function useChat(me: Me): Chat {
   const pin = useCallback(
     async (messageId: string, next: boolean) => {
       await api.pin(messageId, next);
-      // Перечитываем, а не правим на месте: закреплённых может быть
-      // несколько, и порядок у них серверный.
-      if (currentId) setPinned((await api.pinned(currentId)).items);
+      // Полоску не перечитываем: закрепление двигает номер изменения,
+      // и реплика приедет ближайшим догоном — тем же путём, каким она
+      // приезжает всем остальным. Правка на месте ниже нужна только
+      // затем, чтобы галочка в меню не мигала до догона.
       setMessages((current) =>
         current.map((one) =>
           one.id === messageId ? { ...one, pinnedAt: next ? new Date().toISOString() : null } : one,
         ),
       );
     },
-    [currentId],
+    // Разговор здесь больше ни при чём: полоску перестраивает догон.
+    [],
   );
 
   const edit = useCallback(async (messageId: string, body: string) => {

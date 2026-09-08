@@ -96,6 +96,30 @@ export interface Message {
 }
 
 /**
+ * Надгробие: реплику удалили.
+ *
+ * ⚠️ ПРИХОДИТ ТОЛЬКО ДОГОНОМ И ТОЛЬКО ТОМУ, У КОГО РЕПЛИКА УЖЕ ЕСТЬ.
+ * Тому, кто открывает переписку впервые, ни реплики, ни надгробия не видно:
+ * надгробие — это указание «убери со своего экрана», а не запись в ленте.
+ *
+ * Текста здесь нет и не будет: сервер его не отдаёт вовсе.
+ */
+export interface Tombstone {
+  id: string;
+  conversationId: string;
+  seq: number;
+  deleted: true;
+}
+
+/** Что приезжает догоном. */
+export type SyncLine = Message | Tombstone;
+
+/** Надгробие ли это. Разбор в одном месте, а не по «if» у каждого читателя. */
+export function isTombstone(line: SyncLine): line is Tombstone {
+  return "deleted" in line && line.deleted;
+}
+
+/**
  * Задача в том виде, в каком ею пользуется доска.
  *
  * ⚠️ ЗДЕСЬ НЕ ВЕСЬ ОТВЕТ СЕРВЕРА, а только то, что читает экран. Копировать
@@ -243,7 +267,7 @@ export const api = {
 
   /** Догон по номеру — им же клиент и живёт, и восстанавливается (Р-006). */
   sync: (after: number) =>
-    request<{ messages: Message[]; seq: number; hasMore: boolean }>(`/v1/sync?after=${after}`),
+    request<{ messages: SyncLine[]; seq: number; hasMore: boolean }>(`/v1/sync?after=${after}`),
 
   register: (input: {
     email: string;

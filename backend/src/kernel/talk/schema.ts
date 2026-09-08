@@ -123,6 +123,20 @@ export const message = pgTable(
     clientMsgId: uuid("client_msg_id").notNull(),
     /** Порядок для клиента. Берётся из счётчика пространства, не из последовательности. */
     seq: bigint("seq", { mode: "number" }).notNull(),
+    /**
+     * Когда реплика в последний раз менялась — номером из ТОГО ЖЕ счётчика
+     * пространства.
+     *
+     * ⚠️ ЭТО ВТОРОЙ НОМЕР, А НЕ ДУБЛЬ ПЕРВОГО. `seq` отвечает на вопрос
+     * «когда сказано» и определяет место в разговоре; `updated_seq` —
+     * на вопрос «когда менялось» и определяет попадание в догон. Одним
+     * числом обслужить оба нельзя: правка старой реплики либо не доедет
+     * до чужой вкладки, либо уедет в конец ленты.
+     *
+     * Двигается при правке, удалении, закреплении и откреплении.
+     * У новой реплики равен `seq`.
+     */
+    updatedSeq: bigint("updated_seq", { mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     editedAt: timestamp("edited_at", { withTimezone: true }),
     /**
@@ -150,9 +164,9 @@ export const message = pgTable(
     /**
      * Когда удалено. ⚠️ УДАЛЕНИЕ МЯГКОЕ, И ЭТО НЕ ОСТОРОЖНОСТЬ.
      * Жёсткое оборвало бы цитаты и пересылки на эту реплику; но главное —
-     * о жёстком удалении нечем рассказать другим клиентам: наш догон
-     * умеет только «дай всё, что новее номера N», а исчезнувшая строка
-     * ничего не новее.
+     * о жёстком удалении нечем рассказать другим клиентам. Мягкое —
+     * можно: строка остаётся, `updated_seq` двигается, и догон отдаёт
+     * НАДГРОБИЕ — идентификатор с признаком удаления и без текста.
      */
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
@@ -160,6 +174,9 @@ export const message = pgTable(
     unique("message_conversation_client_msg_uq").on(t.conversationId, t.clientMsgId),
     unique("message_workspace_seq_uq").on(t.workspaceId, t.seq),
     index("message_conversation_seq_idx").on(t.conversationId, t.seq),
+    // Догон отбирает по пространству и номеру изменения. Ключ арендатора
+    // первым полем (Р-7) — тем же порядком, что и в остальных индексах.
+    index("message_workspace_updated_seq_idx").on(t.workspaceId, t.updatedSeq),
     // Закреплённых в разговоре единицы, а ищутся они на каждом открытии.
     index("message_conversation_pinned_idx")
       .on(t.conversationId, t.pinnedAt)

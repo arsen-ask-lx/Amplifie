@@ -178,10 +178,33 @@ export async function insertMessage(
     forwardedFromId?: string | null;
   },
 ) {
-  const rows = await tx.insert(message).values(input).returning();
+  // ⚠️ НОМЕР ИЗМЕНЕНИЯ У НОВОЙ РЕПЛИКИ РАВЕН НОМЕРУ СКАЗАННОГО, и это
+  // ставится ЗДЕСЬ, а не на вызывающей стороне. Пусть о втором номере
+  // знает одно место: два места однажды разойдутся, и разойдутся молча —
+  // реплика просто перестанет доезжать.
+  const rows = await tx
+    .insert(message)
+    .values({ ...input, updatedSeq: input.seq })
+    .returning();
   const row = rows[0];
   if (!row) throw new Error("не удалось записать сообщение");
   return row;
+}
+
+/**
+ * Отметка «эта реплика только что изменилась».
+ *
+ * ⚠️ ЕДИНСТВЕННОЕ МЕСТО, ГДЕ БЕРЁТСЯ НОМЕР ИЗМЕНЕНИЯ. Правка, удаление
+ * и закрепление — разные действия, но для догона они одно и то же
+ * событие: «эту реплику надо отдать заново». Три отдельных вызова
+ * `nextSeq` в трёх местах — это три возможности забыть один из них,
+ * и забытый не проявится ни в типах, ни в тестах соседних свойств.
+ *
+ * Номер берётся из того же счётчика пространства, что и `seq`: один
+ * счётчик — один курсор у клиента.
+ */
+async function changed(tx: Executor, workspaceId: string): Promise<{ updatedSeq: number }> {
+  return { updatedSeq: await nextSeq(tx, workspaceId) };
 }
 
 /**
@@ -215,6 +238,9 @@ const MESSAGE_VIEW = {
   createdAt: message.createdAt,
   editedAt: message.editedAt,
   pinnedAt: message.pinnedAt,
+  // Нужно догону, чтобы отличить живую реплику от надгробия. В ленту
+  // не попадает: вид сообщения собирает `presentMessage`.
+  deletedAt: message.deletedAt,
   authorId: participant.id,
   authorName: participant.displayName,
   authorKind: participant.kind,
@@ -256,32 +282,42 @@ export async function findMessage(tx: Executor, messageId: string) {
  * Правка тела. Отметка «изменено» ставится здесь и только здесь: разнесённая
  * по вызывающим, она однажды не поставится, и лента соврёт.
  */
-export async function updateMessageBody(tx: Executor, messageId: string, body: string) {
+export async function updateMessageBody(
+  tx: Executor,
+  workspaceId: string,
+  messageId: string,
+  body: string,
+) {
   const rows = await tx
     .update(message)
-    .set({ body, editedAt: new Date() })
+    .set({ body, editedAt: new Date(), ...(await changed(tx, workspaceId)) })
     .where(and(eq(message.id, messageId), isNull(message.deletedAt)))
     .returning({ id: message.id });
   return rows[0] ?? null;
 }
 
 /** Мягкое удаление: тело стирается, строка остаётся ради ссылок на неё. */
-export async function softDeleteMessage(tx: Executor, messageId: string) {
+export async function softDeleteMessage(tx: Executor, workspaceId: string, messageId: string) {
   const rows = await tx
     .update(message)
     // Тело стирается, а не остаётся «на всякий случай»: удалённое сообщение
     // не должно читаться ни из базы, ни из выгрузки.
-    .set({ deletedAt: new Date(), body: "" })
+    .set({ deletedAt: new Date(), body: "", ...(await changed(tx, workspaceId)) })
     .where(and(eq(message.id, messageId), isNull(message.deletedAt)))
     .returning({ id: message.id, conversationId: message.conversationId });
   return rows[0] ?? null;
 }
 
 /** Закрепить или открепить. `null` снимает отметку. */
-export async function setPinned(tx: Executor, messageId: string, at: Date | null) {
+export async function setPinned(
+  tx: Executor,
+  workspaceId: string,
+  messageId: string,
+  at: Date | null,
+) {
   const rows = await tx
     .update(message)
-    .set({ pinnedAt: at })
+    .set({ pinnedAt: at, ...(await changed(tx, workspaceId)) })
     .where(and(eq(message.id, messageId), isNull(message.deletedAt)))
     .returning({ id: message.id });
   return rows[0] ?? null;
@@ -361,26 +397,36 @@ export async function listMessagesAfter(
   upToSeq: number,
   limit: number,
 ) {
-  return tx
-    .select(MESSAGE_VIEW)
-    .from(message)
-    .innerJoin(participant, eq(participant.id, message.authorParticipantId))
-    .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .leftJoin(quoted, eq(quoted.id, message.replyToId))
-    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
-    .leftJoin(source, eq(source.id, message.forwardedFromId))
-    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
-    .where(
-      and(
-        eq(message.workspaceId, workspaceId),
-        gt(message.seq, afterSeq),
-        lte(message.seq, upToSeq),
-        isNull(message.deletedAt),
-        visibleTo(participantId),
-      ),
-    )
-    .orderBy(asc(message.seq))
-    .limit(limit);
+  return (
+    tx
+      .select(MESSAGE_VIEW)
+      .from(message)
+      .innerJoin(participant, eq(participant.id, message.authorParticipantId))
+      .innerJoin(conversation, eq(conversation.id, message.conversationId))
+      .leftJoin(quoted, eq(quoted.id, message.replyToId))
+      .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
+      .leftJoin(source, eq(source.id, message.forwardedFromId))
+      .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
+      .where(
+        and(
+          eq(message.workspaceId, workspaceId),
+          // ⚠️ ОТБОР ПО НОМЕРУ ИЗМЕНЕНИЯ, А НЕ ПО НОМЕРУ СКАЗАННОГО. Именно
+          // в этой строке жила поломка: правка не двигала `seq`, и
+          // исправленная реплика в догон не попадала никогда.
+          gt(message.updatedSeq, afterSeq),
+          lte(message.updatedSeq, upToSeq),
+          // ⚠️ УДАЛЁННЫЕ БОЛЬШЕ НЕ ОТСЕКАЮТСЯ. «Нет в ответе» у догона
+          // означает «не менялось»; из молчания вкладка, которая держит
+          // реплику на экране, ничего не узнает. Удалённая приезжает
+          // надгробием — текст с неё снимает `presentMessage`.
+          visibleTo(participantId),
+        ),
+      )
+      // Порядок ответа — по номеру изменения. Место реплики в разговоре
+      // клиент берёт из `seq`, а не из порядка, в котором её отдали.
+      .orderBy(asc(message.updatedSeq))
+      .limit(limit)
+  );
 }
 
 /** Текущий номер пространства — верхняя граница догона. */

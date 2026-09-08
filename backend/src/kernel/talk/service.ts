@@ -33,6 +33,30 @@ interface MessageView {
 }
 
 /**
+ * Надгробие: реплику удалили.
+ *
+ * ⚠️ БЕЗ ТЕКСТА, И ЭТО ГЛАВНОЕ В НЁМ. Удаление означает, что содержимое
+ * больше не отдаётся никому — включая тех, кто уже видел его на экране.
+ * Отдать текст с пометкой «не показывай» значило бы понадеяться на чужой
+ * клиент. Матрица (redaction) вычищает содержимое ровно так же —
+ * на сервере, а не на клиенте.
+ *
+ * ⚠️ ОТДЕЛЬНЫЙ ТИП, А НЕ ПОЛЕ `deleted` У ВИДА СООБЩЕНИЯ. С полем `body`
+ * пришлось бы сделать необязательным ВЕЗДЕ, и каждое место, где он
+ * рисуется, получило бы случай «а вдруг его нет» — включая те, где его
+ * не может не быть. Разделение переносит проверку в одно место.
+ */
+export interface Tombstone {
+  id: string;
+  conversationId: string;
+  seq: number;
+  deleted: true;
+}
+
+/** Что приезжает догоном: живая реплика или надгробие. */
+export type SyncLine = MessageView | Tombstone;
+
+/**
  * Сколько текста цитаты уезжает в ленту.
  *
  * Цитата — это напоминание, а не второе сообщение. Длинная превращает
@@ -45,6 +69,20 @@ function excerptOf(body: string): string {
   // перенос в ней сломал бы высоту пузыря сильнее, чем помог бы смыслу.
   const flat = body.replace(/\s+/gu, " ").trim();
   return flat.length > EXCERPT ? `${flat.slice(0, EXCERPT)}…` : flat;
+}
+
+/**
+ * Строка догона: живая реплика или надгробие.
+ *
+ * Развилка ровно одна и стоит здесь — до того, как собран вид. Собрать
+ * вид и потом «вычистить поля» значило бы держать текст удалённой реплики
+ * в руках и рассчитывать не забыть его выбросить.
+ */
+function presentLine(row: Awaited<ReturnType<typeof repo.listMessagesAfter>>[number]): SyncLine {
+  if (row.deletedAt !== null) {
+    return { id: row.id, conversationId: row.conversationId, seq: Number(row.seq), deleted: true };
+  }
+  return presentMessage(row);
 }
 
 function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[number]): MessageView {
@@ -357,7 +395,7 @@ export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
   const hasMore = rows.length === limit;
   const last = rows.at(-1);
   return {
-    messages: rows.map(presentMessage),
+    messages: rows.map(presentLine),
     seq: hasMore && last ? Number(last.seq) : bound,
     hasMore,
   };
@@ -524,7 +562,7 @@ export async function editMessage(
 ): Promise<MessageView> {
   const view = await withTransaction(async (tx) => {
     const found = await requireMine(tx, viewer, messageId);
-    const changed = await repo.updateMessageBody(tx, messageId, body);
+    const changed = await repo.updateMessageBody(tx, viewer.workspaceId, messageId, body);
     if (!changed) throw new ConversationNotVisibleError();
 
     await appendEvent(tx, {
@@ -554,7 +592,7 @@ export async function editMessage(
 export async function deleteMessage(viewer: Viewer, messageId: string): Promise<void> {
   await withTransaction(async (tx) => {
     const found = await requireMine(tx, viewer, messageId);
-    const gone = await repo.softDeleteMessage(tx, messageId);
+    const gone = await repo.softDeleteMessage(tx, viewer.workspaceId, messageId);
     if (!gone) throw new ConversationNotVisibleError();
 
     await appendEvent(tx, {
@@ -589,7 +627,7 @@ export async function pinMessage(
 
     // Повтор — не ошибка: закрепить закреплённое означает «пусть будет
     // закреплено», и результат тот же.
-    await repo.setPinned(tx, messageId, pinned ? new Date() : null);
+    await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
 
     await appendEvent(tx, {
       kind: pinned ? "message.pinned" : "message.unpinned",
