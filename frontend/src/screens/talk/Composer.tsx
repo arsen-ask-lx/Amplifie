@@ -217,7 +217,7 @@ export function Composer({
              просто стоит на белом, и очертить его нечем. Рамка здесь
              обводила то, что и так единственное место для набора,
              и мешала (владелец, замечание с экрана). */
-          className="max-h-56 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-body leading-normal text-ink outline-none placeholder:text-muted"
+          className="max-h-56 min-h-[34px] flex-1 resize-none bg-transparent px-1 py-2 text-body leading-normal text-ink outline-none placeholder:text-muted"
         />
         <Button
           type="submit"

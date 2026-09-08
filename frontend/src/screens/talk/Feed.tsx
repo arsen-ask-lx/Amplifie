@@ -2,7 +2,6 @@ import { ChevronDown } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
-import { Button } from "../../shared/ui/button.js";
 import { день as dayOf } from "../../shared/when.js";
 import type { Deeds, Picking } from "./Actions.js";
 import { Group } from "./Group.js";
@@ -44,7 +43,7 @@ export function Feed({
 }: {
   messages: Message[];
   hasOlder: boolean;
-  onLoadOlder: () => void;
+  onLoadOlder: () => void | Promise<void>;
   title: string | undefined;
   meId: string;
   /** Реплика, из которой пришли по цитате. */
@@ -84,6 +83,24 @@ export function Feed({
   }, []);
 
   /**
+   * Вернуть место после догрузки старого.
+   *
+   * ⚠️ `useLayoutEffect`, А НЕ КАДР ПОСЛЕ ЗАПРОСА. Первая редакция ставила
+   * прокрутку в `requestAnimationFrame` сразу за ответом сервера — и та
+   * отрабатывала ДО того, как React дорисовал страницу: измерено, лента
+   * оставалась на нуле. Слой отрабатывает после расстановки узлов
+   * и до кадра, поэтому прыжка не видно вовсе.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: место возвращается на приход реплик, а не на смену отметки
+  useLayoutEffect(() => {
+    const node = box.current;
+    const keep = keepFromBottom.current;
+    if (!node || keep === null) return;
+    node.scrollTop = node.scrollHeight - keep;
+    keepFromBottom.current = null;
+  }, [messages.length]);
+
+  /**
    * Кто листает назад — того не дёргает вниз новое сообщение.
    *
    * Это тоже из Телеграма и это важнее, чем кажется: человек читает
@@ -101,12 +118,36 @@ export function Feed({
    */
   const [atBottom, setAtBottom] = useState(true);
 
+  /**
+   * Догрузка старого — сама, при подходе к верху.
+   *
+   * ⚠️ КНОПКИ «ПОКАЗАТЬ БОЛЕЕ РАННЕЕ» БОЛЬШЕ НЕТ (владелец). Ни в одном
+   * мессенджере её нет: листаешь вверх — старое появляется. Кнопка
+   * требовала решения там, где человек уже выразил намерение движением.
+   *
+   * ⚠️ ВЫСОТА ЗАПОМИНАЕТСЯ ДО ДОГРУЗКИ И ВОССТАНАВЛИВАЕТСЯ ПОСЛЕ. Без
+   * этого лента прыгает: сверху дорисовывается страница, содержимое едет
+   * вниз, и человек теряет строку, которую читал. Считаем не позицию,
+   * а РАССТОЯНИЕ ДО НИЗА — оно не меняется от добавленного сверху.
+   */
+  const loading = useRef(false);
+  const keepFromBottom = useRef<number | null>(null);
+
   const onScroll = () => {
     const node = box.current;
     if (!node) return;
     const near = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
     stuckToBottom.current = near;
     setAtBottom((was) => (was === near ? was : near));
+
+    if (node.scrollTop > 200 || !hasOlder || loading.current) return;
+    loading.current = true;
+    // Запоминаем расстояние ДО НИЗА: оно не меняется от добавленного сверху,
+    // в отличие от позиции. Восстановит его слой ниже — до отрисовки кадра.
+    keepFromBottom.current = node.scrollHeight - node.scrollTop;
+    void Promise.resolve(onLoadOlder()).finally(() => {
+      loading.current = false;
+    });
   };
 
   // Догон после открытия дорисовывает ленту: доводим до низа мгновенно,
@@ -193,11 +234,9 @@ export function Feed({
         onScroll={onScroll}
       >
         {hasOlder ? (
-          <div className="mb-3 text-center">
-            <Button variant="ghost" size="sm" onClick={onLoadOlder}>
-              Показать более раннее
-            </Button>
-          </div>
+          <p className="mb-3 text-center text-aside text-muted" aria-live="polite">
+            Загружаем более раннее…
+          </p>
         ) : (
           <p className="mb-4 text-center text-aside text-muted">
             {title ? `Начало канала «${title}»` : "Начало канала"}

@@ -122,7 +122,7 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
         key={chat.current?.id ?? "пусто"}
         messages={chat.messages}
         hasOlder={chat.hasOlder}
-        onLoadOlder={() => void chat.loadOlder()}
+        onLoadOlder={() => chat.loadOlder()}
         title={chat.current?.title}
         meId={meId}
         focus={chat.focus}
