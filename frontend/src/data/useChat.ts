@@ -205,6 +205,22 @@ export function useChat(me: Me): Chat {
     }
   }, []);
 
+  /**
+   * Перечитать список разговоров.
+   *
+   * ⚠️ ЗОВЁТСЯ НЕ ТОЛЬКО ПРИ ВХОДЕ. Раньше список читался ровно один раз,
+   * и заведённый кем-то канал не появлялся у остальных до перезагрузки
+   * страницы — владелец это и поймал. Догон `/v1/sync` тут не помощник:
+   * он умеет только «сообщения новее номера N», а канал не сообщение.
+   * Зато звонок о переменах приходит на каждое событие — по нему и
+   * перечитываем: запрос дешёвый, а список короткий.
+   */
+  const reloadRooms = useCallback(async () => {
+    const { items } = await api.conversations();
+    setConversations(items);
+    return items;
+  }, []);
+
   // Список разговоров — один раз при входе. `navigate` в зависимостях
   // стоит честно, хотя маршрутизатор и обещает его неизменность: обещание
   // чужой библиотеки — не то, на чём стоит держать единственную загрузку.
@@ -277,13 +293,22 @@ export function useChat(me: Me): Chat {
     const stream = new EventSource("/v1/stream");
     const onChanged = () => {
       catchUp().catch(() => setFailure("Обновления не доходят — обновите страницу"));
+      // Каналы и закреплённое приезжают тем же звонком. Молча: не приехали —
+      // человек читает то, что уже на экране, и это не повод его пугать.
+      reloadRooms().catch(() => {});
+      if (currentIdRef.current) {
+        api
+          .pinned(currentIdRef.current)
+          .then(({ items }) => setPinned(items))
+          .catch(() => {});
+      }
     };
     stream.addEventListener("changed", onChanged);
     return () => {
       stream.removeEventListener("changed", onChanged);
       stream.close();
     };
-  }, [catchUp]);
+  }, [catchUp, reloadRooms]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]?.seq;
