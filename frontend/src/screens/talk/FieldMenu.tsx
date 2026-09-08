@@ -12,6 +12,7 @@ import {
   TextUnderline,
   Trash,
 } from "@phosphor-icons/react";
+import type { TextFormatType } from "lexical";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -22,7 +23,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "../../shared/ui/context-menu.js";
-import { WRAPS, wrap } from "./compose.js";
+import type { FieldApi } from "./RichField.js";
 
 /**
  * Меню правой кнопки в поле ввода — как в Телеграме.
@@ -44,7 +45,7 @@ import { WRAPS, wrap } from "./compose.js";
  */
 
 /** Что умеет поле. Всё — над настоящим узлом, а не над состоянием React. */
-function act(field: HTMLTextAreaElement | null, what: string): void {
+function act(field: FieldApi | null, what: string): void {
   if (!field) return;
   field.focus();
   document.execCommand(what);
@@ -58,7 +59,7 @@ function act(field: HTMLTextAreaElement | null, what: string): void {
  * `navigator.clipboard` спрашивает разрешение — а вот вставку в поле
  * делаем `insertText`, чтобы она попала в стопку отмены.
  */
-async function paste(field: HTMLTextAreaElement | null): Promise<void> {
+async function paste(field: FieldApi | null): Promise<void> {
   if (!field) return;
   field.focus();
   try {
@@ -70,37 +71,34 @@ async function paste(field: HTMLTextAreaElement | null): Promise<void> {
   }
 }
 
-const MARKS: Array<{ code: keyof typeof WRAPS; label: string; Icon: typeof TextB }> = [
-  { code: "KeyB", label: "Жирный", Icon: TextB },
-  { code: "KeyI", label: "Курсив", Icon: TextItalic },
-  { code: "KeyU", label: "Подчёркнутый", Icon: TextUnderline },
-  { code: "KeyX", label: "Зачёркнутый", Icon: TextStrikethrough },
-  { code: "KeyM", label: "Моноширинный", Icon: TextAa },
-  { code: "KeyP", label: "Скрытый", Icon: Selection },
+/**
+ * Виды разметки. Скрытого здесь нет: у редактора нет своего признака
+ * для него, а рисовать закрашенное прямо в поле — отдельная работа,
+ * которую владелец не просил.
+ */
+const MARKS: Array<{ format: TextFormatType; label: string; Icon: typeof TextB }> = [
+  { format: "bold", label: "Жирный", Icon: TextB },
+  { format: "italic", label: "Курсив", Icon: TextItalic },
+  { format: "underline", label: "Подчёркнутый", Icon: TextUnderline },
+  { format: "strikethrough", label: "Зачёркнутый", Icon: TextStrikethrough },
+  { format: "code", label: "Моноширинный", Icon: TextAa },
 ];
 
 export function FieldMenu({
   field,
-  onMark,
   children,
 }: {
-  field: React.RefObject<HTMLTextAreaElement | null>;
-  /** Обёрнутый текст возвращается наверх: состояние поля держит React. */
-  onMark: (next: string, at: number) => void;
+  field: React.RefObject<FieldApi | null>;
   children: React.ReactNode;
 }) {
-  function mark(code: keyof typeof WRAPS) {
-    const node = field.current;
-    const rule = WRAPS[code];
-    if (!node || !rule) return;
-    node.focus();
-    const { text, at } = wrap(node, rule.with);
-    onMark(text, at);
-  }
-
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      {/* ⚠️ СВОЙ УЗЕЛ, А НЕ `asChild`. `asChild` отдаёт обработчики ПЕРВОМУ
+          настоящему узлу внутри, а внутри у нас компонент редактора —
+          свойства ему передать некуда, и меню молча не открывалось вовсе.
+          Ширину узел забирает у полосы, чтобы правая кнопка работала
+          по всему полю, а не по тексту в нём. */}
+      <ContextMenuTrigger className="min-w-0 flex-1">{children}</ContextMenuTrigger>
 
       <ContextMenuContent className="w-56">
         <ContextMenuItem onSelect={() => act(field.current, "undo")}>
@@ -139,8 +137,14 @@ export function FieldMenu({
             Форматирование
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-52">
-            {MARKS.map(({ code, label, Icon }) => (
-              <ContextMenuItem key={code} onSelect={() => mark(code)}>
+            {MARKS.map(({ format, label, Icon }) => (
+              <ContextMenuItem
+                key={format}
+                onSelect={() => {
+                  field.current?.focus();
+                  field.current?.format(format);
+                }}
+              >
                 <Icon />
                 {label}
               </ContextMenuItem>

@@ -1,39 +1,31 @@
 import { PaperPlaneRight } from "@phosphor-icons/react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Message, Quote as Цитата } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
 import { Above } from "./Above.js";
-import { fit, WRAPS, wrap } from "./compose.js";
 import { FieldMenu } from "./FieldMenu.js";
+import { type FieldApi, RichField } from "./RichField.js";
 
 /**
- * Поле ввода сообщения.
+ * Полоса ввода сообщения.
  *
  * `clientMsgId` рождается в момент НАЧАЛА набора и живёт, пока сообщение
  * не ушло. Поэтому повторная отправка после разрыва — то же самое
  * сообщение, а не второе такое же: сервер узнаёт его по этому ключу.
  *
- * Поле многострочное и растёт под текст. Однострочное поле в переписке —
- * не мелочь: человек не может ни перечитать длинное, ни разбить на абзацы,
- * и начинает слать обрывками. Enter отправляет, Shift+Enter переносит.
+ * ⚠️ САМО ПОЛЕ ТЕПЕРЬ ФОРМАТИРОВАННОЕ (Р-020, `RichField`). Здесь остался
+ * только обвес: строка ответа сверху, кнопка отправки, режим правки.
+ * Ни высоты, ни подгонки под текст здесь больше нет — этим занимается
+ * редактор, и это половина причины, по которой он взят.
  *
  * ⚠️ ПОЛОСА ТОНКАЯ, И ЭТО ЗАМЕР, А НЕ ВКУС. У Телеграма на десктопе
- * полоса ввода около 46 пикселей высотой: поле в одну строку плюс
- * по шесть сверху и снизу. Было втрое толще — поле в 36 пикселей
- * с полями по двенадцать, — и низ экрана выглядел тяжелее ленты
- * (владелец, замечание с экрана).
+ * полоса ввода около 46 пикселей высотой. Было втрое толще, и низ экрана
+ * выглядел тяжелее ленты (владелец, замечание с экрана).
  *
- * ⚠️ ВО ВСЮ ШИРИНУ, БЕЗ СТОЛБЦА ПО ЦЕНТРУ. Столбец здесь уже был дважды
- * и дважды убирался: по бокам оставались пустые поля, а до боковой панели
- * — заметный провал. Ширину строки ограничивает САМ ПУЗЫРЬ, и этого
- * достаточно; полосе ввода ограничивать нечего.
- *
- * ⚠️ КНОПКА — КРУГЛАЯ СО СТРЕЛКОЙ, А НЕ СЛОВО «ОТПРАВИТЬ». Так в Телеграме,
- * и дело не во вкусе: слово занимает место, которое в переписке принадлежит
- * тексту, и повторяет то, что уже сказал Enter. Подпись никуда не делась —
- * она в `aria-label` и во всплывающей подсказке, вместе с горячей клавишей.
+ * ⚠️ ТА ЖЕ ПОВЕРХНОСТЬ, ЧТО И ЛЕНТА, И ОДНА ЛИНИЯ СВЕРХУ. Своя заливка
+ * читалась плашкой, приклеенной снизу: у Телеграма низ экрана — то же
+ * полотно, что и переписка.
  */
-
 export function Composer({
   onSend,
   replying,
@@ -49,8 +41,19 @@ export function Composer({
   onCancelEdit: () => void;
   onSaveEdit: (body: string) => Promise<void>;
 }) {
-  const [text, setText] = useState("");
+  /**
+   * Что сейчас в поле — НАШЕЙ строкой с разметкой.
+   *
+   * Поле само по себе держит дерево; сюда приходит уже готовая строка.
+   * Через ссылку, а не состояние: её читают обработчики, а перерисовывать
+   * полосу на каждую букву незачем.
+   */
+  const text = useRef("");
   const draftId = useRef(crypto.randomUUID());
+  const field = useRef<FieldApi | null>(null);
+
+  /** Пустое поле — чтобы гасить кнопку отправки. Это единственное, что видно. */
+  const [empty, setEmpty] = useState(true);
 
   /**
    * Начали править — в поле встаёт текущий текст реплики.
@@ -62,77 +65,37 @@ export function Composer({
   // biome-ignore lint/correctness/useExhaustiveDependencies: правку открывает смена реплики, а не её поля
   useEffect(() => {
     if (editing) {
-      setText(editing.body);
+      field.current?.fill(editing.body);
       field.current?.focus();
     } else {
-      setText("");
+      field.current?.clear();
     }
   }, [editing?.id]);
-
-  const field = useRef<HTMLTextAreaElement>(null);
 
   /**
    * Взяли реплику в ответ — курсор сразу в поле.
    *
-   * ⚠️ СЛЕДУЮЩИМ КАДРОМ, А НЕ СРАЗУ. Меню по правой кнопке доигрывает
-   * закрытие ПОСЛЕ обработчика пункта и уводит фокус — сначала на само
-   * сообщение, а с запретом на это — на `body`. Наш вызов, сделанный
-   * в тот же миг, просто затирался. Отсюда кадр задержки: он ничего
-   * не «чинит наугад», он ставит нас в очередь ПОСЛЕ библиотеки.
-   * Найдено измерением: `document.activeElement` показывал `BODY`.
+   * ⚠️ НЕ СРАЗУ, А ТРЕМЯ ПОПЫТКАМИ. Меню по правой кнопке доигрывает
+   * закрытие ПОСЛЕ обработчика пункта и уводит фокус — не одним действием,
+   * а цепочкой отложенных. Замер показывал `BODY` даже через 400 мс.
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: важен факт появления цитаты, а не её поля
   useEffect(() => {
     if (!replying) return;
-    // Три попытки на протяжении полутора десятых секунды. Одного кадра
-    // не хватило: замер показал `BODY` даже через 400 мс — меню возвращает
-    // фокус не одним действием, а цепочкой отложенных. Спорить с чужим
-    // расписанием по одной точке бессмысленно, поэтому мы просто
-    // настойчивее: как только поле получило фокус, попытки прекращаются.
-    const timers = [0, 60, 150].map((delay) =>
-      setTimeout(() => {
-        if (document.activeElement !== field.current) field.current?.focus();
-      }, delay),
-    );
+    const timers = [0, 60, 150].map((delay) => setTimeout(() => field.current?.focus(), delay));
     return () => timers.forEach(clearTimeout);
   }, [replying?.id]);
 
   /**
-   * Высота подгоняется ПОСЛЕ отрисовки и на каждое изменение текста.
-   *
-   * Раньше `fit` звался руками сразу за `setText("")` — то есть до того,
-   * как React успевал очистить поле. Мерилась старая высота, и после
-   * отправки многострочного сообщения поле оставалось раздутым.
-   * Найдено владельцем на живом прогоне.
-   *
-   * Одно место вместо трёх вызовов: подгонка следует за состоянием,
-   * а не за событиями, и разойтись с ним больше не может.
-   */
-  useLayoutEffect(() => {
-    if (field.current) fit(field.current, text);
-  }, [text]);
-
-  /**
    * Отправить.
    *
-   * ⚠️ ПОЛЕ ОЧИЩАЕТСЯ СРАЗУ И НИЧЕГО НЕ ЖДЁТ. Раньше оно ждало ответа
-   * сервера, а неудачу показывало полосой над собой — «Сообщение не ушло».
-   * Так не делает ни один мессенджер: полоса говорит о СОБЫТИИ, а сломаться
-   * может конкретная реплика, и человеку нужно видеть какая. Теперь реплика
-   * встаёт в ленту сразу с часиками, а её судьба помечается на ней же
-   * (владелец, замечание с экрана).
-   *
-   * Ключ идемпотентности меняется здесь же: следующее сообщение — другое.
-   * Повтор неудавшегося пойдёт со СТАРЫМ ключом из самой реплики, когда
-   * повтор появится.
+   * Поле очищается сразу и ничего не ждёт: реплика встаёт в ленту
+   * с часиками, а её судьба помечается на ней же.
    */
   function submit(): void {
-    const body = text.trim();
+    const body = text.current.trim();
     if (!body) return;
 
-    // Правка — не отправка: у неё нет ни ключа идемпотентности, ни места
-    // в конце ленты. Одна кнопка на два действия, потому что для человека
-    // это одно место, куда он пишет.
     if (editing) {
       void onSaveEdit(body);
       return;
@@ -140,62 +103,26 @@ export function Composer({
 
     const key = draftId.current;
     draftId.current = crypto.randomUUID();
-    setText("");
+    text.current = "";
+    setEmpty(true);
+    field.current?.clear();
     field.current?.focus();
     void onSend(body, key);
   }
 
-  /** Разметка сочетанием клавиш. Вернёт true, если сочетание сработало. */
-  function marked(event: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
-    if (!event.ctrlKey && !event.metaKey) return false;
-    const rule = WRAPS[event.code];
-    if (!rule || rule.shift !== event.shiftKey) return false;
-
-    const node = field.current;
-    if (!node) return false;
-
-    event.preventDefault();
-    const { text: next, at } = wrap(node, rule.with);
-    setText(next);
-    // Курсор ставим ПОСЛЕ отрисовки: до неё в поле ещё старое значение,
-    // и позиция уехала бы на длину вставленных знаков.
-    requestAnimationFrame(() => node.setSelectionRange(at, at));
-    return true;
-  }
-
-  /** Escape снимает и ответ, и правку — то же, что крестик в строке выше. */
-  function escaped(event: React.KeyboardEvent): boolean {
-    if (event.key !== "Escape" || (!replying && !editing)) return false;
-    event.preventDefault();
-    if (editing) onCancelEdit();
-    else onCancelReply();
-    return true;
-  }
-
-  function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
-    if (marked(event) || escaped(event)) return;
-    // Enter отправляет, Shift+Enter переносит строку — как во всех
-    // переписках. Composing — набор через IME (китайский, японский):
-    // там Enter подтверждает иероглиф, а не отправляет сообщение.
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    submit();
-  }
-
   return (
     <form
-      /* ⚠️ ТА ЖЕ ПОВЕРХНОСТЬ, ЧТО И ЛЕНТА, И ОДНА ЛИНИЯ СВЕРХУ. Своя
-         заливка здесь уже была и читалась плашкой, приклеенной снизу
-         (владелец, замечание с экрана): у Телеграма низ экрана — то же
-         полотно, что и переписка, а границу обозначает одна волосяная
-         линия, и та скорее тень, чем рамка.
-
-         Поля по бокам меньше, чем у ленты: строка набора должна быть
-         не уже строки чтения, иначе набранное «сжимается» на глазах. */
       className="border-t border-line bg-bg px-2 py-1.5"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
+      }}
+      onKeyDown={(event) => {
+        // Escape снимает и ответ, и правку — то же, что крестик в строке выше.
+        if (event.key !== "Escape" || (!replying && !editing)) return;
+        event.preventDefault();
+        if (editing) onCancelEdit();
+        else onCancelReply();
       }}
     >
       <Above
@@ -203,38 +130,27 @@ export function Composer({
         editing={editing}
         onCancel={editing ? onCancelEdit : onCancelReply}
       />
+
       <div className="flex items-end gap-2">
-        <FieldMenu
-          field={field}
-          onMark={(next: string, at: number) => {
-            setText(next);
-            // Курсор ставим ПОСЛЕ отрисовки: до неё в поле старое значение.
-            requestAnimationFrame(() => field.current?.setSelectionRange(at, at));
-          }}
-        >
-          <textarea
-            ref={field}
-            value={text}
-            rows={1}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={onKeyDown}
+        <FieldMenu field={field}>
+          <RichField
             placeholder={editing ? "Изменить сообщение" : "Написать в канал"}
-            aria-label="Текст сообщения"
-            spellCheck={true}
-            maxLength={8000}
-            /* ⚠️ НИ РАМКИ, НИ СВОЕЙ ЗАЛИВКИ, НИ КОЛЬЦА ФОКУСА. Поле — это
-               вся полоса, а не коробка внутри полосы: в Телеграме курсор
-               просто стоит на белом, и очертить его нечем. Рамка здесь
-               обводила то, что и так единственное место для набора,
-               и мешала (владелец, замечание с экрана). */
-            className="max-h-56 min-h-[34px] flex-1 resize-none bg-transparent px-1 py-2 text-body leading-normal text-ink outline-none placeholder:text-muted"
+            onChange={(markup) => {
+              text.current = markup;
+              const nowEmpty = markup.trim().length === 0;
+              setEmpty((was) => (was === nowEmpty ? was : nowEmpty));
+            }}
+            onSend={submit}
+            onReady={(api) => {
+              field.current = api;
+            }}
           />
         </FieldMenu>
 
         <Button
           type="submit"
           size="icon-sm"
-          disabled={text.trim().length === 0}
+          disabled={empty}
           aria-label={editing ? "Сохранить" : "Отправить"}
           title={editing ? "Сохранить (Enter)" : "Отправить (Enter)"}
           className="rounded-pill"
