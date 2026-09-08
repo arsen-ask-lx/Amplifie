@@ -55,7 +55,11 @@ gates:
   # понятна только оболочкам POSIX; на Windows её пытается исполнить cmd
   # и падает с «AQK_COLOR_SOURCE не является внутренней командой».
   # Гейт при этом краснел на исправном коде — худший вид отказа.
-  color-from-token: "bash -c 'AQK_COLOR_SOURCE=styles bash tools/gates/color-from-token/check.sh .'"
+  # `styles|themes` — имена файлов-ИСТОЧНИКОВ значений: в них литерал
+  # законен, иначе токену неоткуда взяться. `themes.css` появился вместе
+  # с переносом тем, и без него гейт краснел на файле, который для того
+  # и существует.
+  color-from-token: "bash -c 'AQK_COLOR_SOURCE=\"styles|themes\" bash tools/gates/color-from-token/check.sh .'"
   gate-not-weakened: "bash tools/gates/gate-not-weakened/check.sh ."
   ci-actually-fails: "bash tools/gates/ci-actually-fails/check.sh ."
   gate-has-samples: "bash tools/gates/gate-has-samples/check.sh ."

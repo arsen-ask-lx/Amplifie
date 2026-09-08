@@ -1,115 +1,88 @@
 /**
- * Тема: тёмная, светлая или как в системе.
+ * Тема оформления.
+ *
+ * ⚠️ ОДИН ВЫБОР, А НЕ ДВА. Раньше было «тема (светлая/тёмная) × акцент
+ * (семь цветов)» — четырнадцать состояний, ни одно из которых человек
+ * не мог назвать словом. Стало четырнадцать ТЕМ С ИМЕНАМИ: «корпоративная»,
+ * «фарфор», «ночной город». Светлота и оттенок в имени уже есть; разводить
+ * их по двум переключателям значило заставлять человека собирать тему
+ * самому (владелец, 2026-09-08).
+ *
+ * Двенадцать тем перенесены из audit_project и живут у нас числами
+ * в `themes.css` — чужой проект не стал зависимостью.
  *
  * ПОЧЕМУ ЧЕРЕЗ АТРИБУТ, А НЕ ЧЕРЕЗ `prefers-color-scheme`. Медиазапрос
  * отвечает на вопрос «что выбрано в системе», а человеку нужно ответить
- * на другой: «что выбрал я здесь». Совместить их одним медиазапросом
- * нельзя — пришлось бы дублировать всю палитру, и две копии разъехались бы
- * при первой же правке.
- *
- * Поэтому источник правды один — атрибут `data-theme` на корне документа.
- * Системную настройку читаем сами и переводим в тот же атрибут.
+ * на другой: «что выбрал я здесь».
  *
  * ⚠️ Ставится ДО отрисовки, в `main.tsx`. Иначе первый кадр будет светлым
  * у того, кто сидит в тёмной, — и это видно.
  */
 
-export type Choice = "светлая" | "тёмная";
-
-/**
- * Цвет акцента. Тем же приёмом, что и тема: атрибут на корне, а значения —
- * в `styles.css`.
- *
- * ⚠️ ЗНАЧЕНИЕ ПО УМОЛЧАНИЮ СТОИТ В `index.html`, А НЕ ЗДЕСЬ. Атрибут уже
- * есть в разметке, поэтому первый кадр рисуется с акцентом даже до того,
- * как выполнится этот файл. В `:root` акцентной шкалы нет вовсе — иначе
- * у зелёного было бы две копии одних и тех же двенадцати чисел.
- */
-export type Accent =
-  | "монохром"
-  | "зелёный"
-  | "синий"
-  | "фиолетовый"
-  | "малиновый"
-  | "янтарный"
-  | "бирюзовый";
-
-export const ACCENTS: Accent[] = [
-  "монохром",
-  "зелёный",
-  "синий",
-  "фиолетовый",
-  "малиновый",
-  "янтарный",
-  "бирюзовый",
-];
+export type Theme = string;
 
 const KEY = "amplifie.тема";
-const ACCENT_KEY = "amplifie.акцент";
-const CHOICES: Choice[] = ["светлая", "тёмная"];
+
+/**
+ * Что можно выбрать. Порядок — порядок списка в меню.
+ *
+ * ⚠️ СПИСОК ЗДЕСЬ, А ЗНАЧЕНИЯ В CSS, и это разные знания. Здесь —
+ * «какие темы предлагаем и как называем в меню»; там — «из чего они
+ * состоят». Держать вместе значило бы завести в коде вторую копию цветов.
+ */
+export const THEMES: ReadonlyArray<{ id: Theme; label: string; dark: boolean }> = [
+  { id: "монохром светлая", label: "Монохром", dark: false },
+  { id: "монохром тёмная", label: "Монохром тёмный", dark: true },
+  { id: "фарфор", label: "Фарфор", dark: false },
+  { id: "серая", label: "Серая", dark: false },
+  { id: "сланец", label: "Сланец", dark: false },
+  { id: "гитхаб светлый", label: "Гитхаб светлый", dark: false },
+  { id: "таблица", label: "Таблица", dark: false },
+  { id: "золото", label: "Золото", dark: false },
+  { id: "корпоративная", label: "Корпоративная", dark: true },
+  { id: "океан", label: "Океан", dark: true },
+  { id: "гитхаб тёмный", label: "Гитхаб тёмный", dark: true },
+  { id: "оксокарбон", label: "Оксокарбон", dark: true },
+  { id: "самурай", label: "Самурай", dark: true },
+  { id: "ночной город", label: "Ночной город", dark: true },
+];
+
+const DEFAULT_LIGHT: Theme = "монохром светлая";
+const DEFAULT_DARK: Theme = "монохром тёмная";
 
 /**
  * Что выбрано. Ничего не выбрано или значение испорчено — берём системную
  * настройку ОДИН РАЗ, как отправную точку, и дальше она уже не следит.
- *
- * ⚠️ «Как в системе» было третьим состоянием и убрано владельцем. Разница
- * тонкая, но она есть: раньше приложение ЕХАЛО за системой по расписанию,
- * теперь оно только УГАДЫВАЕТ первый раз. Дальше выбор — человека.
  */
-export function chosen(): Choice {
+export function chosen(): Theme {
   try {
     const saved = localStorage.getItem(KEY);
-    const known = CHOICES.find((one) => one === saved);
-    if (known) return known;
+    if (THEMES.some((one) => one.id === saved)) return saved as Theme;
   } catch {
     // Хранилище может быть закрыто настройками приватности. Тема — не то,
     // ради чего стоит падать.
   }
-  return systemIsDark() ? "тёмная" : "светлая";
+  return systemIsDark() ? DEFAULT_DARK : DEFAULT_LIGHT;
 }
 
 function systemIsDark(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-/** Применить выбор к документу. */
-export function apply(choice: Choice): Choice {
-  const real = choice;
-  document.documentElement.dataset.theme = real === "тёмная" ? "dark" : "light";
-  // Браузер рисует по этому свойству полосы прокрутки и поля ввода.
-  // Без него они останутся из другой темы, и это будет заметно.
-  document.documentElement.style.colorScheme = real === "тёмная" ? "dark" : "light";
-  return real;
+/**
+ * Применить выбор к документу.
+ *
+ * `color-scheme` объявлен внутри каждой темы в CSS, поэтому здесь его
+ * ставить не нужно: браузер прочтёт его сам вместе с остальными
+ * переменными. Вторая копия этого знания в коде разошлась бы с первой.
+ */
+export function apply(theme: Theme): void {
+  document.documentElement.dataset.theme = theme;
 }
 
-/** Какой акцент выбран. Ничего не выбрано — монохром. */
-export function chosenAccent(): Accent {
+export function remember(theme: Theme): void {
   try {
-    const saved = localStorage.getItem(ACCENT_KEY);
-    const known = ACCENTS.find((one) => one === saved);
-    if (known) return known;
-  } catch {
-    // Хранилище закрыто настройками приватности — не повод падать.
-  }
-  return "монохром";
-}
-
-/** Применить акцент к документу. */
-export function applyAccent(accent: Accent): void {
-  document.documentElement.dataset.accent = accent;
-}
-
-export function rememberAccent(accent: Accent): void {
-  try {
-    localStorage.setItem(ACCENT_KEY, accent);
-  } catch {
-    // Как и с темой: продержится до перезагрузки, и это видно сразу.
-  }
-}
-
-export function remember(choice: Choice): void {
-  try {
-    localStorage.setItem(KEY, choice);
+    localStorage.setItem(KEY, theme);
   } catch {
     // Не сохранилось — тема продержится до перезагрузки. Говорить об этом
     // человеку нечем и незачем: он увидит результат сразу, а забывчивость

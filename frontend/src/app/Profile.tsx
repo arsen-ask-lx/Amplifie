@@ -1,17 +1,7 @@
-import { Check, LogOut, Moon, Palette, Sun } from "lucide-react";
+import { Check, LogOut, Palette } from "lucide-react";
 import { useState } from "react";
 import type { Me } from "../data/api.js";
-import {
-  ACCENTS,
-  type Accent,
-  apply,
-  applyAccent,
-  type Choice,
-  chosen,
-  chosenAccent,
-  remember,
-  rememberAccent,
-} from "../shared/theme.js";
+import { apply, chosen, remember, THEMES, type Theme } from "../shared/theme.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,26 +19,19 @@ import {
  *
  * ЧТО БЫЛО НЕ ТАК. В подвале стояли три равновесные строки — «Тёмная тема»,
  * «Пригласить», «Выйти», — и панель заканчивалась списком несвязанных
- * действий. Смена темы попадалась на глаза чаще, чем открывается, а выход
- * стоял рядом с ней и читался так же буднично.
+ * действий. Смена темы попадалась на глаза чаще, чем открывается.
  *
  * ЧТО СТАЛО. Одна точка: кружок с инициалом и имя. Всё, что относится
  * к «мне», живёт под ней и открывается по нажатию.
  *
- * ⚠️ ВИД УБРАН ВО ВЛОЖЕННОЕ МЕНЮ, А НЕ ВЫЛОЖЕН СПИСКОМ. Тема и шесть
- * цветов — восемь строк на настройку, которую трогают раз в месяц; рядом
- * с ними выход перестаёт быть заметным. Теперь это одна строка со значком
- * палитры, а выбор открывается по ней.
+ * ⚠️ ОДИН СПИСОК ТЕМ ВМЕСТО ДВУХ ПЕРЕКЛЮЧАТЕЛЕЙ. Было «светлая/тёмная»
+ * плюс семь цветов акцента — четырнадцать состояний, ни одно из которых
+ * человек не назвал бы словом. Стало четырнадцать тем с именами; светлота
+ * и оттенок в имени уже есть (владелец, 2026-09-08).
  *
- * ⚠️ ВЫБОР НЕ ЗАКРЫВАЕТ МЕНЮ (`preventDefault`). Цвет и тему подбирают
- * сравнением: нажал — увидел — нажал соседний. Меню, закрывающееся после
- * каждого нажатия, превращает подбор в шесть заходов.
+ * ⚠️ ВЫБОР НЕ ЗАКРЫВАЕТ МЕНЮ (`preventDefault`). Тему подбирают
+ * сравнением: нажал — увидел — нажал соседнюю.
  */
-
-const THEMES: Array<{ id: Choice; label: string; Icon: typeof Sun }> = [
-  { id: "светлая", label: "Светлая", Icon: Sun },
-  { id: "тёмная", label: "Тёмная", Icon: Moon },
-];
 
 /** Кружок с инициалом — вместо картинки, которой у нас нет. */
 function initial(name: string): string {
@@ -56,59 +39,40 @@ function initial(name: string): string {
 }
 
 /**
- * Образцы цвета.
+ * Список тем.
  *
- * Цвет кружок получает из атрибута `data-accent` на самом себе: в
- * `styles.css` шкала объявлена без `:root`, поэтому её получает любой узел
- * с атрибутом. Иначе рядом с палитрой пришлось бы держать вторую копию
- * шести цветов — и она разошлась бы с первой при первой же правке.
- *
- * ⚠️ ЗАЛИВКА КЛАССОМ `.swatch`, А НЕ УТИЛИТОЙ `bg-accent`. Почему именно
- * так — подробно в `styles.css` у самого класса; коротко: роль `--accent`
- * считается на корне и приезжает сюда уже готовым цветом, отчего все шесть
- * кружков выходили одинаковыми.
+ * ⚠️ КРУЖОК СЛЕВА ОБЪЯВЛЯЕТ СВОЮ ТЕМУ АТРИБУТОМ И КРАСИТСЯ ЕЮ ЖЕ.
+ * Значения тем лежат в CSS и только там; держать рядом со списком вторую
+ * копию цветов значило бы завести источник правды, который однажды
+ * разойдётся с первым. Тот же приём, что был у образцов палитры.
  */
-function Swatches({ value, onPick }: { value: Accent; onPick: (accent: Accent) => void }) {
+function Themes({ value, onPick }: { value: Theme; onPick: (theme: Theme) => void }) {
   return (
-    <div className="flex flex-wrap gap-1.5 px-2 py-1.5">
-      {ACCENTS.map((accent) => (
+    <>
+      {THEMES.map((theme) => (
         <DropdownMenuItem
-          key={accent}
-          data-accent={accent}
-          aria-label={accent}
-          title={accent}
+          key={theme.id}
           onSelect={(event: Event) => {
             event.preventDefault();
-            onPick(accent);
+            onPick(theme.id);
           }}
-          className={[
-            "swatch size-6 shrink-0 p-0",
-            // Выбранный — обведён, а не помечен галочкой внутри. Галочка
-            // обязана быть либо белой, либо тёмной, а шесть цветов дают
-            // и светлые, и тёмные заливки: на янтарном белая пропадала.
-            // Кольцо читается на любом.
-            value === accent ? "ring-2 ring-ink ring-offset-2 ring-offset-popover" : "",
-          ].join(" ")}
-        />
+        >
+          <span data-theme={theme.id} className="swatch size-4 shrink-0" aria-hidden="true" />
+          {theme.label}
+          {value === theme.id ? <Check className="ml-auto" /> : null}
+        </DropdownMenuItem>
       ))}
-    </div>
+    </>
   );
 }
 
 export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
-  const [choice, setChoice] = useState<Choice>(chosen);
-  const [accent, setAccent] = useState<Accent>(chosenAccent);
+  const [theme, setTheme] = useState<Theme>(chosen);
 
-  function pickTheme(picked: Choice) {
-    setChoice(picked);
+  function pick(picked: Theme) {
+    setTheme(picked);
     remember(picked);
     apply(picked);
-  }
-
-  function pickAccent(picked: Accent) {
-    setAccent(picked);
-    rememberAccent(picked);
-    applyAccent(picked);
   }
 
   return (
@@ -136,29 +100,9 @@ export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
             Оформление
           </DropdownMenuSubTrigger>
 
-          <DropdownMenuSubContent className="w-56">
+          <DropdownMenuSubContent className="max-h-96 w-56 overflow-y-auto">
             <DropdownMenuLabel className="text-muted">Тема</DropdownMenuLabel>
-            {THEMES.map(({ id, label, Icon }) => (
-              <DropdownMenuItem
-                key={id}
-                onSelect={(event: Event) => {
-                  event.preventDefault();
-                  pickTheme(id);
-                }}
-              >
-                <Icon />
-                {label}
-                {/* Галочка отвечает на вопрос «а что сейчас». Кнопка
-                    по кругу отвечала на него словом и всё равно требовала
-                    догадки о следующем нажатии. */}
-                {choice === id ? <Check className="ml-auto" /> : null}
-              </DropdownMenuItem>
-            ))}
-
-            <DropdownMenuSeparator />
-
-            <DropdownMenuLabel className="text-muted">Цвет</DropdownMenuLabel>
-            <Swatches value={accent} onPick={pickAccent} />
+            <Themes value={theme} onPick={pick} />
           </DropdownMenuSubContent>
         </DropdownMenuSub>
 

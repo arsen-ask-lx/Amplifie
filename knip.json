@@ -2,7 +2,12 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["tools/checks/*.mjs", "tools/arbiter/*.mjs", "tools/dependency-cruiser.cjs"],
+      "entry": [
+        "tools/checks/*.mjs",
+        "tools/arbiter/*.mjs",
+        "tools/dev/*.mjs",
+        "tools/dependency-cruiser.cjs"
+      ],
       "project": ["tools/**/*.{mjs,ts,cjs}"],
       "ignore": ["tools/gates/**"],
       "ignoreDependencies": ["dependency-cruiser"]

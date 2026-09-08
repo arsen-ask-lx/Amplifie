@@ -64,6 +64,14 @@ ps: ## что запущено
 health: ## дёрнуть /health как пользователь (не test client)
 > curl -fsS http://localhost:$${HTTP_PORT:-8477}/health && echo
 
+# ⚠️ ЗАПУСКАЕТСЯ РУКАМИ И РЕДКО. Переносчик читает файл ЧУЖОГО проекта
+# с чужой машины: путь у каждого свой, и вшивать его сюда нельзя.
+# Значения после переноса живут у нас числами в `frontend/src/themes.css`,
+# поэтому сборке он не нужен вовсе.
+themes: ## перенести темы из audit_project (PATH=... путь к их site-theme.tokens.css)
+> node tools/dev/import-themes.mjs "$(PATH_TO_THEMES)" > frontend/src/themes.css
+> @echo "перенесено; проверь: make contrast"
+
 demo: ## завести демо-канал с диалогом (дев-данные, стираются make reset)
 > docker compose exec -T postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie} -v ON_ERROR_STOP=1 -f - < tools/dev/demo.sql
 
@@ -147,4 +155,4 @@ test: ## приёмочные тесты по ЖИВОМУ стеку (снач�
 check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up dev dev-api down reset logs ps health demo psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model arbiter label aqk test check
+.PHONY: help env up dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages duplicates gates ci-gates arbiter-check model arbiter label aqk test check

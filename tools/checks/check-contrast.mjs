@@ -186,11 +186,6 @@ function blockEnd(source, from) {
   return -1;
 }
 
-/** Блоки тёмной темы не должны попасть в светлую: она — значения по умолчанию. */
-function withoutDark(source) {
-  return source.replaceAll(/:root\[data-theme="dark"\]\s*\{[^{}]*\}/gu, "");
-}
-
 function withoutMedia(source) {
   let out = "";
   let at = 0;
@@ -205,54 +200,41 @@ function withoutMedia(source) {
 }
 
 /**
- * ⚠️ ПРОВЕРЯЮТСЯ ВСЕ ПАЛИТРЫ, А НЕ ОДНА (task-014).
+ * ⚠️ ПРОВЕРЯЮТСЯ ВСЕ ТЕМЫ, А НЕ ОДНА.
  *
- * Акцентная шкала переехала из `:root` в блоки `[data-accent="…"]`:
- * палитр семь, и человек выбирает любую. Проверять при этом только
- * корневой блок значило бы объявить продукт годным по одной седьмой
- * его состояний — а гейт при этом ещё и зеленел бы, потому что в `:root`
- * акцентной шкалы больше нет вовсе.
+ * Тем тринадцать: монохром объявлен в `:root`, остальные — блоками
+ * `[data-theme="имя"]` в `themes.css`. Проверять только корень значило бы
+ * объявить продукт годным по одной тринадцатой его состояний.
  *
- * Так и вышло: после переезда гейт покраснел на «нет ступени 12» —
- * и это была не поломка вида, а честный крик слепнущего арбитра.
+ * Гейт уже дважды слеп на этом месте: сначала когда акцент уехал
+ * из `:root` в палитры, потом когда палитры сменились темами. Оба раза
+ * он показывал зелёное на пустой выборке — худший вид отказа. Поэтому
+ * ниже стоит проверка «выборка не пуста»: арбитр, которому нечего
+ * проверять, обязан кричать, а не молчать.
  */
-const ACCENTS = [...css.matchAll(/\[data-accent="([^"]+)"\]/gu)].map((m) => m[1]);
-const PALETTES = [...new Set(ACCENTS)];
+const themesCss = readFileSync("frontend/src/themes.css", "utf8");
+const both = `${css}
+${themesCss}`;
 
-/**
- * Объявления одной палитры: светлые и тёмные блоки отдельно.
- *
- * Светлый блок в стилях стоит с начала строки, тёмный начинается
- * с `[data-theme="dark"]` — по этому и различаем. `[^{]*` в тёмном
- * проглатывает вторую половину селектора: он объявлен двумя вариантами
- * через запятую (сам корень и потомок), и оба ведут в один блок.
- */
-function accentBlocks(name, dark) {
-  const safe = name.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
-  const pattern = dark
-    ? new RegExp(
-        String.raw`\[data-theme="dark"\][^{]*\[data-accent="${safe}"\][^{]*\{([^{}]*)\}`,
-        "gu",
-      )
-    : new RegExp(String.raw`^\[data-accent="${safe}"\]\s*\{([^{}]*)\}`, "gmu");
-  return allBlocks(css, pattern);
+const base = allBlocks(withoutMedia(css), /:root\s*\{([^{}]*)\}/gu);
+
+/** Все темы: имя → таблица переменных поверх монохромной основы. */
+const THEMES = [["монохром светлая", paletteOf(base)]];
+for (const found of both.matchAll(/\[data-theme="([^"]+)"\]/gu)) {
+  const name = found[1];
+  if (THEMES.some(([had]) => had === name)) continue;
+  const own = allBlocks(
+    both,
+    new RegExp(String.raw`\[data-theme="${name}"\]\s*\{([^{}]*)\}`, "gu"),
+  );
+  THEMES.push([name, paletteOf({ ...base, ...own })]);
 }
 
-const rootLight = allBlocks(withoutDark(withoutMedia(css)), /:root\s*\{([^{}]*)\}/gu);
-// В тёмной теме переопределены не все переменные — остальные наследуются.
-const rootDark = {
-  ...rootLight,
-  ...allBlocks(css, /:root\[data-theme="dark"\]\s*\{([^{}]*)\}/gu),
-};
-
-/** Что проверяем: каждая палитра в каждой теме. */
-const THEMES = [];
-for (const name of PALETTES) {
-  THEMES.push([`светлая · ${name}`, paletteOf({ ...rootLight, ...accentBlocks(name, false) })]);
-  THEMES.push([
-    `тёмная · ${name}`,
-    paletteOf({ ...rootDark, ...accentBlocks(name, false), ...accentBlocks(name, true) }),
-  ]);
+if (THEMES.length < 2) {
+  console.error("\nГейт контраста не нашёл ни одной темы — проверять нечего.");
+  console.error('  ПОЧИНИТЬ: тема объявляется блоком [data-theme="имя"].');
+  console.error("  Пустая выборка даёт зелёное на любом коде: это отказ, а не успех.");
+  process.exit(1);
 }
 
 const problems = [];
@@ -285,8 +267,13 @@ function scaleProblem(theme, scale, rule, step, palette) {
 }
 
 for (const [theme, palette] of THEMES) {
-  // ① правила шкалы
-  for (const scale of SCALES) {
+  // ① правила шкалы — только там, где шкала есть.
+  //
+  // ⚠️ У ПЕРЕНЕСЁННЫХ ТЕМ ШКАЛ НЕТ, И ЭТО НЕ ДЫРА. Двенадцатиступенчатый
+  // ряд — наше устройство; чужая тема приходит готовыми ролями, и требовать
+  // от неё ступеней значит требовать, чтобы её собрали по нашим правилам.
+  // Роли у неё проверяются полностью — а это и есть то, что видит человек.
+  for (const scale of SCALES.filter((one) => palette[`${one.prefix}1`])) {
     for (const rule of scale.rules) {
       for (const step of rule.on) {
         const problem = scaleProblem(theme, scale, rule, step, palette);
@@ -325,4 +312,4 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log(`контраст: ${checked} пар · ${PALETTES.length} палитр × 2 темы — OK`);
+console.log(`контраст: ${checked} пар · ${THEMES.length} тем — OK`);

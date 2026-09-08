@@ -9,11 +9,10 @@ import { TooltipProvider } from "./shared/ui/tooltip.js";
 // интерфейс на русском грузил бы шрифт и не мог им воспользоваться.
 import "@fontsource-variable/geist";
 import "./styles.css";
-import { apply, applyAccent, chosen, chosenAccent } from "./shared/theme.js";
+import { apply, chosen } from "./shared/theme.js";
 
 // ДО отрисовки: иначе тот, кто сидит в тёмной, увидит белый первый кадр.
 apply(chosen());
-applyAccent(chosenAccent());
 
 // «Тыкалка» — только при работе руками. Проверка статическая, поэтому
 // сборщик выбрасывает и сам вызов, и весь файл за ним.
