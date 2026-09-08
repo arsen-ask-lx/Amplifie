@@ -365,14 +365,44 @@ export async function updateMessageBody(
 
 /** Мягкое удаление: тело стирается, строка остаётся ради ссылок на неё. */
 export async function softDeleteMessage(tx: Executor, workspaceId: string, messageId: string) {
+  /**
+   * ⚠️ ОДИН НОМЕР НА ВСЁ УДАЛЕНИЕ, А НЕ ПО НОМЕРУ НА СТРОКУ. Удаление —
+   * одно изменение пространства, даже когда оно задевает несколько
+   * реплик. Счётчик пространства сериализует записи (Д-2), и брать
+   * из него лишние номера значит платить за то, что никому не нужно:
+   * догон отбирает по `>` и `<=`, совпадающие номера ему безразличны.
+   */
+  const mark = await changed(tx, workspaceId);
+
   const rows = await tx
     .update(message)
     // Тело стирается, а не остаётся «на всякий случай»: удалённое сообщение
     // не должно читаться ни из базы, ни из выгрузки.
-    .set({ deletedAt: new Date(), body: "", ...(await changed(tx, workspaceId)) })
+    .set({ deletedAt: new Date(), body: "", ...mark })
     .where(and(eq(message.id, messageId), isNull(message.deletedAt)))
     .returning({ id: message.id, conversationId: message.conversationId });
-  return rows[0] ?? null;
+
+  if (!rows[0]) return null;
+
+  /**
+   * ⚠️ ОТВЕТЫ НА УДАЛЁННОЕ ТОЖЕ СЧИТАЮТСЯ ИЗМЕНИВШИМИСЯ (Д-20).
+   *
+   * Цитата живёт НЕ в ответе, а собирается присоединением к цитируемой
+   * реплике. Стоит той исчезнуть — ответ выглядит иначе, хотя сам он
+   * не менялся ни на знак. Для догона «изменилось» значит «человек
+   * увидит другое», а не «в строке другие байты».
+   *
+   * Без этой правки открытая вкладка продолжала показывать цитату из
+   * удалённого: догон о ней не рассказывал, а перезагрузка страницы
+   * «чинила» — первичная загрузка про удаление знает. Поломка, которую
+   * не воспроизвести, если не знать.
+   */
+  await tx
+    .update(message)
+    .set(mark)
+    .where(and(eq(message.replyToId, messageId), isNull(message.deletedAt)));
+
+  return rows[0];
 }
 
 /** Закрепить или открепить. `null` снимает отметку. */
