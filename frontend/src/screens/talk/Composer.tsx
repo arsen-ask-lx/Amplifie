@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Message, Quote as Цитата } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
 import { Above } from "./Above.js";
-import { fit, MAX_ROWS, WRAPS, wrap } from "./compose.js";
+import { fit, WRAPS, wrap } from "./compose.js";
 
 /**
  * Поле ввода сообщения.

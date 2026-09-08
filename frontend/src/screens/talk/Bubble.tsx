@@ -4,7 +4,7 @@ import { ContextMenu, ContextMenuTrigger } from "../../shared/ui/context-menu.js
 import { часы } from "../../shared/when.js";
 import { Actions, type Deeds, type Picking } from "./Actions.js";
 import { Quote } from "./Quote.js";
-import { forDisplay, initial, type Row } from "./rows.js";
+import { forDisplay, type Row } from "./rows.js";
 
 /**
  * Одна реплика в ленте.
