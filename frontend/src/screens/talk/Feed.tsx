@@ -1,5 +1,5 @@
 import { CaretDown } from "@phosphor-icons/react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
 import { день as dayOf } from "../../shared/when.js";
@@ -43,6 +43,7 @@ export function Feed({
   deeds,
   onGo,
   picking,
+  onFollow,
 }: {
   messages: Message[];
   hasOlder: boolean;
@@ -57,6 +58,12 @@ export function Feed({
   onGo: (seq: number) => void;
   /** Идёт выделение. `null` — обычный режим. */
   picking: Picking | null;
+  /**
+   * Сказать наружу, внизу ли человек. По этому ответу лента решает,
+   * можно ли вытеснять старое сверху (Р-023): у листающего назад —
+   * нельзя, он читает ровно то, что мы бы выбросили.
+   */
+  onFollow: (yes: boolean) => void;
 }) {
   const newest = messages.at(-1)?.seq ?? 0;
 
@@ -69,6 +76,9 @@ export function Feed({
     onLoadOlder,
     focus,
   });
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: важен сам факт смены
+  useEffect(() => onFollow(atBottom), [atBottom]);
 
   // Что было на экране при первом показе — не «новое». Иначе при открытии
   // канала оживает вся лента разом, а это ровно та примета: движение

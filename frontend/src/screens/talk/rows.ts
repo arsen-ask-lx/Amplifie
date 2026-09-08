@@ -1,5 +1,5 @@
 import type { Message } from "../../data/api.js";
-import type { Local } from "../../data/useChat.js";
+import type { Local } from "../../data/feed.js";
 
 /**
  * Кто с кем в группе и что показывать у каждой реплики.

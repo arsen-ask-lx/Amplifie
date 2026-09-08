@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useMatch, useNavigate } from "react-router";
 import { troubleOf } from "../shared/trouble.js";
-import {
-  api,
-  type Conversation,
-  isTombstone,
-  type Me,
-  type Message,
-  type Quote,
-  type SyncLine,
-} from "./api.js";
+import { api, type Conversation, type Me, type Message, type Quote } from "./api.js";
+import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 
 /**
  * Лента разговора: загрузка, догон и живые обновления.
@@ -26,106 +19,6 @@ import {
  */
 
 const PAGE = 50;
-
-/**
- * Своя реплика, ещё не дошедшая до сервера.
- *
- * ⚠️ ПОЛЕ ЖИВЁТ ТОЛЬКО ЗДЕСЬ И НЕ ПРИХОДИТ С СЕРВЕРА. `Message` повторяет
- * форму ответа сервера, и дописывать в неё наши выдумки нельзя: однажды
- * кто-то решит, что состояние доставки хранится в базе. Поэтому отдельный
- * тип, а не лишнее поле в общем.
- */
-export type Local = Message & { state?: "идёт" | "не ушло" };
-
-/**
- * Слияние по идентификатору: догон отвечает «вот как теперь», а не «вот
- * что дописали».
- *
- * ⚠️ ДОГОН МОЖЕТ ПРИНЕСТИ РЕПЛИКУ, КОТОРАЯ УЖЕ ЕСТЬ. Так и должно быть:
- * правка старой реплики приезжает ею же самой. Поэтому известный
- * идентификатор ЗАМЕЩАЕТСЯ, а не добавляется, — иначе исправленная
- * реплика встала бы в ленту второй раз.
- *
- * ⚠️ МЕСТО В ЛЕНТЕ БЕРЁТСЯ ИЗ `seq`, А НЕ ИЗ ПОРЯДКА ОТВЕТА. Сервер
- * упорядочивает догон по номеру ИЗМЕНЕНИЯ, и исправленная позавчерашняя
- * реплика приезжает последней. Место в разговоре у неё при этом прежнее.
- *
- * ⚠️ НАДГРОБИЕ УБИРАЕТ РЕПЛИКУ, А НЕ ДОБАВЛЯЕТ ПУСТУЮ. Текста в нём нет,
- * и показывать нечего: удалённое исчезает с экрана у всех, а не только
- * у того, кто удалил.
- */
-export function merge(current: Message[], incoming: SyncLine[]): Message[] {
-  if (incoming.length === 0) return current;
-  const byId = new Map(current.map((m) => [m.id, m]));
-  for (const line of incoming) {
-    if (isTombstone(line)) {
-      byId.delete(line.id);
-      continue;
-    }
-    /**
-     * ⚠️ ЗАПИСАННАЯ РЕПЛИКА ВЫТЕСНЯЕТ СВОЙ ЧЕРНОВИК. Черновик лежит
-     * в ленте под своим ключом, а пришедшая с сервера — под настоящим
-     * `id`: без этой строки они уживались бы рядом как две разные
-     * реплики. Ждать ответа на отправку нельзя — догон умеет принести
-     * запись РАНЬШЕ, чем ответит сама отправка, и тогда человек на
-     * мгновение видит своё сообщение дважды.
-     */
-    if (line.clientMsgId && line.clientMsgId !== line.id) byId.delete(line.clientMsgId);
-    byId.set(line.id, line);
-  }
-  return [...byId.values()].sort((a, b) => a.seq - b.seq);
-}
-
-/**
- * Полоска закреплённого после догона.
- *
- * ⚠️ ПЕРЕСТРАИВАЕТСЯ ИЗ ТОГО ЖЕ ОТВЕТА, ЧТО И ЛЕНТА. Раньше закрепление
- * приезжало ОТДЕЛЬНЫМ запросом по звонку — второй путь к тому же событию.
- * Два пути к одному событию расходятся молча: у нас это уже случалось.
- *
- * Первая загрузка полоски всё равно остаётся отдельной дверью, и это не
- * противоречие: закреплённая реплика может лежать на тысячу строк выше
- * загруженного окна, и догон о ней ничего не скажет — он рассказывает
- * про ИЗМЕНЕНИЯ, а не про историю.
- *
- * Порядок — свежие сверху, по времени закрепления: тот же, что у сервера.
- */
-export function mergePinned(
-  current: Message[],
-  incoming: SyncLine[],
-  roomId: string | null,
-): Message[] {
-  if (!roomId || incoming.length === 0) return current;
-
-  const mine = incoming.filter((line) => line.conversationId === roomId);
-  if (mine.length === 0) return current;
-
-  const byId = new Map(current.map((m) => [m.id, m]));
-  const before = byId.size;
-  let added = 0;
-
-  for (const line of mine) {
-    // Закреплённой реплика остаётся, только пока жива и пока отметка стоит.
-    // Оба «нет» ведут в одно и то же место, и хорошо, что в одно.
-    if (isTombstone(line) || line.pinnedAt === null) byId.delete(line.id);
-    else {
-      byId.set(line.id, line);
-      added += 1;
-    }
-  }
-
-  // Полоска не изменилась — отдаём ТУ ЖЕ ссылку, а не новый список:
-  // иначе каждая перерисовка ленты перерисовывала бы и её.
-  if (byId.size === before && added === 0) return current;
-  return [...byId.values()].sort(byPinnedAtDesc);
-}
-
-/** Свежее закрепление сверху — тот же порядок, что отдаёт сервер. */
-function byPinnedAtDesc(a: Message, b: Message): number {
-  return (b.pinnedAt ?? "").localeCompare(a.pinnedAt ?? "");
-}
-
-const maxSeq = (messages: Message[]) => messages.reduce((top, m) => Math.max(top, m.seq), 0);
 
 /**
  * Куда смотреть в ленте. Каждый переход рождает НОВЫЙ объект, даже если
@@ -180,6 +73,11 @@ export interface Chat {
   /** Открыть разговор на конкретной реплике — переход по цитате. */
   openAt: (conversationId: string, seq: number) => void;
   loadOlder: () => Promise<void>;
+  /**
+   * Лента говорит, внизу ли человек. От этого зависит, вытесняется ли
+   * старое сверху: у листающего назад — не вытесняется (Р-023).
+   */
+  follow: (yes: boolean) => void;
   send: (body: string, clientMsgId: string) => Promise<void>;
   /** Почему агент не ответил. Показывается один раз и не как его реплика. */
   agentFailure: string | null;
@@ -298,13 +196,38 @@ export function useChat(me: Me): Chat {
    */
   const shown = useRef<string | null>(null);
 
+  /**
+   * Сколько реплик разговора живёт в ленте (Р-023).
+   *
+   * ⚠️ ЧИСЛО — ОЦЕНКА, ПОДТВЕРЖДЁННАЯ ЗАМЕРОМ: 360 узлов перерисовываются
+   * за 17 мс при пороге виртуализации в 100. Запас шестикратный, поэтому
+   * библиотека не нужна.
+   */
+  const ОКНО = 300;
+
+  /**
+   * Человек внизу ленты — значит можно резать сверху.
+   *
+   * ⚠️ ССЫЛКА, А НЕ СОСТОЯНИЕ: меняется на каждом движении прокрутки,
+   * и перерисовывать из-за этого ленту было бы ровно тем, с чем мы
+   * боремся. Кто листает назад — у того не режем ничего: он читает
+   * то самое, что мы бы выбросили.
+   */
+  const following = useRef(true);
+
   /** Догон до конца: страницами, пока сервер говорит, что есть ещё. */
   const catchUp = useCallback(async () => {
     for (let page = 0; page < 20; page++) {
       const batch = await api.sync(cursor.current);
       cursor.current = batch.seq;
       if (batch.messages.length > 0) {
-        setMessages((current) => merge(current, batch.messages));
+        setMessages((current) =>
+          merge(
+            current,
+            ofRoom(batch.messages, currentIdRef.current),
+            following.current ? ОКНО : undefined,
+          ),
+        );
         setPinned((current) => mergePinned(current, batch.messages, currentIdRef.current));
       }
       if (!batch.hasMore) return;
@@ -738,9 +661,19 @@ export function useChat(me: Me): Chat {
     [currentId],
   );
 
+  /**
+   * Лента сообщает, внизу ли человек. Это единственное, что ей нужно
+   * рассказать про себя наружу, и рассказывает она это ссылкой:
+   * перерисовки от движения прокрутки не происходит.
+   */
+  const follow = useCallback((yes: boolean) => {
+    following.current = yes;
+  }, []);
+
   return {
     conversations,
     current: conversations.find((c) => c.id === currentId) ?? null,
+    follow,
     replying,
     reply,
     pinned,

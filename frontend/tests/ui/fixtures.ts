@@ -101,6 +101,16 @@ export function bubbles(page: Page) {
   return page.locator("article");
 }
 
+/**
+ * Сама область прокрутки ленты.
+ *
+ * ⚠️ ПОЯВЛЯЕТСЯ ТОЛЬКО С ПЕРВОЙ РЕПЛИКОЙ: у пустого канала на её месте
+ * приглашение написать, и `role="log"` не существует.
+ */
+export function feedBox(page: Page) {
+  return page.getByRole("log");
+}
+
 /** Одна реплика по её тексту. */
 export function bubble(page: Page, text: string) {
   return page.locator("article").filter({ hasText: text });
