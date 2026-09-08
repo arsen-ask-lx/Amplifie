@@ -37,9 +37,15 @@ function Spoiler({ text }: { text: string }) {
       aria-label="Показать скрытое"
       // Открывается нажатием и обратно не закрывается: прятать то, что
       // человек уже прочитал, — не забота, а издевательство.
-      className="rounded-sm bg-current px-1 align-baseline text-transparent select-none"
+      className="rounded-sm bg-current px-1 align-baseline select-none"
     >
-      {text}
+      {/* ⚠️ ТЕКСТ ПРЯЧЕТСЯ `visibility`, А НЕ ПРОЗРАЧНЫМ ЦВЕТОМ. Первая
+          редакция ставила `text-transparent` НА ТОТ ЖЕ узел, что и
+          `bg-current`, — и заливка тоже становилась прозрачной: она берётся
+          из текущего цвета текста, который только что обнулили. Скрытое
+          превращалось в пустое место, и владелец справедливо прочёл это
+          как «буква уехала». `visibility` держит и место, и цвет. */}
+      <span className="invisible">{text}</span>
     </button>
   );
 }

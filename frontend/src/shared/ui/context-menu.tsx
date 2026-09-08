@@ -27,6 +27,13 @@ function ContextMenuContent({ className, ...props }: React.ComponentProps<typeof
     <Menu.Portal>
       <Menu.Content
         data-slot="context-menu-content"
+        /* ⚠️ БЕЗ ЭТОГО «ОТВЕТИТЬ» НЕ СТАВИТ КУРСОР В ПОЛЕ. Radix при
+           закрытии возвращает фокус на то, откуда меню открыли, и делает
+           это ПОСЛЕ обработчика пункта: поле ввода получало фокус
+           и тут же его теряло. Человек нажимал «Ответить», начинал
+           печатать — и текст уходил в никуда. Найдено владельцем дважды,
+           прежде чем нашлась настоящая причина. */
+        onCloseAutoFocus={(event: Event) => event.preventDefault()}
         className={cn(
           "z-50 min-w-[10rem] overflow-hidden rounded-md bg-popover p-1.5 text-popover-foreground shadow-menu data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           className,
