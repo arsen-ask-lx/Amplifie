@@ -118,6 +118,20 @@ const SAYS: Record<string, string> = {
   "модель-отказала": "Нейросеть вернула ошибку. Ответа не будет.",
 };
 
+/**
+ * Осознанно проглоченный отказ — и он ИМЕНОВАН.
+ *
+ * ⚠️ ПУСТОЙ `catch` ЗАПРЕЩЁН ПРАВИЛОМ ПРОЕКТА, и правильно: молча
+ * съеденная ошибка — это ошибка, о которой никто не узнает. Но здесь
+ * проглатывание намеренное: не приехал список каналов или полоска
+ * закреплённого — человек читает то, что уже на экране, и пугать его
+ * нечем. Имя делает решение видимым: `catch(ignore)` читается как выбор,
+ * `catch(() => {})` — как недосмотр.
+ */
+function ignore(): void {
+  // Тело намеренно пустое, и это сказано словами выше.
+}
+
 function agentTrouble(error: unknown): string {
   return SAYS[troubleOf(error)] ?? "Не получилось позвать Сводку.";
 }
@@ -295,12 +309,12 @@ export function useChat(me: Me): Chat {
       catchUp().catch(() => setFailure("Обновления не доходят — обновите страницу"));
       // Каналы и закреплённое приезжают тем же звонком. Молча: не приехали —
       // человек читает то, что уже на экране, и это не повод его пугать.
-      reloadRooms().catch(() => {});
+      reloadRooms().catch(ignore);
       if (currentIdRef.current) {
         api
           .pinned(currentIdRef.current)
           .then(({ items }) => setPinned(items))
-          .catch(() => {});
+          .catch(ignore);
       }
     };
     stream.addEventListener("changed", onChanged);

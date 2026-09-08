@@ -4,6 +4,7 @@ import type { Message, Quote as Цитата } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
 import { Above } from "./Above.js";
 import { fit, WRAPS, wrap } from "./compose.js";
+import { FieldMenu } from "./FieldMenu.js";
 
 /**
  * Поле ввода сообщения.
@@ -203,22 +204,33 @@ export function Composer({
         onCancel={editing ? onCancelEdit : onCancelReply}
       />
       <div className="flex items-end gap-2">
-        <textarea
-          ref={field}
-          value={text}
-          rows={1}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={editing ? "Изменить сообщение" : "Написать в канал"}
-          aria-label="Текст сообщения"
-          maxLength={8000}
-          /* ⚠️ НИ РАМКИ, НИ СВОЕЙ ЗАЛИВКИ, НИ КОЛЬЦА ФОКУСА. Поле — это
-             вся полоса, а не коробка внутри полосы: в Телеграме курсор
-             просто стоит на белом, и очертить его нечем. Рамка здесь
-             обводила то, что и так единственное место для набора,
-             и мешала (владелец, замечание с экрана). */
-          className="max-h-56 min-h-[34px] flex-1 resize-none bg-transparent px-1 py-2 text-body leading-normal text-ink outline-none placeholder:text-muted"
-        />
+        <FieldMenu
+          field={field}
+          onMark={(next: string, at: number) => {
+            setText(next);
+            // Курсор ставим ПОСЛЕ отрисовки: до неё в поле старое значение.
+            requestAnimationFrame(() => field.current?.setSelectionRange(at, at));
+          }}
+        >
+          <textarea
+            ref={field}
+            value={text}
+            rows={1}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={editing ? "Изменить сообщение" : "Написать в канал"}
+            aria-label="Текст сообщения"
+            spellCheck={true}
+            maxLength={8000}
+            /* ⚠️ НИ РАМКИ, НИ СВОЕЙ ЗАЛИВКИ, НИ КОЛЬЦА ФОКУСА. Поле — это
+               вся полоса, а не коробка внутри полосы: в Телеграме курсор
+               просто стоит на белом, и очертить его нечем. Рамка здесь
+               обводила то, что и так единственное место для набора,
+               и мешала (владелец, замечание с экрана). */
+            className="max-h-56 min-h-[34px] flex-1 resize-none bg-transparent px-1 py-2 text-body leading-normal text-ink outline-none placeholder:text-muted"
+          />
+        </FieldMenu>
+
         <Button
           type="submit"
           size="icon-sm"
