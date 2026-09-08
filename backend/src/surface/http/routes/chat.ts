@@ -10,8 +10,12 @@ import {
   ConversationNotVisibleError,
   createChannel,
   createThread,
+  deleteMessage,
+  editMessage,
   listConversations,
   listMessages,
+  listPinned,
+  pinMessage,
   sendMessage,
   sync,
   type Viewer,
@@ -26,6 +30,14 @@ const DEFAULT_PAGE = 50;
 const sendSchema = z.object({
   body: z.string().trim().min(1, "сообщение пустое").max(8000, "сообщение длиннее 8000 символов"),
   clientMsgId: z.uuid("нужен идентификатор, сгенерированный клиентом"),
+  /** На что отвечаем. Проверку видимости делает ядро, а не эта схема. */
+  replyToId: z.uuid().optional(),
+  /** Откуда переслано. Та же проверка тем же местом. */
+  forwardedFromId: z.uuid().optional(),
+});
+
+const editSchema = z.object({
+  body: z.string().trim().min(1, "сообщение пустое").max(8000, "сообщение длиннее 8000 символов"),
 });
 
 const channelSchema = z.object({
@@ -211,6 +223,67 @@ export function registerChatRoutes(app: FastifyInstance): void {
     if (!viewer) return reply;
 
     return orNotFound(reply, () => answerOrExplain(reply, viewer, request.params.id));
+  });
+
+  /**
+   * Закреплённое разговора. Отдельной дверью, а не полем в ленте: полоска
+   * сверху нужна с первого кадра, а лента доезжает страницами.
+   */
+  app.get<{ Params: { id: string } }>("/v1/conversations/:id/pinned", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, () => listPinned(viewer, request.params.id));
+  });
+
+  /**
+   * Правка своей реплики.
+   *
+   * ⚠️ ЧУЖОЕ ОТВЕЧАЕТ 404, А НЕ 403. Отдельный ответ на «чужое» подтвердил
+   * бы, что сообщение существует, — по нему перебираются чужие разговоры.
+   * Рубеж «только своё» стоит в ядре, здесь только перевод отказа в код.
+   */
+  app.patch<{ Params: { id: string } }>("/v1/messages/:id", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    const input = parse(editSchema, request.body, reply);
+    if (!input) return reply;
+
+    return orNotFound(reply, async () =>
+      reply.code(200).send(await editMessage(viewer, request.params.id, input.body)),
+    );
+  });
+
+  app.delete<{ Params: { id: string } }>("/v1/messages/:id", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    return orNotFound(reply, async () => {
+      await deleteMessage(viewer, request.params.id);
+      return reply.code(204).send();
+    });
+  });
+
+  /**
+   * Закрепить и открепить. Две двери, а не одна с полем: «закрепить» —
+   * это не правка сообщения, а другое действие, и повтор у него безобиден.
+   */
+  app.post<{ Params: { id: string } }>("/v1/messages/:id/pin", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, async () => {
+      await pinMessage(viewer, request.params.id, true);
+      return reply.code(204).send();
+    });
+  });
+
+  app.delete<{ Params: { id: string } }>("/v1/messages/:id/pin", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, async () => {
+      await pinMessage(viewer, request.params.id, false);
+      return reply.code(204).send();
+    });
   });
 
   /**

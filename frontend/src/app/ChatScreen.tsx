@@ -1,13 +1,15 @@
 import { PanelLeft } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router";
-import type { Me } from "../data/api.js";
+import type { Me, Message } from "../data/api.js";
 import { type Chat, useChat } from "../data/useChat.js";
 import { useWork, type Work } from "../data/useWork.js";
 import { AgentsScreen } from "../screens/agents/AgentsScreen.js";
 import { BoardScreen } from "../screens/BoardScreen.js";
 import { Composer } from "../screens/talk/Composer.js";
 import { Feed } from "../screens/talk/Feed.js";
+import { ForwardPicker } from "../screens/talk/ForwardPicker.js";
+import { PinnedBar } from "../screens/talk/PinnedBar.js";
 import { Rail, type Section, sectionOf } from "./Rail.js";
 
 /** Заголовок середины экрана. Разговор подписывается своим названием. */
@@ -50,6 +52,25 @@ function railWasOpen(): boolean {
  * регистрации. Экран обязан сказать это прямо, а не крутить загрузку.
  */
 function Room({ chat, meId }: { chat: Chat; meId: string }) {
+  /** Кого пересылаем. `null` — выбор канала закрыт. */
+  const [forwarding, setForwarding] = useState<Message | null>(null);
+  /** Какую реплику правим. Правка идёт в том же поле ввода, что и отправка. */
+  const [editing, setEditing] = useState<Message | null>(null);
+
+  // Переход к реплике — тем же адресом, что и переход по ссылке на неё.
+  // Второго способа доехать до сообщения заводить нельзя: они разойдутся.
+  const go = (seq: number) => {
+    if (chat.current) chat.openAt(chat.current.id, seq);
+  };
+
+  const deeds = {
+    onReply: (message: Message) => chat.reply(message),
+    onForward: (message: Message) => setForwarding(message),
+    onPin: (message: Message, pinned: boolean) => void chat.pin(message.id, pinned),
+    onEdit: (message: Message) => setEditing(message),
+    onRemove: (message: Message) => void chat.remove(message.id),
+  };
+
   // «Загружаем…» только когда показать НЕЧЕГО. Если лента уже на экране,
   // подгрузка идёт молча: подменять готовое содержимое надписью — это
   // мигание на ровном месте.
@@ -67,6 +88,12 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
 
   return (
     <>
+      <PinnedBar
+        pinned={chat.pinned}
+        onGo={go}
+        onUnpin={(message) => void chat.pin(message.id, false)}
+      />
+
       <Feed
         // Смена разговора пересоздаёт ленту: тогда «прыгнуть в конец
         // до отрисовки» работает как «при открытии», без лишнего состояния.
@@ -77,9 +104,34 @@ function Room({ chat, meId }: { chat: Chat; meId: string }) {
         title={chat.current?.title}
         meId={meId}
         focus={chat.focus}
+        deeds={deeds}
+        onGo={go}
       />
       <AgentFailure failure={chat.agentFailure} />
-      <Composer onSend={chat.send} />
+      <Composer
+        onSend={chat.send}
+        replying={chat.replying}
+        onCancelReply={() => chat.reply(null)}
+        editing={editing}
+        onCancelEdit={() => setEditing(null)}
+        onSaveEdit={async (body) => {
+          if (!editing) return;
+          await chat.edit(editing.id, body);
+          setEditing(null);
+        }}
+      />
+
+      {forwarding ? (
+        <ForwardPicker
+          message={forwarding}
+          rooms={chat.conversations}
+          onClose={() => setForwarding(null)}
+          onPick={(id) => {
+            void chat.forward(forwarding, id);
+            setForwarding(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }

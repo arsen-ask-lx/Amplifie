@@ -125,10 +125,44 @@ export const message = pgTable(
     seq: bigint("seq", { mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     editedAt: timestamp("edited_at", { withTimezone: true }),
+    /**
+     * На какую реплику это ответ (task-014).
+     *
+     * ⚠️ `ON DELETE SET NULL`, а не каскад и не запрет. Удалённая цитата
+     * обязана превращаться в ЕЁ ОТСУТСТВИЕ: каскад унёс бы вместе с ней
+     * и сам ответ — то есть чужие слова, — а запрет сделал бы удаление
+     * невозможным, стоило кому-то один раз процитировать.
+     */
+    replyToId: uuid("reply_to_id").references((): AnyPgColumn => message.id, {
+      onDelete: "set null",
+    }),
+    /** Откуда переслано. Та же логика ссылки, что у ответа. */
+    forwardedFromId: uuid("forwarded_from_id").references((): AnyPgColumn => message.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * Когда закреплено. Отметка времени, а не «да/нет»: закреплённых
+     * бывает несколько, и полоска сверху показывает последнее из них.
+     * Отдельной таблицы под это нет — закрепление свойство сообщения,
+     * а не связь между сущностями.
+     */
+    pinnedAt: timestamp("pinned_at", { withTimezone: true }),
+    /**
+     * Когда удалено. ⚠️ УДАЛЕНИЕ МЯГКОЕ, И ЭТО НЕ ОСТОРОЖНОСТЬ.
+     * Жёсткое оборвало бы цитаты и пересылки на эту реплику; но главное —
+     * о жёстком удалении нечем рассказать другим клиентам: наш догон
+     * умеет только «дай всё, что новее номера N», а исчезнувшая строка
+     * ничего не новее.
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
     unique("message_conversation_client_msg_uq").on(t.conversationId, t.clientMsgId),
     unique("message_workspace_seq_uq").on(t.workspaceId, t.seq),
     index("message_conversation_seq_idx").on(t.conversationId, t.seq),
+    // Закреплённых в разговоре единицы, а ищутся они на каждом открытии.
+    index("message_conversation_pinned_idx")
+      .on(t.conversationId, t.pinnedAt)
+      .where(sql`${t.pinnedAt} is not null`),
   ],
 );

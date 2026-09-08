@@ -73,8 +73,12 @@ psql: ## консоль базы
 install: ## поставить зависимости локально (для типов и линтера)
 > npm install
 
+# ⚠️ ЧИТАЕТ .env, А НЕ ГАДАЕТ. Здесь стояли значения по умолчанию, и порт
+# в них давно разошёлся с настоящим: команда молча ходила не туда и падала
+# с невнятным «applying migrations...». Умолчаний у адреса базы быть
+# не должно — он либо известен, либо команду запускать нельзя.
 migrate: ## применить миграции к базе
-> cd backend && DATABASE_URL="postgres://$${POSTGRES_USER:-amplifie}:$${POSTGRES_PASSWORD:-amplifie_dev_only}@127.0.0.1:$${POSTGRES_HOST_PORT:-54477}/$${POSTGRES_DB:-amplifie}" npx drizzle-kit migrate
+> set -a; . ./.env; set +a; cd backend && DATABASE_URL="postgres://$$POSTGRES_USER:$$POSTGRES_PASSWORD@127.0.0.1:$$POSTGRES_HOST_PORT/$$POSTGRES_DB" npx drizzle-kit migrate
 
 migrate-new: ## сгенерировать миграцию из схемы (SQL потом читать и править руками)
 > cd backend && npx drizzle-kit generate

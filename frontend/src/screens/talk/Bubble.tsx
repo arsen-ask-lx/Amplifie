@@ -1,4 +1,16 @@
-import { AlertCircle, Check, Clock3, Copy, Link2 } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  Clock3,
+  Copy,
+  CornerUpLeft,
+  Forward,
+  Link2,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+} from "lucide-react";
 import type { Message } from "../../data/api.js";
 import type { Local } from "../../data/useChat.js";
 import { copy } from "../../shared/clipboard.js";
@@ -7,9 +19,11 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../../shared/ui/context-menu.js";
 import { часы } from "../../shared/when.js";
+import { Quote } from "./Quote.js";
 
 /**
  * Реплика в ленте и всё, что решает, как она выглядит.
@@ -113,21 +127,47 @@ export function rowsOf(messages: Local[], meId: string, wasThere: number | null)
  * на той же строке, длинная — обтекает его последней строкой. Ни первое,
  * ни второе не требует знать заранее, сколько строк выйдет.
  */
+/** Что реплика умеет. Передаётся сверху: пузырь не ходит в данные сам. */
+export interface Deeds {
+  onReply: (message: Message) => void;
+  onForward: (message: Message) => void;
+  onPin: (message: Message, pinned: boolean) => void;
+  onEdit: (message: Message) => void;
+  onRemove: (message: Message) => void;
+}
+
 /**
  * Меню реплики по правой кнопке.
  *
- * ⚠️ ЗДЕСЬ ТОЛЬКО ТО, ЧТО РАБОТАЕТ. «Ответить», «Закрепить», «Изменить»,
- * «Удалить» в Телеграме тоже есть, и владелец их назвал — но у нас под
- * ними нет ни поля в базе, ни ручки на сервере. Пункт, который ничего
- * не делает, хуже отсутствующего: он врёт про возможности, и врёт молча.
- * Появятся на сервере — появятся здесь.
+ * ⚠️ «ИЗМЕНИТЬ» И «УДАЛИТЬ» ЕСТЬ ТОЛЬКО У СВОИХ. Показать их у чужой
+ * реплики и получить отказ от сервера — худшее из решений: меню обещает
+ * то, чего нельзя, и человек узнаёт об этом уже после нажатия. Рубеж стоит
+ * на сервере, а здесь — честный вид того же правила.
  *
  * Ссылка на реплику ведёт на `/c/<разговор>/<номер>` — тот самый адрес,
  * по которому лента доматывает до неё и подсвечивает.
  */
-function Actions({ message }: { message: Message }) {
+function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
+  const { message } = row;
+  const pinned = message.pinnedAt !== null;
+
   return (
     <ContextMenuContent>
+      <ContextMenuItem onSelect={() => deeds.onReply(message)}>
+        <CornerUpLeft />
+        Ответить
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => deeds.onForward(message)}>
+        <Forward />
+        Переслать
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => deeds.onPin(message, !pinned)}>
+        {pinned ? <PinOff /> : <Pin />}
+        {pinned ? "Открепить" : "Закрепить"}
+      </ContextMenuItem>
+
+      <ContextMenuSeparator />
+
       <ContextMenuItem onSelect={() => void copy(message.body)}>
         <Copy />
         Копировать текст
@@ -140,6 +180,20 @@ function Actions({ message }: { message: Message }) {
         <Link2 />
         Копировать ссылку
       </ContextMenuItem>
+
+      {row.mine ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => deeds.onEdit(message)}>
+            <Pencil />
+            Изменить
+          </ContextMenuItem>
+          <ContextMenuItem variant="destructive" onSelect={() => deeds.onRemove(message)}>
+            <Trash2 />
+            Удалить
+          </ContextMenuItem>
+        </>
+      ) : null}
     </ContextMenuContent>
   );
 }
@@ -175,7 +229,15 @@ function Actions({ message }: { message: Message }) {
  * ЗА нижний край, — а это и есть тот единственный случай, ради которого
  * липкость затевалась.
  */
-export function Group({ rows }: { rows: Row[] }) {
+export function Group({
+  rows,
+  deeds,
+  onGo,
+}: {
+  rows: Row[];
+  deeds: Deeds;
+  onGo: (seq: number) => void;
+}) {
   const first = rows[0];
   const last = rows[rows.length - 1];
   if (!first || !last) return null;
@@ -199,7 +261,7 @@ export function Group({ rows }: { rows: Row[] }) {
 
       <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
         {rows.map((row) => (
-          <Bubble key={row.message.id} row={row} />
+          <Bubble key={row.message.id} row={row} deeds={deeds} onGo={onGo} />
         ))}
       </div>
     </div>
@@ -239,9 +301,70 @@ function State({ row }: { row: Row }) {
   return <Check aria-label="доставлено" className="size-3 opacity-70" />;
 }
 
-export function Bubble({ row }: { row: Row }) {
-  const at = new Date(row.message.createdAt);
+/** Шапка пузыря: откуда переслано и кто говорит. */
+function Head({ row }: { row: Row }) {
+  const soft = row.mine;
+  return (
+    <>
+      {row.message.forwardedFrom ? (
+        <span
+          className={[
+            "mb-0.5 block text-mark italic",
+            soft ? "text-muted-on-soft" : "text-muted",
+          ].join(" ")}
+        >
+          Переслано от {row.message.forwardedFrom}
+        </span>
+      ) : null}
 
+      {row.first ? (
+        <span
+          className={[
+            "mb-0.5 block text-aside font-medium",
+            // Внутри своего пузыря — своя роль: он залит, и обычный
+            // текстовый акцент на нём не читается.
+            soft ? "text-ink-on-soft" : "text-accent-ink",
+          ].join(" ")}
+        >
+          {row.message.author.name}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** Подпись в углу: изменено, время, состояние доставки. */
+function Corner({ row }: { row: Row }) {
+  return (
+    <span
+      className={[
+        "absolute right-3 bottom-2 flex items-center gap-1 text-mark",
+        row.mine ? "text-muted-on-soft" : "text-muted",
+      ].join(" ")}
+    >
+      {row.message.editedAt ? <span title="изменено">изм.</span> : null}
+      <time dateTime={row.message.createdAt}>{часы.format(new Date(row.message.createdAt))}</time>
+      <State row={row} />
+    </span>
+  );
+}
+
+/**
+ * Реплика: пузырь, цитата, подпись и меню по правой кнопке.
+ *
+ * Шапка и подпись вынесены отдельными кусками не ради красоты: гейт
+ * сложности был прав — в одной функции набралось семь условий поверх
+ * разметки, и такое читается только целиком.
+ */
+export function Bubble({
+  row,
+  deeds,
+  onGo,
+}: {
+  row: Row;
+  deeds: Deeds;
+  onGo: (seq: number) => void;
+}) {
   return (
     // data-seq — по нему лента находит реплику при переходе из цитаты.
     <article
@@ -256,16 +379,11 @@ export function Bubble({ row }: { row: Row }) {
         <ContextMenuTrigger
           className={[
             // ⚠️ `text-body` СТОИТ ЗДЕСЬ РАДИ `ch`, А НЕ РАДИ ВИДА. Предел
-          // ширины задан в знаках, а знак считается по шрифту ТОГО ЖЕ
-          // элемента. Размер текста стоял только на внутренней строке,
-          // пузырю доставались унаследованные 16 пикселей вместо наших 14 —
-          // и предел молча раздувался с 483 до 721 пикселя. Мера, которая
-          // меряет не тем, чем показывает, хуже отсутствующей.
-          //
-          // 52 знака — примерно 480 пикселей, ровно как у Телеграма
-          // на десктопе. Раньше стояло 68 — оттуда и «блок шире, чем в тг»
-          // (владелец, замечание с экрана).
-          "relative max-w-[52ch] min-w-0 px-3 py-2 text-left text-body shadow-raised",
+            // ширины задан в знаках, а знак считается по шрифту ТОГО ЖЕ
+            // элемента: размер текста стоял только на внутренней строке,
+            // и предел молча раздувался с 483 до 721 пикселя.
+            // 52 знака — около 480 пикселей, как у Телеграма на десктопе.
+            "relative max-w-[52ch] min-w-0 px-3 py-2 text-left text-body shadow-raised",
             // Хвостик слева у обоих: пузырь растёт от кружка, а кружок
             // теперь один и тот же с одной стороны.
             "rounded-lg rounded-bl-sm",
@@ -274,35 +392,31 @@ export function Bubble({ row }: { row: Row }) {
               : "border border-line bg-card text-ink",
           ].join(" ")}
         >
-          {row.first ? (
-            <span
-              className={[
-                "mb-0.5 block text-aside font-medium",
-                // Внутри своего пузыря — своя роль: он залит, и обычный
-                // текстовый акцент на нём не читается.
-                row.mine ? "text-ink-on-soft" : "text-accent-ink",
-              ].join(" ")}
-            >
-              {row.message.author.name}
-            </span>
+          <Head row={row} />
+
+          {/* Цитата ВНУТРИ пузыря и выше текста: она объясняет, к чему
+              относится сказанное, и потому обязана быть прочитана первой. */}
+          {row.message.replyTo ? (
+            <Quote
+              quote={row.message.replyTo}
+              tone={row.mine ? "на заливке" : "обычный"}
+              onGo={() => {
+                const seq = row.message.replyTo?.seq;
+                if (seq !== undefined) onGo(seq);
+              }}
+            />
           ) : null}
+
           <span className="block text-body leading-snug break-words whitespace-pre-wrap">
             <RichText body={forDisplay(row.message.body)} />
             {/* Распорка под время. Шире самого времени на волосок, чтобы
-              между ними остался просвет. Для чтения вслух её нет. */}
+                между ними остался просвет. Для чтения вслух её нет. */}
             <span aria-hidden="true" className="inline-block w-12 select-none" />
           </span>
-          <span
-            className={[
-              "absolute right-3 bottom-2 flex items-center gap-1 text-mark",
-              row.mine ? "text-muted-on-soft" : "text-muted",
-            ].join(" ")}
-          >
-            <time dateTime={row.message.createdAt}>{часы.format(at)}</time>
-            <State row={row} />
-          </span>
+
+          <Corner row={row} />
         </ContextMenuTrigger>
-        <Actions message={row.message} />
+        <Actions row={row} deeds={deeds} />
       </ContextMenu>
     </article>
   );

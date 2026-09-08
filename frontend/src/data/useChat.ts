@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useMatch, useNavigate } from "react-router";
 import { troubleOf } from "../shared/trouble.js";
-import { api, type Conversation, type Me, type Message } from "./api.js";
+import { api, type Conversation, type Me, type Message, type Quote } from "./api.js";
 
 /**
  * Лента разговора: загрузка, догон и живые обновления.
@@ -93,6 +93,15 @@ export interface Chat {
   send: (body: string, clientMsgId: string) => Promise<void>;
   /** Почему агент не ответил. Показывается один раз и не как его реплика. */
   agentFailure: string | null;
+  /** На что отвечаем прямо сейчас. Строка над полем ввода. */
+  replying: Quote | null;
+  reply: (message: Message | null) => void;
+  /** Закреплённое этого разговора, свежее сверху. */
+  pinned: Message[];
+  pin: (messageId: string, pinned: boolean) => Promise<void>;
+  edit: (messageId: string, body: string) => Promise<void>;
+  remove: (messageId: string) => Promise<void>;
+  forward: (message: Message, toConversationId: string) => Promise<void>;
   addChannel: (title: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
 }
@@ -115,6 +124,9 @@ function agentTrouble(error: unknown): string {
 
 export function useChat(me: Me): Chat {
   const [agentFailure, setAgentFailure] = useState<string | null>(null);
+  /** На что сейчас отвечаем. `null` — обычная отправка. */
+  const [replying, setReplying] = useState<Quote | null>(null);
+  const [pinned, setPinned] = useState<Message[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasOlder, setHasOlder] = useState(false);
@@ -158,6 +170,11 @@ export function useChat(me: Me): Chat {
   // но не нужна перерисовка при каждом его изменении.
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
+
+  // Через ссылку, а не через зависимость: иначе `send` пересоздавался бы
+  // на каждый выбор цитаты, а вместе с ним — обработчик поля ввода.
+  const replyingRef = useRef<Quote | null>(null);
+  replyingRef.current = replying;
 
   // Курсор догона живёт в ref, а не в состоянии: он меняется чаще, чем экран,
   // и перерисовывать ленту ради него незачем.
@@ -306,6 +323,12 @@ export function useChat(me: Me): Chat {
         seq: maxSeq(messagesRef.current) + 0.5,
         createdAt: new Date().toISOString(),
         editedAt: null,
+        pinnedAt: null,
+        // Цитата в черновике — та же, что человек видит над полем ввода:
+        // строить её заново из ответа сервера значило бы показать сперва
+        // реплику без цитаты, а потом с ней.
+        replyTo: replyingRef.current,
+        forwardedFrom: null,
         author: {
           id: me.participant.id,
           name: me.participant.displayName,
@@ -317,7 +340,9 @@ export function useChat(me: Me): Chat {
 
       let sent: Message;
       try {
-        sent = await api.send(currentId, body, clientMsgId);
+        sent = await api.send(currentId, body, clientMsgId, {
+          ...(replyingRef.current ? { replyToId: replyingRef.current.id } : {}),
+        });
       } catch {
         // Помечаем ту самую реплику и уходим. Ключ идемпотентности у неё
         // прежний, поэтому повтор не задвоит её на сервере.
@@ -326,6 +351,9 @@ export function useChat(me: Me): Chat {
         );
         return;
       }
+
+      // Ответ отдан: строка над полем ввода больше не нужна.
+      setReplying(null);
 
       // Черновик заменяется настоящей записью: у неё свой идентификатор
       // и настоящий номер. Держать обе — значит однажды показать обе.
@@ -413,9 +441,107 @@ export function useChat(me: Me): Chat {
     [navigate],
   );
 
+  /**
+   * Взять реплику в ответ или отменить ответ.
+   *
+   * Здесь же рождается цитата: она нужна ДО отправки, чтобы человек видел,
+   * на что отвечает. Строить её из ответа сервера значило бы показать сперва
+   * реплику без цитаты, а потом с ней.
+   */
+  const reply = useCallback((message: Message | null) => {
+    setReplying(
+      message
+        ? {
+            id: message.id,
+            seq: message.seq,
+            author: message.author.name,
+            excerpt: message.body.replace(/\s+/gu, " ").trim().slice(0, 120),
+          }
+        : null,
+    );
+  }, []);
+
+  /** Закреплённое разговора. Читается отдельной дверью и при каждой смене. */
+  useEffect(() => {
+    if (!currentId) {
+      setPinned([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .pinned(currentId)
+      .then(({ items }) => {
+        if (!cancelled) setPinned(items);
+      })
+      .catch(() => {
+        // Полоска закреплённого — не то, ради чего стоит ронять экран.
+        // Не приехала — её просто нет, разговор читается дальше.
+        if (!cancelled) setPinned([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentId]);
+
+  const pin = useCallback(
+    async (messageId: string, next: boolean) => {
+      await api.pin(messageId, next);
+      // Перечитываем, а не правим на месте: закреплённых может быть
+      // несколько, и порядок у них серверный.
+      if (currentId) setPinned((await api.pinned(currentId)).items);
+      setMessages((current) =>
+        current.map((one) =>
+          one.id === messageId ? { ...one, pinnedAt: next ? new Date().toISOString() : null } : one,
+        ),
+      );
+    },
+    [currentId],
+  );
+
+  const edit = useCallback(async (messageId: string, body: string) => {
+    const changed = await api.edit(messageId, body);
+    setMessages((current) => current.map((one) => (one.id === messageId ? changed : one)));
+  }, []);
+
+  /**
+   * Удалить свою реплику.
+   *
+   * ⚠️ ЦИТАТЫ НА НЕЁ ГАСЯТСЯ ЗДЕСЬ ЖЕ. Сервер обнуляет ссылку, но чужие
+   * реплики уже лежат на экране со старой цитатой — и остались бы с ней
+   * до перезагрузки, показывая текст удалённого сообщения.
+   */
+  const remove = useCallback(async (messageId: string) => {
+    await api.remove(messageId);
+    setMessages((current) =>
+      current
+        .filter((one) => one.id !== messageId)
+        .map((one) => (one.replyTo?.id === messageId ? { ...one, replyTo: null } : one)),
+    );
+    setPinned((current) => current.filter((one) => one.id !== messageId));
+  }, []);
+
+  /** Переслать в другой разговор. Тело копируется, источник — ссылкой. */
+  const forward = useCallback(
+    async (message: Message, toConversationId: string) => {
+      const sent = await api.send(toConversationId, message.body, crypto.randomUUID(), {
+        forwardedFromId: message.id,
+      });
+      // Если переслали в открытый разговор — реплика появляется сразу.
+      if (toConversationId === currentId) setMessages((cur) => merge(cur, [sent]));
+    },
+    [currentId],
+  );
+
   return {
     conversations,
     current: conversations.find((c) => c.id === currentId) ?? null,
+    replying,
+    reply,
+    pinned,
+    pin,
+    edit,
+    remove,
+    forward,
     messages: messages.filter((m) => m.conversationId === currentId),
     hasOlder,
     loading,

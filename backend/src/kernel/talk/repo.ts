@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
@@ -173,6 +174,8 @@ export async function insertMessage(
     seq: number;
     kind?: string;
     trust?: string;
+    replyToId?: string | null;
+    forwardedFromId?: string | null;
   },
 ) {
   const rows = await tx.insert(message).values(input).returning();
@@ -181,6 +184,28 @@ export async function insertMessage(
   return row;
 }
 
+/**
+ * Цитируемое сообщение и его автор — теми же таблицами, но под другими
+ * именами (`alias`). Без псевдонима присоединить таблицу к самой себе
+ * нельзя: два `message` в одном запросе неразличимы.
+ */
+const quoted = alias(message, "quoted");
+const quotedAuthor = alias(participant, "quoted_author");
+const source = alias(message, "source");
+const sourceAuthor = alias(participant, "source_author");
+
+/**
+ * Единственный список полей сообщения. Все выборки берут его.
+ *
+ * ⚠️ ЦИТАТА ХРАНИТСЯ ССЫЛКОЙ, А ТЕКСТ ЧИТАЕТСЯ ПРИСОЕДИНЕНИЕМ. Копировать
+ * кусок цитируемого текста в само сообщение было бы дешевле в чтении
+ * и неверно по сути: правка исходной реплики не дошла бы до цитаты,
+ * и две записи одного и того же разошлись бы навсегда.
+ *
+ * ⚠️ ЛЕВОЕ присоединение, а не внутреннее. Цитата не обязана существовать:
+ * ссылка обнуляется при удалении исходной реплики, и внутреннее
+ * присоединение выкинуло бы из ленты сам ответ — то есть чужие слова.
+ */
 const MESSAGE_VIEW = {
   id: message.id,
   conversationId: message.conversationId,
@@ -189,9 +214,15 @@ const MESSAGE_VIEW = {
   seq: message.seq,
   createdAt: message.createdAt,
   editedAt: message.editedAt,
+  pinnedAt: message.pinnedAt,
   authorId: participant.id,
   authorName: participant.displayName,
   authorKind: participant.kind,
+  replyToId: quoted.id,
+  replyToSeq: quoted.seq,
+  replyToBody: quoted.body,
+  replyToAuthorName: quotedAuthor.displayName,
+  forwardedFromAuthorName: sourceAuthor.displayName,
 } as const;
 
 /**
@@ -206,9 +237,74 @@ export async function findMessageViewById(tx: Executor, messageId: string) {
     .select(MESSAGE_VIEW)
     .from(message)
     .innerJoin(participant, eq(participant.id, message.authorParticipantId))
+    .leftJoin(quoted, eq(quoted.id, message.replyToId))
+    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
+    .leftJoin(source, eq(source.id, message.forwardedFromId))
+    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
     .where(eq(message.id, messageId))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/** Сама запись сообщения без вида — для проверок «моё ли, тут ли». */
+export async function findMessage(tx: Executor, messageId: string) {
+  const rows = await tx.select().from(message).where(eq(message.id, messageId)).limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Правка тела. Отметка «изменено» ставится здесь и только здесь: разнесённая
+ * по вызывающим, она однажды не поставится, и лента соврёт.
+ */
+export async function updateMessageBody(tx: Executor, messageId: string, body: string) {
+  const rows = await tx
+    .update(message)
+    .set({ body, editedAt: new Date() })
+    .where(and(eq(message.id, messageId), isNull(message.deletedAt)))
+    .returning({ id: message.id });
+  return rows[0] ?? null;
+}
+
+/** Мягкое удаление: тело стирается, строка остаётся ради ссылок на неё. */
+export async function softDeleteMessage(tx: Executor, messageId: string) {
+  const rows = await tx
+    .update(message)
+    // Тело стирается, а не остаётся «на всякий случай»: удалённое сообщение
+    // не должно читаться ни из базы, ни из выгрузки.
+    .set({ deletedAt: new Date(), body: "" })
+    .where(and(eq(message.id, messageId), isNull(message.deletedAt)))
+    .returning({ id: message.id, conversationId: message.conversationId });
+  return rows[0] ?? null;
+}
+
+/** Закрепить или открепить. `null` снимает отметку. */
+export async function setPinned(tx: Executor, messageId: string, at: Date | null) {
+  const rows = await tx
+    .update(message)
+    .set({ pinnedAt: at })
+    .where(and(eq(message.id, messageId), isNull(message.deletedAt)))
+    .returning({ id: message.id });
+  return rows[0] ?? null;
+}
+
+/** Закреплённые разговора, свежие сверху. Их единицы — предел не нужен. */
+export async function listPinned(tx: Executor, conversationId: string) {
+  return tx
+    .select(MESSAGE_VIEW)
+    .from(message)
+    .innerJoin(participant, eq(participant.id, message.authorParticipantId))
+    .leftJoin(quoted, eq(quoted.id, message.replyToId))
+    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
+    .leftJoin(source, eq(source.id, message.forwardedFromId))
+    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
+    .where(
+      and(
+        eq(message.conversationId, conversationId),
+        isNotNull(message.pinnedAt),
+        isNull(message.deletedAt),
+      ),
+    )
+    .orderBy(desc(message.pinnedAt));
 }
 
 /**
@@ -228,10 +324,19 @@ export async function listMessages(
     .select(MESSAGE_VIEW)
     .from(message)
     .innerJoin(participant, eq(participant.id, message.authorParticipantId))
+    .leftJoin(quoted, eq(quoted.id, message.replyToId))
+    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
+    .leftJoin(source, eq(source.id, message.forwardedFromId))
+    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
+    // ⚠️ Удалённые не отдаются НИ ЗДЕСЬ, НИ В ДОГОНЕ. Забыть одно из двух
+    // мест — главный способ провалить мягкое удаление: реплика исчезает
+    // из ленты и возвращается первым же обновлением.
     .where(
-      before === undefined
-        ? eq(message.conversationId, conversationId)
-        : and(eq(message.conversationId, conversationId), lt(message.seq, before)),
+      and(
+        eq(message.conversationId, conversationId),
+        isNull(message.deletedAt),
+        before === undefined ? undefined : lt(message.seq, before),
+      ),
     )
     .orderBy(desc(message.seq))
     .limit(limit);
@@ -261,11 +366,16 @@ export async function listMessagesAfter(
     .from(message)
     .innerJoin(participant, eq(participant.id, message.authorParticipantId))
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
+    .leftJoin(quoted, eq(quoted.id, message.replyToId))
+    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
+    .leftJoin(source, eq(source.id, message.forwardedFromId))
+    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
     .where(
       and(
         eq(message.workspaceId, workspaceId),
         gt(message.seq, afterSeq),
         lte(message.seq, upToSeq),
+        isNull(message.deletedAt),
         visibleTo(participantId),
       ),
     )

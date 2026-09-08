@@ -3,7 +3,7 @@ import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
 import { Button } from "../../shared/ui/button.js";
 import { день as dayOf } from "../../shared/when.js";
-import { Group, groupsOf, rowsOf } from "./Bubble.js";
+import { type Deeds, Group, groupsOf, rowsOf } from "./Bubble.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).
@@ -35,6 +35,8 @@ export function Feed({
   title,
   meId,
   focus,
+  deeds,
+  onGo,
 }: {
   messages: Message[];
   hasOlder: boolean;
@@ -43,6 +45,10 @@ export function Feed({
   meId: string;
   /** Реплика, из которой пришли по цитате. */
   focus: Focus | null;
+  /** Что реплика умеет: ответить, переслать, закрепить, изменить, удалить. */
+  deeds: Deeds;
+  /** Перейти к реплике по её номеру — цитата и полоска ведут сюда же. */
+  onGo: (seq: number) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const newest = messages.at(-1)?.seq ?? 0;
@@ -177,7 +183,7 @@ export function Feed({
               </span>
             </p>
           ) : null}
-          <Group rows={group} />
+          <Group rows={group} deeds={deeds} onGo={onGo} />
         </div>
       ))}
     </div>

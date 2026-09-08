@@ -1,6 +1,8 @@
-import { SendHorizontal } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { Pencil, SendHorizontal, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { Message, Quote as Цитата } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
+import { Quote } from "./Quote.js";
 
 /**
  * Поле ввода сообщения.
@@ -70,13 +72,100 @@ function fit(node: HTMLTextAreaElement, expected: string): void {
   node.style.overflowY = needed > limit ? "auto" : "hidden";
 }
 
+/**
+ * Строка над полем: на что отвечаем либо что правим.
+ *
+ * ⚠️ ОДНО МЕСТО НА ДВА СОСТОЯНИЯ, И ЭТО НЕ ЭКОНОМИЯ. Ответ и правка
+ * взаимно исключают друг друга — нельзя править реплику, одновременно
+ * отвечая на другую, — а две полоски друг над другом как раз и обещали бы,
+ * что можно.
+ */
+function Above({
+  replying,
+  editing,
+  onCancel,
+}: {
+  replying: Цитата | null;
+  editing: Message | null;
+  onCancel: () => void;
+}) {
+  if (!replying && !editing) return null;
+
+  return (
+    <div className="mb-1 flex items-center gap-2 border-b border-line pb-1">
+      {editing ? (
+        <>
+          <Pencil className="size-4 shrink-0 text-accent" aria-hidden="true" />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-mark font-medium text-accent-ink">Изменение сообщения</span>
+            <span className="truncate text-aside text-muted">{editing.body}</span>
+          </span>
+        </>
+      ) : replying ? (
+        <span className="min-w-0 flex-1">
+          <Quote quote={replying} />
+        </span>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onCancel}
+        aria-label="Отменить"
+        title="Отменить (Esc)"
+        className="grid size-7 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
+      >
+        <X className="size-4" />
+      </button>
+    </div>
+  );
+}
+
 export function Composer({
   onSend,
+  replying,
+  onCancelReply,
+  editing,
+  onCancelEdit,
+  onSaveEdit,
 }: {
   onSend: (body: string, clientMsgId: string) => Promise<void>;
+  replying: Цитата | null;
+  onCancelReply: () => void;
+  editing: Message | null;
+  onCancelEdit: () => void;
+  onSaveEdit: (body: string) => Promise<void>;
 }) {
   const [text, setText] = useState("");
   const draftId = useRef(crypto.randomUUID());
+
+  /**
+   * Начали править — в поле встаёт текущий текст реплики.
+   *
+   * Зависимость по идентификатору, а не по самой реплике: объект приезжает
+   * новым при каждой перерисовке ленты, и по нему поле затирало бы всё,
+   * что человек успел набрать.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: правку открывает смена реплики, а не её поля
+  useEffect(() => {
+    if (editing) {
+      setText(editing.body);
+      field.current?.focus();
+    } else {
+      setText("");
+    }
+  }, [editing?.id]);
+
+  /**
+   * Взяли реплику в ответ — курсор сразу в поле.
+   *
+   * Без этого человек нажимает «Ответить» и должен ещё раз целиться мышью
+   * в поле ввода: два действия там, где мыслится одно. В Телеграме курсор
+   * встаёт сам, и это замечено на первом же живом прогоне.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: важен факт появления цитаты, а не её поля
+  useEffect(() => {
+    if (replying) field.current?.focus();
+  }, [replying?.id]);
   const field = useRef<HTMLTextAreaElement>(null);
 
   /**
@@ -112,6 +201,14 @@ export function Composer({
     const body = text.trim();
     if (!body) return;
 
+    // Правка — не отправка: у неё нет ни ключа идемпотентности, ни места
+    // в конце ленты. Одна кнопка на два действия, потому что для человека
+    // это одно место, куда он пишет.
+    if (editing) {
+      void onSaveEdit(body);
+      return;
+    }
+
     const key = draftId.current;
     draftId.current = crypto.randomUUID();
     setText("");
@@ -123,6 +220,13 @@ export function Composer({
     // Enter отправляет, Shift+Enter переносит строку — как во всех
     // переписках. Composing — набор через IME (китайский, японский):
     // там Enter подтверждает иероглиф, а не отправляет сообщение.
+    // Escape снимает и ответ, и правку — то же, что крестик в строке выше.
+    if (event.key === "Escape" && (replying || editing)) {
+      event.preventDefault();
+      if (editing) onCancelEdit();
+      else onCancelReply();
+      return;
+    }
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     submit();
@@ -139,6 +243,11 @@ export function Composer({
         submit();
       }}
     >
+      <Above
+        replying={replying}
+        editing={editing}
+        onCancel={editing ? onCancelEdit : onCancelReply}
+      />
       <div className="flex items-end gap-2">
         <textarea
           ref={field}
@@ -146,7 +255,7 @@ export function Composer({
           rows={1}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Написать в канал"
+          placeholder={editing ? "Изменить сообщение" : "Написать в канал"}
           aria-label="Текст сообщения"
           maxLength={8000}
           /* ⚠️ НИ РАМКИ, НИ СВОЕЙ ЗАЛИВКИ, НИ КОЛЬЦА ФОКУСА. Поле — это
@@ -160,8 +269,8 @@ export function Composer({
           type="submit"
           size="icon-sm"
           disabled={text.trim().length === 0}
-          aria-label="Отправить"
-          title="Отправить (Enter)"
+          aria-label={editing ? "Сохранить" : "Отправить"}
+          title={editing ? "Сохранить (Enter)" : "Отправить (Enter)"}
           className="rounded-pill"
         >
           <SendHorizontal />

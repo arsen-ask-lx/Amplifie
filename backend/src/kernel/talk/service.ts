@@ -19,7 +19,32 @@ interface MessageView {
   seq: number;
   createdAt: Date;
   editedAt: Date | null;
+  /** Когда закреплено. `null` — не закреплено. */
+  pinnedAt: Date | null;
   author: { id: string; name: string; kind: string };
+  /**
+   * На что это ответ. `null` — ответа нет ЛИБО исходную реплику удалили:
+   * снаружи это одно и то же, и правильно, что одно и то же — цитата
+   * на удалённое не должна показывать ни текст, ни пустую рамку.
+   */
+  replyTo: { id: string; seq: number; author: string; excerpt: string } | null;
+  /** От кого переслано. `null` — не пересылка. */
+  forwardedFrom: string | null;
+}
+
+/**
+ * Сколько текста цитаты уезжает в ленту.
+ *
+ * Цитата — это напоминание, а не второе сообщение. Длинная превращает
+ * ленту в удвоенную саму себя; у Телеграма примерно столько же.
+ */
+const EXCERPT = 120;
+
+function excerptOf(body: string): string {
+  // Переводы строк схлопываются: цитата живёт в одну строку, и настоящий
+  // перенос в ней сломал бы высоту пузыря сильнее, чем помог бы смыслу.
+  const flat = body.replace(/\s+/gu, " ").trim();
+  return flat.length > EXCERPT ? `${flat.slice(0, EXCERPT)}…` : flat;
 }
 
 function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[number]): MessageView {
@@ -31,7 +56,18 @@ function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[numbe
     seq: Number(row.seq),
     createdAt: row.createdAt,
     editedAt: row.editedAt,
+    pinnedAt: row.pinnedAt,
     author: { id: row.authorId, name: row.authorName, kind: row.authorKind },
+    replyTo:
+      row.replyToId === null || row.replyToBody === null
+        ? null
+        : {
+            id: row.replyToId,
+            seq: Number(row.replyToSeq),
+            author: row.replyToAuthorName ?? "",
+            excerpt: excerptOf(row.replyToBody),
+          },
+    forwardedFrom: row.forwardedFromAuthorName,
   };
 }
 
@@ -118,6 +154,8 @@ async function writeMessage(
     clientMsgId: string;
     kind?: string;
     trust?: string;
+    replyToId?: string | null;
+    forwardedFromId?: string | null;
   },
 ): Promise<MessageView> {
   // Номер берётся ТОЛЬКО так и только внутри этой же транзакции.
@@ -160,7 +198,12 @@ export interface SendResult {
 export async function sendMessage(
   viewer: Viewer,
   conversationId: string,
-  input: { body: string; clientMsgId: string },
+  input: {
+    body: string;
+    clientMsgId: string;
+    replyToId?: string | undefined;
+    forwardedFromId?: string | undefined;
+  },
 ): Promise<SendResult> {
   try {
     const result = await withTransaction(async (tx) => {
@@ -169,11 +212,20 @@ export async function sendMessage(
       const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
       if (already) return { replayed: true, message: await viewOf(tx, already.id) };
 
+      // ⚠️ ЦИТАТА И ИСТОЧНИК ПЕРЕСЫЛКИ ПРОВЕРЯЮТСЯ ТОЙ ЖЕ ПРОВЕРКОЙ ВИДИМОСТИ.
+      // Оба идентификатора приходят от клиента, а цитата ПОКАЗЫВАЕТ ТЕКСТ:
+      // без проверки по ним вытаскивался бы кусок чужого разговора. Здесь
+      // не «на всякий случай», а единственный рубеж.
+      const replyToId = await visibleMessageId(tx, viewer, input.replyToId);
+      const forwardedFromId = await visibleMessageId(tx, viewer, input.forwardedFromId);
+
       const message = await writeMessage(tx, target, {
         conversationId,
         authorParticipantId: viewer.participantId,
         body: input.body,
         clientMsgId: input.clientMsgId,
+        replyToId,
+        forwardedFromId,
       });
 
       return { replayed: false, message };
@@ -458,4 +510,135 @@ export async function createTaskDiscussion(viewer: Viewer, title: string): Promi
   const created = await openConversation(viewer, { kind: "task", title, visibility: "workspace" });
   publish(viewer.workspaceId);
   return { id: created.id };
+}
+
+/**
+ * Сообщение существует, не удалено и лежит в видимом мне разговоре.
+ *
+ * Возвращает идентификатор или бросает «не найдено». Ничего не отдавать
+ * молча нельзя: беззвучно проглоченная ссылка означала бы ответ, который
+ * потерял, на что отвечает, — и человек об этом не узнает.
+ */
+async function visibleMessageId(
+  tx: Executor,
+  viewer: Viewer,
+  messageId: string | undefined,
+): Promise<string | null> {
+  if (!messageId) return null;
+  const found = await repo.findMessage(tx, messageId);
+  if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
+  await requireVisible(tx, viewer, found.conversationId);
+  return found.id;
+}
+
+/** Сообщение не моё, не существует или удалено — снаружи всё это «нет». */
+async function requireMine(tx: Executor, viewer: Viewer, messageId: string) {
+  const found = await repo.findMessage(tx, messageId);
+  if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
+  // ⚠️ ОДИН КОД НА «НЕ ТВОЁ» И «НЕТ ТАКОГО», и это не лень. Отдельный ответ
+  // на «чужое» подтвердил бы, что сообщение существует, — по нему
+  // перебираются чужие разговоры.
+  if (found.authorParticipantId !== viewer.participantId) throw new ConversationNotVisibleError();
+  await requireVisible(tx, viewer, found.conversationId);
+  return found;
+}
+
+/**
+ * Изменить своё сообщение.
+ *
+ * Отметку «изменено» ставит хранилище, а не этот код: разнесённая
+ * по вызывающим, она однажды не поставится, и лента соврёт.
+ */
+export async function editMessage(
+  viewer: Viewer,
+  messageId: string,
+  body: string,
+): Promise<MessageView> {
+  const view = await withTransaction(async (tx) => {
+    const found = await requireMine(tx, viewer, messageId);
+    const changed = await repo.updateMessageBody(tx, messageId, body);
+    if (!changed) throw new ConversationNotVisibleError();
+
+    await appendEvent(tx, {
+      kind: "message.edited",
+      workspaceId: viewer.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "message",
+      subjectId: messageId,
+      // Ни старого текста, ни нового: журнал живёт дольше сообщения
+      // и читается шире разговора.
+      payload: { conversationId: found.conversationId, seq: Number(found.seq) },
+    });
+    return viewOf(tx, messageId);
+  });
+
+  publish(viewer.workspaceId);
+  return view;
+}
+
+/**
+ * Удалить своё сообщение.
+ *
+ * ⚠️ МЯГКО. Строка остаётся, тело стирается: на реплику могут ссылаться
+ * ответы и пересылки, и жёсткое удаление либо унесло бы их с собой,
+ * либо оставило висеть в пустоту.
+ */
+export async function deleteMessage(viewer: Viewer, messageId: string): Promise<void> {
+  await withTransaction(async (tx) => {
+    const found = await requireMine(tx, viewer, messageId);
+    const gone = await repo.softDeleteMessage(tx, messageId);
+    if (!gone) throw new ConversationNotVisibleError();
+
+    await appendEvent(tx, {
+      kind: "message.deleted",
+      workspaceId: viewer.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "message",
+      subjectId: messageId,
+      payload: { conversationId: found.conversationId, seq: Number(found.seq) },
+    });
+  });
+
+  publish(viewer.workspaceId);
+}
+
+/**
+ * Закрепить или открепить.
+ *
+ * Закрепляет ЛЮБОЙ, кому разговор виден, а не только автор: закреплённое —
+ * свойство разговора, а не сообщения его написавшего. Так в Телеграме
+ * и в Слаке.
+ */
+export async function pinMessage(
+  viewer: Viewer,
+  messageId: string,
+  pinned: boolean,
+): Promise<void> {
+  await withTransaction(async (tx) => {
+    const found = await repo.findMessage(tx, messageId);
+    if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
+    await requireVisible(tx, viewer, found.conversationId);
+
+    // Повтор — не ошибка: закрепить закреплённое означает «пусть будет
+    // закреплено», и результат тот же.
+    await repo.setPinned(tx, messageId, pinned ? new Date() : null);
+
+    await appendEvent(tx, {
+      kind: pinned ? "message.pinned" : "message.unpinned",
+      workspaceId: viewer.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "message",
+      subjectId: messageId,
+      payload: { conversationId: found.conversationId, seq: Number(found.seq) },
+    });
+  });
+
+  publish(viewer.workspaceId);
+}
+
+/** Закреплённое разговора, свежее сверху. */
+export async function listPinned(viewer: Viewer, conversationId: string) {
+  await requireVisible(db, viewer, conversationId);
+  const rows = await repo.listPinned(db, conversationId);
+  return { items: rows.map(presentMessage) };
 }

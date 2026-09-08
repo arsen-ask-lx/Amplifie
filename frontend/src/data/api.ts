@@ -66,6 +66,14 @@ export interface Conversation {
   lastAt?: string;
 }
 
+/** На что отвечает реплика. Кусок текста присылает сервер — здесь не режем. */
+export interface Quote {
+  id: string;
+  seq: number;
+  author: string;
+  excerpt: string;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -74,7 +82,17 @@ export interface Message {
   seq: number;
   createdAt: string;
   editedAt: string | null;
+  /** Когда закреплено. `null` — не закреплено. */
+  pinnedAt: string | null;
   author: { id: string; name: string; kind: string };
+  /**
+   * Цитата. `null` — ответа не было ЛИБО исходную реплику удалили; снаружи
+   * это одно и то же намеренно: цитата на удалённое не должна показывать
+   * ни текст, ни пустую рамку.
+   */
+  replyTo: Quote | null;
+  /** Имя того, от кого переслано. `null` — не пересылка. */
+  forwardedFrom: string | null;
 }
 
 /**
@@ -136,11 +154,30 @@ export const api = {
    * Отправка. `clientMsgId` рождается в момент набора и не меняется при
    * повторе: сервер по нему узнаёт то же самое сообщение и не заводит второе.
    */
-  send: (id: string, body: string, clientMsgId: string) =>
+  send: (
+    id: string,
+    body: string,
+    clientMsgId: string,
+    links: { replyToId?: string; forwardedFromId?: string } = {},
+  ) =>
     request<Message>(`/v1/conversations/${id}/messages`, {
       method: "POST",
-      body: JSON.stringify({ body, clientMsgId }),
+      body: JSON.stringify({ body, clientMsgId, ...links }),
     }),
+
+  /** Закреплённое разговора. Отдельной дверью: полоска нужна с первого кадра. */
+  pinned: (id: string) => request<{ items: Message[] }>(`/v1/conversations/${id}/pinned`),
+
+  edit: (messageId: string, body: string) =>
+    request<Message>(`/v1/messages/${messageId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ body }),
+    }),
+
+  remove: (messageId: string) => request<void>(`/v1/messages/${messageId}`, { method: "DELETE" }),
+
+  pin: (messageId: string, pinned: boolean) =>
+    request<void>(`/v1/messages/${messageId}/pin`, { method: pinned ? "POST" : "DELETE" }),
 
   /** Агенты пространства и состояние МОЕГО моста — через него они отвечают. */
   agents: () => request<AgentsView>("/v1/agents"),
