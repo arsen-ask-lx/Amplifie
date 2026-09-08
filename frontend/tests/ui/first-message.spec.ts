@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { bubble, bubbles, createChannel, field, register } from "./fixtures.js";
+import { bubble, bubbles, createChannel, register, typeInto } from "./fixtures.js";
 
 /**
  * П-1: первая реплика в новом канале не мерцает.
@@ -64,8 +64,7 @@ test("первая реплика в новом канале не пересоз
   await page.evaluate(WATCH);
 
   const текст = "первая строка в пустом канале";
-  await field(page).fill(текст);
-  await field(page).press("Enter");
+  await typeInto(page, текст, "Отправить");
 
   // Ждём подтверждения сервером: до него временный номер ещё жив, и
   // проверять нечего. Значок «доставлено» — то же, что видит человек.

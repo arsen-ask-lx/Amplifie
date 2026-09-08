@@ -107,6 +107,20 @@ export function bubble(page: Page, text: string) {
 }
 
 /**
+ * Открыть меню реплики правой кнопкой и выбрать пункт.
+ *
+ * ⚠️ ЩЁЛКАЕМ ПО САМОМУ ТЕКСТУ, А НЕ ПО СТРОКЕ. Строка растянута во всю
+ * ширину ленты (960 точек), пузырь — по длине текста (сотня). Playwright
+ * бьёт в середину, и середина строки — пустое место СПРАВА от пузыря,
+ * где меню не живёт. Измерено, а не угадано: на этом легли все три
+ * первых прогона.
+ */
+export async function menu(page: Page, text: string, item: string): Promise<void> {
+  await bubble(page, text).first().getByText(text).first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: item, exact: true }).click();
+}
+
+/**
  * Сказать реплику и дождаться, что она ДОШЛА ДО СЕРВЕРА.
  *
  * ⚠️ ЖДЁМ ЗНАЧОК «ДОСТАВЛЕНО», А НЕ ПОЯВЛЕНИЕ ТЕКСТА. Текст появляется
@@ -116,7 +130,58 @@ export function bubble(page: Page, text: string) {
  * и мигали бы по-настоящему редко — худший вид.
  */
 export async function say(page: Page, text: string): Promise<void> {
-  await field(page).fill(text);
-  await field(page).press("Enter");
+  await typeInto(page, text, "Отправить");
   await expect(bubble(page, text).getByLabel("доставлено")).toBeVisible();
+}
+
+/** Сохранить правку: прежний текст стирается, кнопка называется иначе. */
+export async function saveEdit(page: Page, text: string): Promise<void> {
+  await typeInto(page, text, "Сохранить", { clear: true });
+}
+
+/**
+ * Набрать в поле и нажать ввод.
+ *
+ * ⚠️ ЖДЁМ, ПОКА КНОПКА ОТПРАВКИ ОЖИВЁТ. Это не «подождать миллисекунду»,
+ * а видимое человеку условие: пока поле пусто, кнопка выключена. Без
+ * ожидания две трети прогонов теряли реплику — измерено отдельным
+ * прогоном, 8 потерь из 12.
+ *
+ * Причина не в тесте: содержимое поля живёт в ДВУХ местах — в самом
+ * редакторе и в копии, которую держит поле ввода. Отправка читает копию,
+ * а копия обновляется не сразу. Кто вставит текст и мгновенно нажмёт
+ * ввод — не отправит ничего (Д-21). Кнопка выключена ровно до того
+ * мгновения, когда копия догнала, поэтому ждать её — значит ждать
+ * готовности, а не выдуманного срока.
+ */
+export async function typeInto(
+  page: Page,
+  text: string,
+  button: string,
+  { clear = false }: { clear?: boolean } = {},
+): Promise<void> {
+  await field(page).click();
+
+  // ⚠️ ВЫДЕЛЕНИЕ ВСЕГО — ТОЛЬКО ТАМ, ГДЕ ЕСТЬ ЧТО СТИРАТЬ. Ctrl+A на
+  // ПУСТОМ поле съедает первую букву набранного: «видно» приезжало
+  // «идно». Поймано только потому, что тест сверяет набранное с тем,
+  // что в поле, — по значку «доставлено» это выглядело бы как
+  // случайное мигание раз в три прогона.
+  if (clear) {
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.press("Backspace");
+    await expect(field(page)).toHaveText("");
+  }
+
+  // ⚠️ НАБИРАЕМ ПО ЗНАКУ, А НЕ ВСТАВЛЯЕМ ЦЕЛИКОМ. `fill` кладёт текст
+  // одним куском мимо клавиатуры, и редактор его иногда не замечает
+  // вовсе: замер на двадцати прогонах — вставка 6 из 10, набор 10 из 10.
+  // Набор к тому же и есть то, что делает человек.
+  await field(page).pressSequentially(text);
+
+  // Сверяем, что в поле лежит ровно набранное. Без этой строки потеря
+  // знака проявляется где-то дальше и выглядит как мигание теста.
+  await expect(field(page)).toHaveText(text);
+  await expect(page.getByLabel(button, { exact: true })).toBeEnabled();
+  await field(page).press("Enter");
 }

@@ -87,6 +87,23 @@ jobs:
         run: make migrate
       - name: Приёмочные тесты
         run: npm test
+      # ⚠️ БРАУЗЕР СТАВИТСЯ ОТДЕЛЬНЫМ ШАГОМ, А НЕ ВНУТРИ ТЕСТА. Так его
+      # отказ виден отказом СВОЕГО шага: «не смог скачать Chromium»
+      # и «сценарий не прошёл» — разные новости, и путать их нельзя.
+      # Версия браузера берётся от закреплённой версии пакета.
+      - name: Браузер для проверок интерфейса
+        run: npx playwright install --with-deps chromium
+      - name: Проверки интерфейса
+        run: npm run test-ui
+      - name: Следы прогона при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
       - name: Логи при падении
         if: failure()
         run: docker compose logs --tail=200
