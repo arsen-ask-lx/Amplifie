@@ -1,8 +1,7 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { ModelUnavailableError } from "../../../app/answering.js";
 import { BreakerOpenError, NotAgentTaskError, runTask } from "../../../app/working.js";
-import { resolveActor } from "../../../kernel/identity/index.js";
 import {
   createTask,
   listParticipants,
@@ -14,7 +13,7 @@ import {
 } from "../../../kernel/work/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
 import { parse } from "./parse.js";
-import { SESSION_COOKIE, viewerOf } from "./viewer.js";
+import { viewerOf } from "./viewer.js";
 
 /** Ядро продукта наружу: разбор разговора, договорённости, задачи. */
 

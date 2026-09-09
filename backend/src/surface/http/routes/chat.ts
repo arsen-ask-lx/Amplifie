@@ -22,6 +22,7 @@ import {
   type Viewer,
 } from "../../../kernel/talk/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
+import { SEND, SYNC } from "../limits.js";
 import { parse } from "./parse.js";
 import { SESSION_COOKIE } from "./viewer.js";
 
@@ -181,20 +182,24 @@ export function registerChatRoutes(app: FastifyInstance): void {
     },
   );
 
-  app.post<{ Params: { id: string } }>("/v1/conversations/:id/messages", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+  app.post<{ Params: { id: string } }>(
+    "/v1/conversations/:id/messages",
+    { config: { rateLimit: SEND } },
+    async (request, reply) => {
+      const viewer = await viewerOf(request, reply);
+      if (!viewer) return reply;
 
-    const input = parse(sendSchema, request.body, reply);
-    if (!input) return reply;
+      const input = parse(sendSchema, request.body, reply);
+      if (!input) return reply;
 
-    return orNotFound(reply, async () => {
-      const result = await sendMessage(viewer, request.params.id, input);
-      // 200 на повтор, 201 на новое: клиент по коду понимает, что произошло,
-      // а повтор после разрыва — нормальная работа, а не ошибка.
-      return reply.code(result.replayed ? 200 : 201).send(result.message);
-    });
-  });
+      return orNotFound(reply, async () => {
+        const result = await sendMessage(viewer, request.params.id, input);
+        // 200 на повтор, 201 на новое: клиент по коду понимает, что произошло,
+        // а повтор после разрыва — нормальная работа, а не ошибка.
+        return reply.code(result.replayed ? 200 : 201).send(result.message);
+      });
+    },
+  );
 
   /**
    * Удалить канал. Чужое и несуществующее — оба 404: см. ядро.
@@ -307,6 +312,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
    */
   app.get<{ Querystring: { after?: string; limit?: string } }>(
     "/v1/sync",
+    { config: { rateLimit: SYNC } },
     async (request, reply) => {
       const viewer = await viewerOf(request, reply);
       if (!viewer) return reply;

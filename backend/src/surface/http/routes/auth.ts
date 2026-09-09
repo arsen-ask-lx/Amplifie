@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { signUp } from "../../../app/signUp.js";
 import {
@@ -15,6 +15,7 @@ import {
   revokeInvite,
 } from "../../../kernel/identity/index.js";
 import { config } from "../../../platform/config.js";
+import { INVITE, JOIN, LOGIN, REGISTER } from "../limits.js";
 import { parse } from "./parse.js";
 import { SESSION_COOKIE, viewerOf } from "./viewer.js";
 
@@ -78,7 +79,7 @@ function present(actor: Actor) {
 }
 
 export function registerAuthRoutes(app: FastifyInstance): void {
-  app.post("/v1/auth/register", async (request, reply) => {
+  app.post("/v1/auth/register", { config: { rateLimit: REGISTER } }, async (request, reply) => {
     const input = parse(registerSchema, request.body, reply);
     if (!input) return reply;
 
@@ -101,7 +102,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post("/v1/auth/login", async (request, reply) => {
+  app.post("/v1/auth/login", { config: { rateLimit: LOGIN } }, async (request, reply) => {
     const input = parse(loginSchema, request.body, reply);
     if (!input) return reply;
 
@@ -131,7 +132,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
    * исчерпано, нет такого. Разница в ответе — это способ перебрать живые
    * приглашения, и он бесплатен для того, кто перебирает.
    */
-  app.post("/v1/auth/join", async (request, reply) => {
+  app.post("/v1/auth/join", { config: { rateLimit: JOIN } }, async (request, reply) => {
     const input = parse(joinSchema, request.body, reply);
     if (!input) return reply;
 
@@ -150,7 +151,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.post("/v1/invites", async (request, reply) => {
+  app.post("/v1/invites", { config: { rateLimit: INVITE } }, async (request, reply) => {
     const who = await viewerOf(request, reply);
     if (!who) return reply;
     const input = parse(inviteSchema, request.body ?? {}, reply);
