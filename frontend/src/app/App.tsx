@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useMatch, useNavigate } from "react-router";
 import { api, type Me } from "../data/api.js";
 import { AuthScreen } from "../screens/AuthScreen.js";
+import { JoinScreen } from "../screens/JoinScreen.js";
 import { ChatScreen } from "./ChatScreen.js";
 
 type State =
@@ -12,6 +14,16 @@ type State =
 export function App() {
   const [state, setState] = useState<State>({ status: "loading" });
 
+  /**
+   * Пришли по приглашению.
+   *
+   * ⚠️ ОТДЕЛЬНЫЙ АДРЕС И ОТДЕЛЬНЫЙ ЭКРАН, А НЕ ГАЛОЧКА НА РЕГИСТРАЦИИ:
+   * два потока входа в одном месте — это ровно тот класс уязвимости,
+   * ради которого написано Р-009.
+   */
+  const invited = useMatch("/join/:token");
+  const navigate = useNavigate();
+
   // Кто пришёл — спрашиваем у сервера, а не у localStorage: печенька
   // HttpOnly, и это единственный честный источник ответа.
   useEffect(() => {
@@ -22,6 +34,23 @@ export function App() {
   }, []);
 
   if (state.status === "loading") return null;
+
+  const token = invited?.params.token;
+  if (token && state.status !== "entered") {
+    return (
+      <JoinScreen
+        token={token}
+        onEntered={(me) => {
+          // ⚠️ ТОКЕН УБИРАЕТСЯ ИЗ АДРЕСА СРАЗУ. Он уже погашен, но остался
+          // бы в истории браузера и в заголовке вкладки — а это то самое,
+          // чем входят. `replace` вместо перехода: «назад» не должен
+          // возвращать на страницу с токеном.
+          navigate("/", { replace: true });
+          setState({ status: "entered", me });
+        }}
+      />
+    );
+  }
 
   if (state.status === "anon") {
     return (

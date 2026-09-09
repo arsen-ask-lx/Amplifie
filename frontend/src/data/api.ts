@@ -292,6 +292,28 @@ export const api = {
     request<Me>("/v1/auth/login", { method: "POST", body: JSON.stringify(input) }),
   logout: () => request<void>("/v1/auth/logout", { method: "POST", body: "{}" }),
 
+  /**
+   * Позвать в пространство: ссылка выдаётся ОДИН раз.
+   *
+   * В базе живёт только хеш токена, поэтому «показать ту же ссылку»
+   * невозможно ни нам, ни кому-либо ещё. Потерял — сделай новую.
+   */
+  invite: () =>
+    request<{ id: string; token: string; expiresAt: string; maxUses: number }>("/v1/invites", {
+      method: "POST",
+      body: "{}",
+    }),
+
+  /**
+   * Войти по приглашению — ОТДЕЛЬНАЯ дверь, а не регистрация с полем.
+   *
+   * ⚠️ РЕГИСТРАЦИЯ ТОКЕН НЕ ПРИНИМАЕТ И НЕ ДОЛЖНА. Класс уязвимости,
+   * ради которого это разделено (Р-009): тот же токен через ДРУГОЙ поток
+   * входа обходил проверку доступа.
+   */
+  join: (input: { token: string; email: string; password: string; displayName: string }) =>
+    request<Me>("/v1/auth/join", { method: "POST", body: JSON.stringify(input) }),
+
   tasks: () => request<{ items: Task[] }>("/v1/tasks"),
 
   /** Мосты участника: и подключённые, и ещё не погашенные коды. */

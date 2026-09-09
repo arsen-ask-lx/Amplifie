@@ -1,4 +1,4 @@
-import { Check, Palette, SignOut } from "@phosphor-icons/react";
+import { Check, Palette, SignOut, UserPlus } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Me } from "../data/api.js";
 import { apply, chosen, remember, THEMES, type Theme } from "../shared/theme.js";
@@ -13,6 +13,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../shared/ui/dropdown-menu.js";
+import { InviteDialog } from "./InviteDialog.js";
 
 /**
  * Профиль в подвале панели: кто я, и всё, что относится ко мне.
@@ -68,6 +69,7 @@ function Themes({ value, onPick }: { value: Theme; onPick: (theme: Theme) => voi
 
 export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
   const [theme, setTheme] = useState<Theme>(chosen);
+  const [inviting, setInviting] = useState(false);
 
   function pick(picked: Theme) {
     setTheme(picked);
@@ -108,11 +110,25 @@ export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
 
         <DropdownMenuSeparator />
 
+        {/* ⚠️ ПРИГЛАШЕНИЕ ЖИВЁТ ЗДЕСЬ, А НЕ У КАНАЛА. Позвать в компанию
+            и добавить в группу — разные действия: первое даёт человеку
+            место в пространстве, второе — доступ к одному разговору.
+            Слитые в одну кнопку, они однажды впустят в компанию того,
+            кого звали в канал. */}
+        <DropdownMenuItem onSelect={() => setInviting(true)}>
+          <UserPlus />
+          Пригласить в пространство
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
         <DropdownMenuItem variant="destructive" onSelect={onLeave}>
           <SignOut />
           Выйти
         </DropdownMenuItem>
       </DropdownMenuContent>
+
+      {inviting ? <InviteDialog onClose={() => setInviting(false)} /> : null}
     </DropdownMenu>
   );
 }
