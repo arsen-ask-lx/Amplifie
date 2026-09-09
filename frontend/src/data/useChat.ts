@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useMatch, useNavigate } from "react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { troubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message, type Quote } from "./api.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
+import { type Focus, useAddress } from "./useAddress.js";
+import { useRooms } from "./useRooms.js";
 
 /**
  * Лента разговора: загрузка, догон и живые обновления.
@@ -19,19 +20,6 @@ import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
  */
 
 const PAGE = 50;
-
-/**
- * Куда смотреть в ленте. Каждый переход рождает НОВЫЙ объект, даже если
- * поля те же: по его смене лента понимает, что надо подсветить реплику
- * ещё раз. Сравнение по значению здесь молча съело бы повторный переход.
- *
- * Новизну теперь даёт сам маршрутизатор: у каждого перехода свой `key`,
- * даже если адрес тот же. Раньше её приходилось изображать вручную.
- */
-export interface Focus {
-  conversationId: string;
-  seq: number;
-}
 
 /**
  * Долистать назад, пока нужная реплика не окажется в ленте.
@@ -60,6 +48,8 @@ async function pageBackTo(
   // старого не двигает конец пространства.
   return { items: all, hasMore: more, head: start.head };
 }
+
+export type { Focus };
 
 export interface Chat {
   conversations: Conversation[];
@@ -130,44 +120,20 @@ export function useChat(me: Me): Chat {
   /** На что сейчас отвечаем. `null` — обычная отправка. */
   const [replying, setReplying] = useState<Quote | null>(null);
   const [pinned, setPinned] = useState<Message[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasOlder, setHasOlder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
 
-  // Где человек находится — читается из адреса, а не хранится рядом с ним.
-  //
-  // `useMatch`, а не `useParams`: параметры адреса нужны ЗДЕСЬ, в хуке,
-  // который зовётся выше любого `<Route>`. `useParams` в таком месте
-  // молча вернул бы пустоту — и разговор не открывался бы вовсе.
-  const atSeq = useMatch("/c/:conversationId/:seq");
-  const atRoom = useMatch("/c/:conversationId");
-  const location = useLocation();
-  const navigate = useNavigate();
+  // Где человек находится — отдельным знанием (Д-10, task-020).
+  // Здесь про адрес больше ничего нет: он выводится из самого адреса,
+  // а не хранится рядом с ним вторым способом.
+  const where = useAddress();
+  const { currentId, currentIdRef, wanted, focus, atRootRef, navigate } = where;
 
-  const currentId = atSeq?.params.conversationId ?? atRoom?.params.conversationId ?? null;
-  const wanted = atSeq?.params.seq === undefined ? null : Number(atSeq.params.seq);
-
-  // Список разговоров читается один раз при входе, и внутри того эффекта
-  // нужно знать, назвал ли адрес разговор. Через ссылку, а не через
-  // зависимость: иначе эффект перезапускался бы на каждом переходе
-  // и перечитывал список без повода.
-  const currentIdRef = useRef(currentId);
-  currentIdRef.current = currentId;
-
-  /** Мы на голом «/» — только там уместно подставить разговор по умолчанию. */
-  const atRootRef = useRef(location.pathname === "/");
-  atRootRef.current = location.pathname === "/";
-
-  // Ключ перехода в зависимостях НАМЕРЕННО «лишний»: повторный переход
-  // к ТОЙ ЖЕ реплике обязан подсветить её ещё раз, а по значению он
-  // неотличим от предыдущего и был бы съеден молча.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: новизна перехода и есть смысл
-  const focus = useMemo<Focus | null>(
-    () => (currentId && wanted !== null ? { conversationId: currentId, seq: wanted } : null),
-    [currentId, wanted, location.key],
-  );
+  // Список каналов — отдельным знанием (Д-10, task-020). Лента про него
+  // не спрашивает, он про ленту не знает.
+  const rooms = useRooms(where);
 
   // Что на экране сейчас — для отправки, которой нужен последний номер,
   // но не нужна перерисовка при каждом его изменении.
@@ -232,32 +198,25 @@ export function useChat(me: Me): Chat {
       }
       if (!batch.hasMore) return;
     }
-  }, []);
-
-  /**
-   * Перечитать список разговоров.
-   *
-   * ⚠️ ЗОВЁТСЯ НЕ ТОЛЬКО ПРИ ВХОДЕ. Раньше список читался ровно один раз,
-   * и заведённый кем-то канал не появлялся у остальных до перезагрузки
-   * страницы — владелец это и поймал. Догон `/v1/sync` тут не помощник:
-   * он умеет только «сообщения новее номера N», а канал не сообщение.
-   * Зато звонок о переменах приходит на каждое событие — по нему и
-   * перечитываем: запрос дешёвый, а список короткий.
-   */
-  const reloadRooms = useCallback(async () => {
-    const { items } = await api.conversations();
-    setConversations(items);
-    return items;
-  }, []);
+    // ⚠️ ССЫЛКА В ЗАВИСИМОСТЯХ, А НЕ ЕЁ СОДЕРЖИМОЕ. Сам объект ссылки
+    // неизменен, и от него ничего не пересоздаётся; `currentIdRef.current`
+    // в списке означал бы пересоздание догона на каждом переключении
+    // канала — ровно то, ради чего ссылка и заведена.
+  }, [currentIdRef]);
 
   // Список разговоров — один раз при входе. `navigate` в зависимостях
   // стоит честно, хотя маршрутизатор и обещает его неизменность: обещание
   // чужой библиотеки — не то, на чём стоит держать единственную загрузку.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ссылки на адрес неизменны, их содержимое читается на момент ответа
   useEffect(() => {
-    api
-      .conversations()
-      .then(({ items }) => {
-        setConversations(items);
+    rooms
+      .reload()
+      .then((items) => {
+        // ⚠️ ЗАГРУЗКА ИДЁТ ЧЕРЕЗ `rooms.reload`, А НЕ СВОИМ ЗАПРОСОМ.
+        // Раньше здесь стоял второй вызов `api.conversations()` — тот же
+        // запрос, что и в перечитывании списка, только записанный дважды.
+        // Одно знание, одно место.
+        //
         // Адрес «/» — это «покажи что-нибудь»: подставляем первый разговор
         // ЗАМЕНОЙ записи в истории, чтобы «назад» не возвращал на «/»
         // и не отправлял человека в бесконечную петлю.
@@ -369,14 +328,14 @@ export function useChat(me: Me): Chat {
       // вместе с самой репликой: закрепление двигает номер изменения,
       // как правка и удаление. Отдельный запрос был вторым путём к тому
       // же событию.
-      reloadRooms().catch(ignore);
+      rooms.reload().catch(ignore);
     };
     stream.addEventListener("changed", onChanged);
     return () => {
       stream.removeEventListener("changed", onChanged);
       stream.close();
     };
-  }, [catchUp, reloadRooms]);
+  }, [catchUp, rooms.reload]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]?.seq;
@@ -491,65 +450,6 @@ export function useChat(me: Me): Chat {
       })();
     },
     [currentId, me],
-  );
-
-  /**
-   * Новый разговор появляется в списке и сразу открывается.
-   *
-   * Список перечитывается целиком, а не дополняется ответом: в нём мог
-   * появиться и чужой канал, пока мы набирали название. Один запрос
-   * дешевле, чем два источника правды о списке.
-   */
-  const openNew = useCallback(
-    async (make: () => Promise<Conversation>) => {
-      const created = await make();
-      const { items } = await api.conversations();
-      setConversations(items);
-      navigate(`/c/${created.id}`);
-    },
-    [navigate],
-  );
-
-  const addChannel = useCallback(
-    async (title: string) => {
-      await openNew(() => api.createChannel(title));
-    },
-    [openNew],
-  );
-
-  /**
-   * Удалить канал.
-   *
-   * ⚠️ СПИСОК ПЕРЕЧИТЫВАЕТСЯ, А НЕ ПРАВИТСЯ НА МЕСТЕ. Из списка уходит
-   * не только сам канал, но и всё, что от него зависело: порядок по
-   * свежести, ветки. Сервер уже умеет собрать этот список правильно —
-   * второе такое же место на клиенте разошлось бы с ним.
-   *
-   * ⚠️ ЕСЛИ УДАЛИЛИ ТОТ, ЧТО ОТКРЫТ, — уводим на первый оставшийся.
-   * Остаться на адресе снесённого канала значит показать «Загружаем…»
-   * навсегда: сервер о нём больше не расскажет.
-   */
-  const removeChannel = useCallback(
-    async (id: string) => {
-      await api.removeChannel(id);
-      const items = await reloadRooms();
-      if (currentIdRef.current !== id) return;
-      const next = items.find((room) => room.parentId === null);
-      navigate(next ? `/c/${next.id}` : "/", { replace: true });
-    },
-    [reloadRooms, navigate],
-  );
-
-  const addThread = useCallback(
-    async (title: string) => {
-      // Ветка заводится у КОРНЯ: ветка от ветки не бывает (дерево
-      // ровно двухуровневое), и сервер такое всё равно отклонит.
-      const room = conversations.find((c) => c.id === currentId);
-      const rootId = room?.parentId ?? room?.id;
-      if (!rootId) return;
-      await openNew(() => api.createThread(rootId, title));
-    },
-    [conversations, currentId, openNew],
   );
 
   const select = useCallback(
@@ -671,8 +571,8 @@ export function useChat(me: Me): Chat {
   }, []);
 
   return {
-    conversations,
-    current: conversations.find((c) => c.id === currentId) ?? null,
+    conversations: rooms.items,
+    current: rooms.items.find((c) => c.id === currentId) ?? null,
     follow,
     replying,
     reply,
@@ -691,8 +591,8 @@ export function useChat(me: Me): Chat {
     loadOlder,
     send,
     agentFailure,
-    addChannel,
-    removeChannel,
-    addThread,
+    addChannel: rooms.addChannel,
+    removeChannel: rooms.removeChannel,
+    addThread: rooms.addThread,
   };
 }

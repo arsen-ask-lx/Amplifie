@@ -169,6 +169,12 @@ map: ## карта проекта обновлена вместе с комми�
 map-check: ## проверки самого правила карты (подсаженное нарушение)
 > npm run map:check
 
+# ⚠️ ЧИТАЕТ ДЕРЕВО, А НЕ ЗОВЁТ CLI. Инструмент стоит глобально, а в конвейере
+# его нет: гейт, зависящий от чужой глобальной установки, краснеет там,
+# где код исправен.
+openspec: ## спецификация поведения не расходится со сделанным (Р-027)
+> npm run openspec
+
 model: ## спросить подключённую модель вживую (не гейт, а проверка связи)
 > npm run model
 
@@ -224,7 +230,7 @@ test-ui: ## проверки интерфейса настоящим брауз�
 > npx playwright install chromium
 > npm run test-ui
 
-check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui load check
+.PHONY: help env hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui load check
