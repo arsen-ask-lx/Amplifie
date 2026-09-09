@@ -61,10 +61,9 @@ async function door(page: Page, want: "установка" | "вход"): Promis
   if (await need.isVisible()) await need.click();
 }
 
-/** Пройти мастер первого запуска насквозь, ничего не подключая. */
+/** Пройти установку насквозь, ничего не подключая. Экран один (task-026). */
 export async function skipSetup(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Пропустить — подключу позже" }).click();
-  await page.getByRole("button", { name: "Позже — открыть чат" }).click();
+  await page.getByRole("button", { name: "Подключить позже" }).click();
 }
 
 /** Завести пространство и войти в него. Возвращает, кто вошёл. */
