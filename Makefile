@@ -38,6 +38,16 @@ API_URL ?= http://localhost:8477
 dev: ## фронт с горячей перезагрузкой (стек уже поднят: make up)
 > API_URL=$(API_URL) npm run dev --workspace=@amplifie/frontend
 
+# ⚠️ С ЭТОГО НАЧИНАЕТСЯ РАБОТА. Одна команда вместо двух — не ради
+# удобства: «тыкалка» (Alt+щелчок по элементу → замечание в файл) живёт
+# ТОЛЬКО на дев-сервере. В образ она не попадает и попасть не должна,
+# поэтому забыть поднять дев-сервер значит остаться без неё и не понять,
+# почему Alt ничего не делает.
+#
+# Порядок важен: сперва стек (база и бек), потом фронт — он к ним ходит.
+# `dev` держит окно занятым, поэтому стоит последним.
+work: up dev ## начать работу: стек + фронт с тыкалкой (Alt+щелчок)
+
 # То же самое для бека. Node 24 запускает TypeScript сам, поэтому сборка
 # не нужна вовсе — только перезапуск на изменение файла.
 #
@@ -169,4 +179,4 @@ test-ui: ## проверки интерфейса настоящим брауз�
 check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui check
+.PHONY: help env up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui check
