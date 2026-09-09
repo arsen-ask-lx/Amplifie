@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, type Me } from "../data/api.js";
-import { describeFailure, type FormProblem } from "../shared/authMessages.js";
+import type { FormProblem } from "../shared/authMessages.js";
 import { Field } from "../shared/Field.js";
 import { Button } from "../shared/ui/button.js";
+import { Credentials } from "./entry/Credentials.js";
 import { EntryFrame } from "./entry/EntryFrame.js";
+import { EntryHead } from "./entry/EntryHead.js";
 import { МОСТ } from "./entry/pictures.js";
+import { useEntryForm } from "./entry/useEntryForm.js";
 
 /**
  * Какую дверь показать. `null` — ещё не спросили сервер (task-023).
@@ -16,7 +19,7 @@ import { МОСТ } from "./entry/pictures.js";
  */
 type Mode = "login" | "register" | null;
 
-const EMPTY: FormProblem = { fields: {}, common: null };
+const _EMPTY: FormProblem = { fields: {}, common: null };
 
 interface Draft {
   email: string;
@@ -63,27 +66,6 @@ function useDoor(): { mode: Mode; mayCreate: boolean; setMode: (mode: Mode) => v
  * 10, и линтер был прав — «какая дверь», «какие поля» и «что пошло
  * не так» читались одним куском.
  */
-function Head({ isRegister, trouble }: { isRegister: boolean; trouble: string | null }) {
-  return (
-    <>
-      <h1 className="mb-1 text-brand leading-tight text-ink">
-        {isRegister ? "Создать пространство" : "С возвращением"}
-      </h1>
-      <p className="mt-2 mb-6 text-body leading-relaxed text-muted">
-        {isRegister
-          ? "Рабочее место, где агенты слышат разговор"
-          : "Разговор, из которого выходят задачи"}
-      </p>
-
-      {trouble ? (
-        <div className="mb-3 rounded border border-danger/40 bg-panel px-3 py-2 text-aside text-danger">
-          {trouble}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
 /** Поля, которые есть только у установки: кто вы и как назвать компанию. */
 function Extra({
   draft,
@@ -131,29 +113,20 @@ export function AuthScreen({
 }) {
   const { mode, mayCreate, setMode } = useDoor();
   const [draft, setDraft] = useState<Draft>(BLANK);
-  const [problem, setProblem] = useState<FormProblem>(EMPTY);
-  const [busy, setBusy] = useState(false);
 
   const isRegister = mode === "register";
   const set = (key: keyof Draft) => (value: string) => setDraft((d) => ({ ...d, [key]: value }));
 
-  async function submit(formEvent: React.FormEvent) {
-    formEvent.preventDefault();
-    setBusy(true);
-    setProblem(EMPTY);
-    try {
-      if (isRegister) onInstalled(await api.register(draft));
-      else onEntered(await api.login(draft));
-    } catch (error) {
-      setProblem(describeFailure(error));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { busy, problem, submit, forget } = useEntryForm(async () => {
+    if (isRegister) onInstalled(await api.register(draft));
+    else onEntered(await api.login(draft));
+  });
 
   function switchMode() {
     setMode(isRegister ? "login" : "register");
-    setProblem(EMPTY);
+    // Отказ прошлой двери на новой двери — ложь: человек ещё ничего
+    // здесь не пробовал.
+    forget();
   }
 
   // Пока не знаем, какая дверь, — рама и знак уже на месте, а формы нет.
@@ -162,25 +135,23 @@ export function AuthScreen({
   return (
     <EntryFrame picture={МОСТ}>
       <form onSubmit={submit} noValidate>
-        <Head isRegister={isRegister} trouble={problem.common} />
-
-        <Field
-          label="Почта"
-          type="email"
-          name="email"
-          autoComplete="email"
-          value={draft.email}
-          onChange={set("email")}
-          error={problem.fields.email}
+        <EntryHead
+          title={isRegister ? "Создать пространство" : "С возвращением"}
+          subtitle={
+            isRegister
+              ? "Рабочее место, где агенты слышат разговор"
+              : "Разговор, из которого выходят задачи"
+          }
+          trouble={problem.common}
         />
-        <Field
-          label="Пароль"
-          type="password"
-          name="password"
-          autoComplete={isRegister ? "new-password" : "current-password"}
-          value={draft.password}
-          onChange={set("password")}
-          error={problem.fields.password}
+
+        <Credentials
+          email={draft.email}
+          password={draft.password}
+          onEmail={set("email")}
+          onPassword={set("password")}
+          problem={problem}
+          придумывает={isRegister}
         />
 
         {isRegister ? <Extra draft={draft} problem={problem} set={set} /> : null}

@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { api, type Me } from "../data/api.js";
-import { describeFailure, type FormProblem } from "../shared/authMessages.js";
 import { Field } from "../shared/Field.js";
 import { Button } from "../shared/ui/button.js";
+import { Credentials } from "./entry/Credentials.js";
 import { EntryFrame } from "./entry/EntryFrame.js";
+import { EntryHead } from "./entry/EntryHead.js";
 import { МОСТ } from "./entry/pictures.js";
+import { useEntryForm } from "./entry/useEntryForm.js";
 
 /**
  * Вход по приглашению — ОТДЕЛЬНЫЙ экран, а не галочка на регистрации.
@@ -21,60 +23,31 @@ import { МОСТ } from "./entry/pictures.js";
  * компании сразу после входа, и этого достаточно.
  */
 
-const EMPTY: FormProblem = { fields: {}, common: null };
-
 export function JoinScreen({ token, onEntered }: { token: string; onEntered: (me: Me) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [problem, setProblem] = useState<FormProblem>(EMPTY);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(formEvent: React.FormEvent) {
-    formEvent.preventDefault();
-    setBusy(true);
-    setProblem(EMPTY);
-    try {
-      onEntered(await api.join({ token, email, password, displayName }));
-    } catch (error) {
-      setProblem(describeFailure(error));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { busy, problem, submit } = useEntryForm(async () => {
+    onEntered(await api.join({ token, email, password, displayName }));
+  });
 
   return (
     <EntryFrame picture={МОСТ}>
       <form onSubmit={submit} noValidate>
-        <h1 className="mb-1 text-brand leading-tight text-ink">Вас пригласили</h1>
-        <p className="mt-2 text-body leading-relaxed text-muted">
-          Заведите себе вход — и окажетесь в рабочем пространстве
-        </p>
+        <EntryHead
+          title="Вас пригласили"
+          subtitle="Заведите себе вход — и окажетесь в рабочем пространстве"
+          trouble={problem.common}
+        />
 
-        {problem.common ? (
-          <div className="mt-3 mb-3 rounded border border-danger/40 bg-panel px-3 py-2 text-aside text-danger">
-            {problem.common}
-          </div>
-        ) : null}
-
-        <div className="mt-4">
-          <Field
-            label="Почта"
-            type="email"
-            name="email"
-            autoComplete="email"
-            value={email}
-            onChange={setEmail}
-            error={problem.fields.email}
-          />
-          <Field
-            label="Пароль"
-            type="password"
-            name="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={setPassword}
-            error={problem.fields.password}
+        <div>
+          <Credentials
+            email={email}
+            password={password}
+            onEmail={setEmail}
+            onPassword={setPassword}
+            problem={problem}
+            придумывает
           />
           <Field
             label="Как вас зовут"

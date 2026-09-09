@@ -3,6 +3,15 @@ import { useEffect, useState } from "react";
 import { api } from "../data/api.js";
 import { copyQuietly, ГАЛОЧКА_МС } from "../shared/clipboard.js";
 import { Button } from "../shared/ui/button.js";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../shared/ui/dialog.js";
 
 /**
  * Окно «Пригласить в пространство».
@@ -58,25 +67,31 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
   }, [copied]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="invite-title"
-      onKeyDown={(event) => event.key === "Escape" && onClose()}
-    >
-      <div className="w-full max-w-[30rem] rounded-xl border border-line bg-card p-5 shadow-float">
-        <h2 id="invite-title" className="text-lead font-medium text-ink">
-          Пригласить в пространство
-        </h2>
-        <p className="mt-2 text-body leading-relaxed text-muted">
-          Передайте ссылку любым способом. Открывший её заведёт себе вход и окажется здесь же.
-        </p>
+    /**
+     * ⚠️ ОБЩЕЕ ОКНО, А НЕ СВОЙ `div role="dialog"`. Самодельное окно
+     * выглядело так же, но не умело главного: с клавиатуры из него можно
+     * было уйти табуляцией в страницу под ним, а страница ехала под
+     * пальцем. Escape ловился обработчиком на самом узле — то есть
+     * только пока фокус внутри.
+     *
+     * `open` всегда истинно: окном владеет тот, кто его показал, и
+     * закрытие он получает через `onClose`. Свой признак «открыто»
+     * здесь был бы вторым ответом на вопрос, на который уже отвечает
+     * наличие узла.
+     */
+    <Dialog open onOpenChange={(открыто) => !открыто && onClose()}>
+      <DialogContent className="sm:max-w-[30rem]">
+        <DialogHeader>
+          <DialogTitle>Пригласить в пространство</DialogTitle>
+          <DialogDescription>
+            Передайте ссылку любым способом. Открывший её заведёт себе вход и окажется здесь же.
+          </DialogDescription>
+        </DialogHeader>
 
-        {failure ? <p className="mt-4 text-body text-danger">{failure}</p> : null}
+        {failure ? <p className="text-body text-danger">{failure}</p> : null}
 
         {link ? (
-          <div className="mt-4 flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <input
               readOnly
               value={link}
@@ -106,17 +121,19 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
         ) : null}
 
         {срок ? (
-          <p className="mt-3 text-aside text-muted">
+          <p className="text-aside text-muted">
             Ссылка живёт {срок.дней} дней, по ней может войти до {срок.людей} человек.
           </p>
         ) : null}
 
-        <div className="mt-5 flex justify-end">
-          <Button type="button" variant="ghost" autoFocus onClick={onClose}>
-            Закрыть
-          </Button>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="ghost">
+              Закрыть
+            </Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { Conversation } from "../data/api.js";
 import { Button } from "../shared/ui/button.js";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../shared/ui/dialog.js";
 import { ChannelRow } from "./ChannelRow.js";
 import { SidebarSection } from "./SidebarSection.js";
 
@@ -172,25 +181,27 @@ function ConfirmRemoval({
 }) {
   if (!channel) return null;
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="removal-title"
-      onKeyDown={(event) => event.key === "Escape" && onCancel()}
-    >
-      <div className="w-full max-w-96 rounded-xl border border-line bg-card p-5 shadow-float">
-        <h2 id="removal-title" className="text-lead font-medium text-ink">
-          Удалить «{channel.title}»?
-        </h2>
-        <p className="mt-2 text-body leading-relaxed text-muted">
-          Канал исчезнет у всех, кто его видит, вместе со всей перепиской. Вернуть его из приложения
-          будет нельзя.
-        </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onCancel}>
-            Отмена
-          </Button>
+    // Общее окно, а не свой `div role="dialog"`: ловушка фокуса, Escape
+    // и блокировка прокрутки фона живут в одном месте (`ui/dialog.tsx`).
+    <Dialog open onOpenChange={(открыто) => !открыто && onCancel()}>
+      <DialogContent className="sm:max-w-96">
+        <DialogHeader>
+          <DialogTitle>Удалить «{channel.title}»?</DialogTitle>
+          <DialogDescription>
+            Канал исчезнет у всех, кто его видит, вместе со всей перепиской. Вернуть его из
+            приложения будет нельзя.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="ghost">
+              Отмена
+            </Button>
+          </DialogClose>
+          {/* ⚠️ ФОКУС НА «УДАЛИТЬ», И ЭТО НЕ ОПЕЧАТКА. Окно открывается
+              из меню, где человек уже выбрал «удалить канал»: он пришёл
+              сюда подтвердить, а не передумать. Отмена рядом и достижима
+              и мышью, и Escape. */}
           <Button
             type="button"
             variant="destructive"
@@ -199,8 +210,8 @@ function ConfirmRemoval({
           >
             Удалить
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
