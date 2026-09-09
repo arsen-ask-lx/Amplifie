@@ -57,6 +57,27 @@ test.describe("вид входа", () => {
     expect(narrow.pixels).toBeLessThan(1280 * 2);
   });
 
+  test("вторая дверь переключает, а не отправляет форму", async ({ page }) => {
+    await page.goto("/");
+
+    // ⚠️ ЭТО ПРО ТИП КНОПКИ, А НЕ ПРО ВИД. Кнопка без объявленного типа
+    // внутри формы отправляет её: нажатие меняло дверь И слало пустую
+    // форму разом, а человек видел ошибки полей там, где ничего
+    // не отправлял. Молчаливо — потому и проверяется машиной.
+    const вторая = page.getByRole("button", {
+      name: /У меня уже есть вход|Создать новое пространство/u,
+    });
+    await expect(вторая).toBeVisible();
+    await вторая.click();
+
+    // Дверь сменилась…
+    await expect(
+      page.getByRole("heading", { name: /С возвращением|Создать пространство/u }),
+    ).toBeVisible();
+    // …и ни одного поля с ошибкой: отправки не было.
+    await expect(page.locator("[aria-invalid='true']")).toHaveCount(0);
+  });
+
   test("на узком окне картинки нет, форма занимает окно", async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 860 });
     await page.goto("/");

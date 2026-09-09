@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api, type Bridge } from "../../data/api.js";
 import { copyAndTell, NOT_COPIED } from "../../shared/clipboard.js";
 import { detailOf } from "../../shared/failure.js";
@@ -150,54 +150,68 @@ export function ModelScreen({
   }
 
   const connected = bridges.some((one) => one.online);
+  /**
+   * ⚠️ ИДЕНТИФИКАТОР СВОЙ У КАЖДОЙ ОТРИСОВКИ, А НЕ СЛОВО В РАЗМЕТКЕ.
+   * Панель показывается уже в двух местах — в «Агентах» и в мастере
+   * установки. Жёсткое `id="подписка"` означало бы два одинаковых
+   * идентификатора на одной странице: подпись для чтения с экрана
+   * начинает указывать не туда, и это не видно глазом.
+   */
+  const заголовок = useId();
 
   return (
-    <div className="flex-1 overflow-y-auto p-5">
-      <section className="mb-6" aria-labelledby="подписка">
-        <h3 id="подписка" className="mb-3 text-lead font-semibold text-ink">
-          Своя подписка
-        </h3>
+    /**
+     * ⚠️ СВОЕЙ РАСКЛАДКИ У ПАНЕЛИ НЕТ, И ЭТО ИСПРАВЛЕНИЕ, А НЕ ВКУС.
+     * Здесь стоял `flex-1 overflow-y-auto p-5` — ровно тот же контейнер,
+     * что у `AgentsScreen`, ВНУТРИ которого панель и живёт: две вложенные
+     * прокрутки и двойные поля. Где панель стоит и как дышит — решает
+     * хозяин; иначе её нельзя поставить во второе место, не согласившись
+     * на чужие отступы.
+     */
+    <section className="mb-6" aria-labelledby={заголовок}>
+      <h3 id={заголовок} className="mb-3 text-lead font-semibold text-ink">
+        Своя подписка
+      </h3>
 
-        <article className="mb-3 rounded-xl border border-line bg-card p-4 shadow-raised">
-          <p className="text-lead leading-snug text-ink">
-            Модель отвечает через ваш собственный клиент, на вашей машине. Токен подписки остаётся у
-            вас: мы его не видим и не храним.
-          </p>
+      <article className="mb-3 rounded-xl border border-line bg-card p-4 shadow-raised">
+        <p className="text-lead leading-snug text-ink">
+          Модель отвечает через ваш собственный клиент, на вашей машине. Токен подписки остаётся у
+          вас: мы его не видим и не храним.
+        </p>
 
-          {bridges.length > 0 ? (
-            <div className="mt-3 flex flex-col gap-1">
-              {bridges.map((bridge) => (
-                <State key={bridge.id} bridge={bridge} />
-              ))}
-            </div>
-          ) : null}
-
-          {command ? <Command command={command} /> : null}
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button disabled={busy} onClick={() => void issue()}>
-              {command ? "Новый код" : "Подключить"}
-            </Button>
-            {command ? (
-              <Button variant="outline" onClick={() => void copy()}>
-                {copied ? "Скопировано" : "Скопировать"}
-              </Button>
-            ) : null}
-            <Button variant="outline" disabled={busy} onClick={() => void check()}>
-              {busy ? "Спрашиваем…" : "Проверить"}
-            </Button>
+        {bridges.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-1">
+            {bridges.map((bridge) => (
+              <State key={bridge.id} bridge={bridge} />
+            ))}
           </div>
+        ) : null}
 
-          <Outcome answer={answer} failure={failure} />
+        {command ? <Command command={command} /> : null}
 
-          {!connected && !command ? (
-            <p className="mt-2 text-aside text-muted">
-              Нужен установленный <code>claude</code>, в который вы вошли. Проверка спрашивает
-              настоящую модель — иначе не отличить рабочее подключение от истёкшего.
-            </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button disabled={busy} onClick={() => void issue()}>
+            {command ? "Новый код" : "Подключить"}
+          </Button>
+          {command ? (
+            <Button variant="outline" onClick={() => void copy()}>
+              {copied ? "Скопировано" : "Скопировать"}
+            </Button>
           ) : null}
-        </article>
-      </section>
-    </div>
+          <Button variant="outline" disabled={busy} onClick={() => void check()}>
+            {busy ? "Спрашиваем…" : "Проверить"}
+          </Button>
+        </div>
+
+        <Outcome answer={answer} failure={failure} />
+
+        {!connected && !command ? (
+          <p className="mt-2 text-aside text-muted">
+            Нужен установленный <code>claude</code>, в который вы вошли. Проверка спрашивает
+            настоящую модель — иначе не отличить рабочее подключение от истёкшего.
+          </p>
+        ) : null}
+      </article>
+    </section>
   );
 }

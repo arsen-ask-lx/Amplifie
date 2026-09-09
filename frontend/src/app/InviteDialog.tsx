@@ -21,8 +21,18 @@ import { Button } from "../shared/ui/button.js";
 /** Сколько держится галочка после копирования. Столько же, что в коде. */
 const COPIED_MS = 1500;
 
+/**
+ * Сколько дней осталось до срока. Считаем от того, что прислал сервер:
+ * писать «30 дней» словами значит завести вторую копию знания, которая
+ * соврёт при первой же правке порога на сервере.
+ */
+function дней(до: string): number {
+  return Math.max(1, Math.round((new Date(до).getTime() - Date.now()) / 86_400_000));
+}
+
 export function InviteDialog({ onClose }: { onClose: () => void }) {
   const [link, setLink] = useState<string | null>(null);
+  const [срок, setСрок] = useState<{ дней: number; людей: number } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -31,9 +41,11 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
     api
       .invite()
       .then((made) => {
+        if (!alive) return;
         // Адрес собирается ЗДЕСЬ, а не на сервере: сервер не знает, по
         // какому имени к нему пришли, и подставил бы своё внутреннее.
-        if (alive) setLink(`${window.location.origin}/join/${made.token}`);
+        setLink(`${window.location.origin}/join/${made.token}`);
+        setСрок({ дней: дней(made.expiresAt), людей: made.maxUses });
       })
       .catch(() => {
         if (alive) setFailure("Не вышло сделать ссылку. Попробуйте ещё раз.");
@@ -94,9 +106,11 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
           </div>
         ) : null}
 
-        <p className="mt-3 text-aside text-muted">
-          Ссылка живёт 30 дней, по ней может войти до 50 человек.
-        </p>
+        {срок ? (
+          <p className="mt-3 text-aside text-muted">
+            Ссылка живёт {срок.дней} дней, по ней может войти до {срок.людей} человек.
+          </p>
+        ) : null}
 
         <div className="mt-5 flex justify-end">
           <Button type="button" variant="ghost" autoFocus onClick={onClose}>

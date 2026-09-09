@@ -122,7 +122,12 @@ export function Halftone({ className }: Props) {
 
   useEffect(() => {
     if (!ready) return;
-    schedule();
+    // ⚠️ ПЕРВЫЙ РАЗ — СРАЗУ, А НЕ КАДРОМ. В фоновой вкладке
+    // `requestAnimationFrame` не идёт вовсе, и картинка оставалась пустой
+    // до тех пор, пока на вкладку не посмотрят. Откладывать первую
+    // отрисовку незачем: она одна, дросселировать нечего.
+    // Найдено сквозным прогоном: холст был нужного размера и весь белый.
+    draw();
 
     const holder = box.current;
     if (!holder) return;
@@ -138,7 +143,7 @@ export function Halftone({ className }: Props) {
       window.removeEventListener("resize", schedule);
       cancelAnimationFrame(frame.current);
     };
-  }, [ready, schedule]);
+  }, [ready, draw, schedule]);
 
   return (
     <div ref={box} className={className} aria-hidden="true">

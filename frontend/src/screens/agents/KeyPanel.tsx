@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { api, type ModelKey } from "../../data/api.js";
 import { detailOf, fieldsOf } from "../../shared/failure.js";
 import { Icon } from "../../shared/Icon.js";
@@ -126,10 +126,12 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
   }
 
   const shape = PROVIDERS.find((one) => one.id === provider);
+  // Своё имя у каждой отрисовки — по той же причине, что в `ModelScreen`.
+  const заголовок = useId();
 
   return (
-    <section className="mb-6" aria-labelledby="ключ">
-      <h3 id="ключ" className="mb-3 text-lead font-semibold text-ink">
+    <section className="mb-6" aria-labelledby={заголовок}>
+      <h3 id={заголовок} className="mb-3 text-lead font-semibold text-ink">
         Ключ API
       </h3>
 

@@ -11,6 +11,7 @@ import {
   login,
   logout,
   RegistrationClosedError,
+  registrationOpen,
   resolveActor,
   revokeInvite,
 } from "../../../kernel/identity/index.js";
@@ -51,8 +52,16 @@ const inviteSchema = z.object({
  * чем у регистрации, и смешивать их в одном пути нельзя.
  */
 const loginSchema = z.object({
-  email: z.string().min(1),
-  password: z.string().min(1),
+  // ⚠️ СВОИ СЛОВА, А НЕ УМОЛЧАНИЕ ПРОВЕРЯЛКИ. Без них пустая форма
+  // отвечала «Too small: expected string to have >=1 characters» —
+  // по-английски, языком библиотеки, прямо человеку на экран.
+  // У регистрации слова были с первого дня, у входа их забыли.
+  //
+  // Длина здесь единица, а не двенадцать: у входа нет правил к паролю,
+  // он проверяется совпадением. Рассказывать на входе, каким пароль
+  // должен быть, значит подсказывать подбирающему.
+  email: z.string().min(1, "введите почту"),
+  password: z.string().min(1, "введите пароль"),
 });
 
 function setSessionCookie(reply: FastifyReply, token: string): void {
@@ -79,6 +88,19 @@ function present(actor: Actor) {
 }
 
 export function registerAuthRoutes(app: FastifyInstance): void {
+  /**
+   * Что за дверью, ДО входа: можно ли здесь завести компанию (task-023).
+   *
+   * ⚠️ БЕЗ СЕССИИ — ИНАЧЕ БЕССМЫСЛЕННО. Спрашивает тот, кто ещё никто:
+   * экран решает, показать «Создать пространство» или «Вход».
+   *
+   * До этой ручки экран показывал обе двери всегда, и на занятой
+   * установке вторая уверенно вела в 403.
+   */
+  app.get("/v1/entry", async () => {
+    return { registrationOpen: await registrationOpen() };
+  });
+
   app.post("/v1/auth/register", { config: { rateLimit: REGISTER } }, async (request, reply) => {
     const input = parse(registerSchema, request.body, reply);
     if (!input) return reply;

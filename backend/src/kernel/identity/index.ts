@@ -30,6 +30,7 @@ export {
   type RegisterInput,
   RegistrationClosedError,
   register,
+  registrationOpen,
   resolveActor,
   setSessionTouchFailureReporter,
 } from "./service.js";

@@ -4,11 +4,18 @@ import { api, type Me } from "../data/api.js";
 import { AuthScreen } from "../screens/AuthScreen.js";
 import { JoinScreen } from "../screens/JoinScreen.js";
 import { ChatScreen } from "./ChatScreen.js";
+import { Setup } from "./Setup.js";
 
 type State =
   | { status: "loading" }
   /** notice — то, что человек обязан узнать при возврате на экран входа. */
   | { status: "anon"; notice?: string }
+  /**
+   * Компанию только что завели — идёт мастер первого запуска (task-023).
+   * Отдельное состояние, а не признак у `entered`: продукт под мастером
+   * не отрисовывается вовсе, и путать эти два экрана нельзя.
+   */
+  | { status: "setup"; me: Me }
   | { status: "entered"; me: Me };
 
 export function App() {
@@ -23,6 +30,20 @@ export function App() {
    */
   const invited = useMatch("/join/:token");
   const navigate = useNavigate();
+
+  /**
+   * Начать с чистого адреса.
+   *
+   * ⚠️ АДРЕС ПРОШЛОГО ЧЕЛОВЕКА НЕ ПЕРЕЖИВАЕТ СМЕНУ ЧЕЛОВЕКА. Вышли, стоя
+   * в канале, вошли другим — и приложение открывало ТОТ ЖЕ `/c/<канал>`,
+   * который теперь чужой. Сервер отвечал 404 (и правильно: чужой канал
+   * неотличим от несуществующего), а человек видел «Не удалось загрузить
+   * сообщения» на первом же экране новой компании. Найдено сквозным
+   * прогоном руками.
+   *
+   * `replace`, а не переход: «назад» не должно возвращать на чужой адрес.
+   */
+  const fromScratch = () => navigate("/", { replace: true });
 
   // Кто пришёл — спрашиваем у сервера, а не у localStorage: печенька
   // HttpOnly, и это единственный честный источник ответа.
@@ -60,9 +81,22 @@ export function App() {
             {state.notice}
           </div>
         ) : null}
-        <AuthScreen onEntered={(me) => setState({ status: "entered", me })} />
+        <AuthScreen
+          onEntered={(me) => {
+            fromScratch();
+            setState({ status: "entered", me });
+          }}
+          onInstalled={(me) => {
+            fromScratch();
+            setState({ status: "setup", me });
+          }}
+        />
       </>
     );
+  }
+
+  if (state.status === "setup") {
+    return <Setup onDone={() => setState({ status: "entered", me: state.me })} />;
   }
 
   return (
