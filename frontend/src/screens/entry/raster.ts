@@ -67,20 +67,27 @@ export function bayer(order: number): number[][] {
 }
 
 /**
- * Четыре байта на точку → одна светлота, с контрастом вокруг середины.
+ * Четыре байта на точку → одна светлота, с контрастом вокруг середины
+ * и сдвигом яркости.
  *
  * Контраст разводит середину и НЕ трогает края: чёрное остаётся чёрным,
  * белое белым. Уползи они — растр теряет и плотность листвы, и чистое небо
  * разом, а вернуть это ползунком уже нельзя.
+ *
+ * ⚠️ ЯРКОСТЬ ПРИМЕНЯЕТСЯ ПОСЛЕ КОНТРАСТА, И ПОРЯДОК ЗДЕСЬ ЗНАЧИМ.
+ * Наоборот — и контраст разводил бы уже сдвинутую середину, то есть
+ * два ползунка мешали бы друг другу: подобранное сегодня переставало бы
+ * значить то же самое завтра. Края отсекаются последними, поэтому
+ * перебор яркости гасит картинку, но не выворачивает её.
  */
-export function toGray(rgba: Uint8ClampedArray, contrast: number): Float32Array {
+export function toGray(rgba: Uint8ClampedArray, contrast: number, bright = 0): Float32Array {
   const gray = new Float32Array(rgba.length / 4);
   for (let at = 0, out = 0; at < rgba.length; at += 4, out++) {
     const light =
       0.299 * (rgba[at] as number) +
       0.587 * (rgba[at + 1] as number) +
       0.114 * (rgba[at + 2] as number);
-    const spread = (light - MIDDLE) * contrast + MIDDLE;
+    const spread = (light - MIDDLE) * contrast + MIDDLE + bright;
     gray[out] = spread < 0 ? 0 : spread > 255 ? 255 : spread;
   }
   return gray;

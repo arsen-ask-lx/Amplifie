@@ -4,6 +4,7 @@ import { describeFailure, type FormProblem } from "../shared/authMessages.js";
 import { Field } from "../shared/Field.js";
 import { Button } from "../shared/ui/button.js";
 import { EntryFrame } from "./entry/EntryFrame.js";
+import { МОСТ } from "./entry/pictures.js";
 
 /**
  * Вход по приглашению — ОТДЕЛЬНЫЙ экран, а не галочка на регистрации.
@@ -43,7 +44,7 @@ export function JoinScreen({ token, onEntered }: { token: string; onEntered: (me
   }
 
   return (
-    <EntryFrame>
+    <EntryFrame picture={МОСТ}>
       <form onSubmit={submit} noValidate>
         <h1 className="mb-1 text-brand leading-tight text-ink">Вас пригласили</h1>
         <p className="mt-2 text-body leading-relaxed text-muted">
@@ -60,6 +61,7 @@ export function JoinScreen({ token, onEntered }: { token: string; onEntered: (me
           <Field
             label="Почта"
             type="email"
+            name="email"
             autoComplete="email"
             value={email}
             onChange={setEmail}
@@ -68,6 +70,7 @@ export function JoinScreen({ token, onEntered }: { token: string; onEntered: (me
           <Field
             label="Пароль"
             type="password"
+            name="password"
             autoComplete="new-password"
             value={password}
             onChange={setPassword}

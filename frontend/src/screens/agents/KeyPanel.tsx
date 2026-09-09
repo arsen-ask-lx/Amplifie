@@ -4,6 +4,13 @@ import { detailOf, fieldsOf } from "../../shared/failure.js";
 import { Icon } from "../../shared/Icon.js";
 import { keyTroubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../shared/ui/select.js";
 
 /**
  * Ключ поставщика модели: ввести, увидеть, убрать.
@@ -15,6 +22,10 @@ import { Button } from "../../shared/ui/button.js";
  * Поле ввода очищается сразу после сохранения. Не из вежливости: набранный
  * ключ, оставшийся в поле, попадёт в снимок экрана и в восстановление формы
  * браузером.
+ *
+ * ⚠️ НИ ЗАГОЛОВКА, НИ ОПИСАНИЯ У ПАНЕЛИ НЕТ. Хозяев двое — раздел
+ * «Агенты» и окно установки, — и говорят они разными словами. Панель,
+ * несущая своё вступление, во втором хозяине давала два описания подряд.
  */
 
 const PROVIDERS = [
@@ -22,13 +33,15 @@ const PROVIDERS = [
   { id: "openai", label: "OpenAI", prefix: "sk-" },
 ];
 
+/**
+ * Кому принадлежит ключ.
+ *
+ * Пояснений при выборе нет намеренно: сами названия говорят всё, а два
+ * абзаца под тремя полями превращали окно в инструкцию.
+ */
 const SCOPES = [
-  { id: "участник", label: "Только мой", why: "Платите вы, видите только вы." },
-  {
-    id: "пространство",
-    label: "Общий для пространства",
-    why: "Им пользуются все, у кого нет своего. Законная замена «поделиться подпиской».",
-  },
+  { id: "участник", label: "Только мой" },
+  { id: "пространство", label: "Общий для пространства" },
 ];
 
 function explain(error: unknown): string {
@@ -42,7 +55,13 @@ function explain(error: unknown): string {
   }
 }
 
-/** Выбор из списка. Два поля отличались только подписью и набором. */
+/**
+ * Выбор из списка. Два поля отличались только подписью и набором.
+ *
+ * ⚠️ КОМПОНЕНТ НАБОРА, А НЕ ГОЛЫЙ `<select>`. Родной список браузера
+ * не берёт ни наших цветов, ни размеров: рядом с остальным продуктом
+ * он выглядит чужим — и это ровно то, ради чего заведён набор (Р-018).
+ */
 function Choice({
   label,
   value,
@@ -54,17 +73,27 @@ function Choice({
   options: Array<{ id: string; label: string }>;
   onPick: (id: string) => void;
 }) {
+  // Подпись связана с кнопкой списка по имени: обернуть её `<label>`
+  // нельзя — внутри не поле браузера, а свой узел, и подпись повисла бы
+  // ни на чём. Это поймал сторож доступности, и он прав.
+  const подпись = useId();
+
   return (
-    <label className="flex flex-col gap-1 text-aside text-muted">
-      {label}
-      <select value={value} onChange={(event) => onPick(event.target.value)}>
-        {options.map((one) => (
-          <option key={one.id} value={one.id}>
-            {one.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="flex flex-col gap-1 text-aside text-muted">
+      <span id={подпись}>{label}</span>
+      <Select value={value} onValueChange={onPick}>
+        <SelectTrigger aria-labelledby={подпись} className="w-full text-ink">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((one) => (
+            <SelectItem key={one.id} value={one.id}>
+              {one.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 
@@ -126,21 +155,9 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
   }
 
   const shape = PROVIDERS.find((one) => one.id === provider);
-  // Своё имя у каждой отрисовки — по той же причине, что в `ModelScreen`.
-  const заголовок = useId();
 
   return (
-    <section className="mb-6" aria-labelledby={заголовок}>
-      <h3 id={заголовок} className="mb-3 text-lead font-semibold text-ink">
-        Ключ API
-      </h3>
-
-      <p className="mt-2 text-body leading-relaxed text-muted">
-        Второй путь, кроме подписки: обычный ключ поставщика, целиком на сайте и без терминала. Ключ
-        шифруется и <b>обратно не показывается никогда</b> — только последние знаки, чтобы вы его
-        узнали.
-      </p>
-
+    <div>
       {items.length > 0 ? (
         <ul className="mt-3 flex flex-col gap-1">
           {items.map((item) => (
@@ -154,7 +171,10 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
 
         <label className="flex flex-col gap-1 text-aside text-muted">
           Ключ
+          {/* Тот же вид, что у полей входа: высота, скругление и граница
+            берутся оттуда же. Голое поле рядом с ними читалось чужим. */}
           <input
+            className="h-9 w-full rounded-lg border border-edge bg-card px-3 text-body text-ink outline-none focus-visible:border-accent"
             type="password"
             value={key}
             placeholder={shape ? `${shape.prefix}…` : ""}
@@ -166,15 +186,13 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
 
         <Choice label="Кому" value={scope} options={SCOPES} onPick={setScope} />
 
-        <p className="text-aside text-muted">{SCOPES.find((one) => one.id === scope)?.why}</p>
-
-        <Button type="submit" disabled={busy || key.trim().length === 0}>
+        <Button className="self-end" type="submit" disabled={busy || key.trim().length === 0}>
           <Icon name="плюс" />
           {busy ? "Сохраняем…" : "Сохранить ключ"}
         </Button>
       </form>
 
       {failure ? <p className="mt-2 text-aside text-danger">{failure}</p> : null}
-    </section>
+    </div>
   );
 }

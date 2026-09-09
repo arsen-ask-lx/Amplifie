@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import source from "../../assets/bridge.webp";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "../../shared/utils.js";
+import type { Picture } from "./pictures.js";
 import { bayer, ordered, toGray } from "./raster.js";
 
 /**
@@ -17,20 +18,18 @@ import { bayer, ordered, toGray } from "./raster.js";
  */
 
 /**
- * Контраст фотографии до растра. Выбран владельцем по живому прогону: 1.40.
- *
- * Точка растра при этом равна одному пикселю экрана — тот же выбор, только
- * его нечем записать числом: крупная точка потребовала бы считать растр
- * в уменьшенном виде и увеличивать целым числом, а это уже другой вид,
- * а не подстройка.
+ * Порядок матрицы: сетка 8. Общий для всех картинок — это язык, а не
+ * подстройка: разные сетки на соседних экранах читались бы как разные
+ * продукты. Всё, что подбирается под картинку, живёт в `pictures.ts`.
  */
-const CONTRAST = 1.4;
-
-/** Порядок матрицы: сетка 8. */
 const MATRIX = bayer(8);
 
 interface Props {
+  /** Что рисовать и с какими числами. */
+  picture: Picture;
   className?: string;
+  /** Прозрачность на время растворения — задаёт рама. */
+  style?: CSSProperties;
 }
 
 /**
@@ -53,6 +52,26 @@ function paint(data: Uint8ClampedArray, gray: Float32Array): void {
   }
 }
 
+/**
+ * Подогнать холст под место и вернуть его размер в пикселях устройства.
+ *
+ * Вынесено из отрисовки: та набрала сложность 12 при потолке 10, и линтер
+ * был прав — «какого размера холст» и «что на нём рисуют» разные вопросы.
+ */
+function fitCanvas(
+  surface: HTMLCanvasElement,
+  holder: HTMLDivElement,
+): { width: number; height: number } {
+  const rect = holder.getBoundingClientRect();
+  // Пиксели устройства, а не CSS: только так точка совпадает с пикселем.
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.round(rect.width * ratio));
+  const height = Math.max(1, Math.round(rect.height * ratio));
+  if (surface.width !== width) surface.width = width;
+  if (surface.height !== height) surface.height = height;
+  return { width, height };
+}
+
 /** Кадрирование «по большей стороне»: заполнить, не искажая. */
 function cover(
   image: HTMLImageElement,
@@ -64,7 +83,7 @@ function cover(
   return [(width - drawn.w) / 2, (height - drawn.h) / 2, drawn.w, drawn.h];
 }
 
-export function Halftone({ className }: Props) {
+export function Halftone({ picture, className, style }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const image = useRef<HTMLImageElement | null>(null);
@@ -72,30 +91,31 @@ export function Halftone({ className }: Props) {
   const [ready, setReady] = useState(false);
 
   const draw = useCallback(() => {
-    const picture = image.current;
+    const loaded = image.current;
     const surface = canvas.current;
     const holder = box.current;
-    if (!picture || !surface || !holder) return;
+    if (!loaded || !surface || !holder) return;
 
     const context = surface.getContext("2d", { willReadFrequently: true });
     if (!context) return;
 
-    const rect = holder.getBoundingClientRect();
-    // Пиксели устройства, а не CSS: только так точка совпадает с пикселем.
-    const ratio = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(rect.width * ratio));
-    const height = Math.max(1, Math.round(rect.height * ratio));
-    if (surface.width !== width) surface.width = width;
-    if (surface.height !== height) surface.height = height;
+    // ⚠️ РАЗМЫТИЕ СЧИТАЕТ БРАУЗЕР, А НЕ ПОДГОТОВКА ФАЙЛА. Усреднить
+    // штриховку можно было бы заранее, но размытие ДО уменьшения и ПОСЛЕ
+    // дают разный результат: подобранное ползунком не совпало бы с тем,
+    // что рисует продукт. Здесь оно на том же шаге, что и в настройке.
+    context.filter = picture.blur > 0 ? `blur(${picture.blur}px)` : "none";
 
-    context.drawImage(picture, ...cover(picture, width, height));
+    const { width, height } = fitCanvas(surface, holder);
+
+    context.drawImage(loaded, ...cover(loaded, width, height));
+    context.filter = "none";
 
     const frameData = context.getImageData(0, 0, width, height);
-    const gray = toGray(frameData.data, CONTRAST);
+    const gray = toGray(frameData.data, picture.contrast, picture.bright);
     ordered(gray, width, height, MATRIX);
     paint(frameData.data, gray);
     context.putImageData(frameData, 0, 0);
-  }, []);
+  }, [picture]);
 
   /** Не чаще кадра: рамку окна тянут непрерывно, а растр считается заново. */
   const schedule = useCallback(() => {
@@ -104,11 +124,14 @@ export function Halftone({ className }: Props) {
   }, [draw]);
 
   useEffect(() => {
-    const picture = new Image();
-    picture.src = source;
-    picture.decode().then(
+    // Каждая картинка едет только тогда, когда её показывают: вторая
+    // не грузится, пока человек не дошёл до её шага.
+    setReady(false);
+    const loading = new Image();
+    loading.src = picture.src;
+    loading.decode().then(
       () => {
-        image.current = picture;
+        image.current = loading;
         setReady(true);
       },
       () => {
@@ -118,7 +141,7 @@ export function Halftone({ className }: Props) {
         setReady(false);
       },
     );
-  }, []);
+  }, [picture.src]);
 
   useEffect(() => {
     if (!ready) return;
@@ -146,8 +169,36 @@ export function Halftone({ className }: Props) {
   }, [ready, draw, schedule]);
 
   return (
-    <div ref={box} className={className} aria-hidden="true">
-      <canvas ref={canvas} className="block h-full w-full" />
+    /**
+     * ⚠️ КОРОБКА ОТНОСИТЕЛЬНАЯ, ХОЛСТ ВНУТРИ НЕЁ АБСОЛЮТНЫЙ. Без этого
+     * холст участвует в раскладке СВОИМ размером и раздувает всё вокруг.
+     *
+     * Как это выглядело: у холста стоял `h-full`, а у коробки высота была
+     * автоматической. Проценты от «авто» не считаются, и браузер брал
+     * собственный размер холста — тот, что записан в его атрибутах
+     * (953×1526 пикселей устройства). По пропорции выходило 1221 точки
+     * в высоту при окне в 639: рама растягивалась вдвое, форма уезжала
+     * вниз, а картинка кадрировалась как увеличенная.
+     *
+     * И это само себя поддерживало: изменение окна → пересчёт → новые
+     * атрибуты → новая «своя» высота → рама снова поехала. Отсюда
+     * «всё плывёт при открытии и закрытии панели разработчика».
+     *
+     * Абсолютный холст из потока выведен и раздуть уже ничего не может,
+     * кем бы ни была коробка снаружи.
+     */
+    <div
+      ref={box}
+      /* ⚠️ ЧЕРЕЗ `cn`, А НЕ СКЛЕЙКОЙ СТРОК. Хозяин передаёт своё положение
+        (`absolute inset-0` при растворении), и склейка давала два класса
+        положения разом — «relative absolute». Спор решал порядок в собранном
+        стиле, побеждал не тот, коробка теряла высоту, и картинка исчезала
+        вовсе. `cn` выбрасывает проигравшего заранее — ради этого он и есть. */
+      className={cn("relative", className)}
+      style={style}
+      aria-hidden="true"
+    >
+      <canvas ref={canvas} className="absolute inset-0 block size-full" />
     </div>
   );
 }

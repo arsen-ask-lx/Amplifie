@@ -1,8 +1,8 @@
-import { useId, useState } from "react";
+import { Check, Copy } from "@phosphor-icons/react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Bridge } from "../../data/api.js";
-import { copyAndTell, NOT_COPIED } from "../../shared/clipboard.js";
+import { copyQuietly, NOT_COPIED, ГАЛОЧКА_МС } from "../../shared/clipboard.js";
 import { detailOf } from "../../shared/failure.js";
-import { СКОПИРОВАНО } from "../../shared/toast.js";
 import { troubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
 import { часы } from "../../shared/when.js";
@@ -52,20 +52,50 @@ function State({ bridge }: { bridge: Bridge }) {
   );
 }
 
-/** Строка запуска: показывается один раз, копируется одной кнопкой. */
-function Command({ command }: { command: string }) {
+/**
+ * Строка запуска: показывается один раз, копируется одной кнопкой.
+ *
+ * ⚠️ ГАЛОЧКА В КОНЦЕ ПОЛЯ, А НЕ НАДПИСЬ НА КНОПКЕ. «Скопировать» →
+ * «Скопировано» меняет ширину кнопки, и соседние прыгают следом. Знак
+ * стоит там же, где лежит скопированное, — и ничего не двигает.
+ * О самом копировании уже сказала плашка; надпись повторяла её третий раз.
+ */
+function Command({
+  command,
+  copied,
+  onCopy,
+}: {
+  command: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
   return (
     <>
       <p className="mt-2 text-aside text-muted">
         Выполните это у себя один раз. Код одноразовый и живёт 15 минут.
       </p>
-      <input
-        className="h-9 w-full rounded-lg border border-edge bg-card px-3 text-aside text-ink outline-none"
-        readOnly
-        value={command}
-        onFocus={(event) => event.target.select()}
-        aria-label="Строка запуска моста"
-      />
+      <div className="relative">
+        <input
+          className="h-9 w-full rounded-lg border border-edge bg-card px-3 pr-11 text-aside text-ink outline-none"
+          readOnly
+          value={command}
+          onFocus={(event) => event.target.select()}
+          aria-label="Строка запуска моста"
+        />
+        {/* ⚠️ ЗНАЧОК В САМОМ ПОЛЕ, А НЕ КНОПКА В РЯДУ ДЕЙСТВИЙ. Копирование
+          относится к этой строке, а не к окну: рядом с ней ему и место —
+          так же, как в Телеграме. Заодно ряд внизу остаётся коротким,
+          и в нём видно то, что действительно меняет состояние. */}
+        <Button
+          className="-translate-y-1/2 absolute top-1/2 right-1"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={copied ? "Скопировано" : "Копировать строку запуска"}
+          onClick={onCopy}
+        >
+          {copied ? <Check /> : <Copy />}
+        </Button>
+      </div>
     </>
   );
 }
@@ -104,18 +134,40 @@ function Outcome({
 export function ModelScreen({
   bridges,
   onChanged,
+  issueAtOnce = false,
 }: {
   bridges: Bridge[];
   onChanged: () => void | Promise<void>;
+  /**
+   * Выдать код сразу, не дожидаясь нажатия.
+   *
+   * ⚠️ РЕШАЕТ ХОЗЯИН, И ЭТО НЕ ПРИДИРКА. Каждый код — запись моста
+   * на сервере. Там, где окно открыли РАДИ подключения, нажатие
+   * «Подключить» лишнее: человек уже сказал, чего хочет. А в разделе
+   * «Агенты» панель висит всегда, и автовыдача плодила бы коды
+   * на каждый заход в раздел.
+   */
+  issueAtOnce?: boolean;
 }) {
   const [command, setCommand] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  /**
+   * ⚠️ ДВА ПРИЗНАКА, А НЕ ОДИН ОБЩИЙ «ЗАНЯТ».
+   *
+   * Пока он был один, нажатие «Новый код» меняло надпись на соседней
+   * кнопке на «Спрашиваем…» — то есть экран сообщал о работе, которой
+   * не было, да ещё и дёргал раскладку: слово длиннее, кнопка шире.
+   * Один признак на две разные работы — это один ответ на два вопроса.
+   */
+  const [issuing, setIssuing] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [copied, setCopied] = useState(false);
   const [answer, setAnswer] = useState<{ text: string; ms: number } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  async function issue(): Promise<void> {
-    setBusy(true);
+  // Обёрнуто, чтобы следствие ниже могло честно назвать его в зависимостях:
+  // без этого выдача пересоздавалась на каждой отрисовке.
+  const issue = useCallback(async (): Promise<void> => {
+    setIssuing(true);
     setFailure(null);
     setCopied(false);
     try {
@@ -124,20 +176,36 @@ export function ModelScreen({
     } catch {
       setFailure("Не удалось выдать код подключения");
     } finally {
-      setBusy(false);
+      setIssuing(false);
     }
-  }
+  }, [onChanged]);
+
+  // Галочка гаснет сама: знак «скопировано» не должен пережить действие.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), ГАЛОЧКА_МС);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  // Один раз на открытие: в разработке следствия выполняются дважды,
+  // и без этой отметки код выдавался бы парой.
+  const выдан = useRef(false);
+  useEffect(() => {
+    if (!issueAtOnce || выдан.current) return;
+    выдан.current = true;
+    void issue();
+  }, [issueAtOnce, issue]);
 
   async function copy(): Promise<void> {
     if (!command) return;
     // Строка при этом на экране и выделяется — поэтому отказ буфера
     // не поломка, а повод сказать словами (shared/clipboard.ts).
-    if (await copyAndTell(command, СКОПИРОВАНО.текст)) setCopied(true);
+    if (await copyQuietly(command)) setCopied(true);
     else setFailure(NOT_COPIED);
   }
 
   async function check(): Promise<void> {
-    setBusy(true);
+    setChecking(true);
     setFailure(null);
     setAnswer(null);
     try {
@@ -145,22 +213,19 @@ export function ModelScreen({
     } catch (error) {
       setFailure(explain(error));
     } finally {
-      setBusy(false);
+      setChecking(false);
     }
   }
 
-  const connected = bridges.some((one) => one.online);
-  /**
-   * ⚠️ ИДЕНТИФИКАТОР СВОЙ У КАЖДОЙ ОТРИСОВКИ, А НЕ СЛОВО В РАЗМЕТКЕ.
-   * Панель показывается уже в двух местах — в «Агентах» и в мастере
-   * установки. Жёсткое `id="подписка"` означало бы два одинаковых
-   * идентификатора на одной странице: подпись для чтения с экрана
-   * начинает указывать не туда, и это не видно глазом.
-   */
-  const заголовок = useId();
+  const machines = bridges.filter((one) => one.joined);
 
   return (
     /**
+     * ⚠️ ЗАГОЛОВКА У ПАНЕЛИ ТОЖЕ НЕТ. Хозяев двое — раздел «Агенты»
+     * и окно установки, — и называют они её по-разному: там подзаголовок
+     * раздела, здесь заголовок окна. Панель, которая несёт своё имя,
+     * во втором хозяине даёт два заголовка подряд.
+     *
      * ⚠️ СВОЕЙ РАСКЛАДКИ У ПАНЕЛИ НЕТ, И ЭТО ИСПРАВЛЕНИЕ, А НЕ ВКУС.
      * Здесь стоял `flex-1 overflow-y-auto p-5` — ровно тот же контейнер,
      * что у `AgentsScreen`, ВНУТРИ которого панель и живёт: две вложенные
@@ -168,50 +233,45 @@ export function ModelScreen({
      * хозяин; иначе её нельзя поставить во второе место, не согласившись
      * на чужие отступы.
      */
-    <section className="mb-6" aria-labelledby={заголовок}>
-      <h3 id={заголовок} className="mb-3 text-lead font-semibold text-ink">
-        Своя подписка
-      </h3>
+    /**
+     * ⚠️ ПОРЯДОК ЗДЕСЬ — ЧАСТЬ СМЫСЛА: сверху объяснение, ниже состояние,
+     * внизу действия. Кнопки, стоявшие в середине, а подсказка под ними,
+     * заставляли читать экран дважды: сперва глазами вниз, потом обратно
+     * вверх за причиной.
+     */
+    <div className="flex flex-col gap-4">
+      <p className="text-body leading-relaxed text-muted">
+        Нужен установленный клиент — <code>claude</code> или <code>codex</code>, — в который вы
+        вошли. Токен подписки остаётся на вашем компьютере: мы его не видим и не храним.
+      </p>
 
-      <article className="mb-3 rounded-xl border border-line bg-card p-4 shadow-raised">
-        <p className="text-lead leading-snug text-ink">
-          Модель отвечает через ваш собственный клиент, на вашей машине. Токен подписки остаётся у
-          вас: мы его не видим и не храним.
-        </p>
-
-        {bridges.length > 0 ? (
-          <div className="mt-3 flex flex-col gap-1">
-            {bridges.map((bridge) => (
-              <State key={bridge.id} bridge={bridge} />
-            ))}
-          </div>
-        ) : null}
-
-        {command ? <Command command={command} /> : null}
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button disabled={busy} onClick={() => void issue()}>
-            {command ? "Новый код" : "Подключить"}
-          </Button>
-          {command ? (
-            <Button variant="outline" onClick={() => void copy()}>
-              {copied ? "Скопировано" : "Скопировать"}
-            </Button>
-          ) : null}
-          <Button variant="outline" disabled={busy} onClick={() => void check()}>
-            {busy ? "Спрашиваем…" : "Проверить"}
-          </Button>
+      {/* ⚠️ ТОЛЬКО ПОДКЛЮЧЁННЫЕ МАШИНЫ, А НЕ ВСЕ ВЫДАННЫЕ КОДЫ.
+        Каждое нажатие «Новый код» заводит ещё одну запись моста; показывая
+        все, панель росла с каждым нажатием, а окно установки расползалось
+        вместе с ней. Невостребованный код — не машина: пока по нему
+        не запустились, состояние у него одно и то же. */}
+      {machines.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {machines.map((bridge) => (
+            <State key={bridge.id} bridge={bridge} />
+          ))}
         </div>
+      ) : null}
 
-        <Outcome answer={answer} failure={failure} />
+      {command ? <Command command={command} copied={copied} onCopy={() => void copy()} /> : null}
 
-        {!connected && !command ? (
-          <p className="mt-2 text-aside text-muted">
-            Нужен установленный <code>claude</code>, в который вы вошли. Проверка спрашивает
-            настоящую модель — иначе не отличить рабочее подключение от истёкшего.
-          </p>
-        ) : null}
-      </article>
-    </section>
+      <Outcome answer={answer} failure={failure} />
+
+      {/* Действия прижаты вправо, главное — крайнее справа: взгляд
+        заканчивает чтение там же, где его встречает кнопка. */}
+      <div className="flex flex-wrap items-center justify-end gap-2 border-line border-t pt-4">
+        <Button variant="outline" disabled={issuing} onClick={() => void issue()}>
+          {command ? "Новый код" : "Подключить"}
+        </Button>
+        <Button disabled={checking} onClick={() => void check()}>
+          {checking ? "Спрашиваем…" : "Проверить"}
+        </Button>
+      </div>
+    </div>
   );
 }

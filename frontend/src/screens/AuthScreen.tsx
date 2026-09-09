@@ -4,6 +4,7 @@ import { describeFailure, type FormProblem } from "../shared/authMessages.js";
 import { Field } from "../shared/Field.js";
 import { Button } from "../shared/ui/button.js";
 import { EntryFrame } from "./entry/EntryFrame.js";
+import { МОСТ } from "./entry/pictures.js";
 
 /**
  * Какую дверь показать. `null` — ещё не спросили сервер (task-023).
@@ -156,16 +157,17 @@ export function AuthScreen({
   }
 
   // Пока не знаем, какая дверь, — рама и знак уже на месте, а формы нет.
-  if (mode === null) return <EntryFrame>{null}</EntryFrame>;
+  if (mode === null) return <EntryFrame picture={МОСТ}>{null}</EntryFrame>;
 
   return (
-    <EntryFrame>
+    <EntryFrame picture={МОСТ}>
       <form onSubmit={submit} noValidate>
         <Head isRegister={isRegister} trouble={problem.common} />
 
         <Field
           label="Почта"
           type="email"
+          name="email"
           autoComplete="email"
           value={draft.email}
           onChange={set("email")}
@@ -174,6 +176,7 @@ export function AuthScreen({
         <Field
           label="Пароль"
           type="password"
+          name="password"
           autoComplete={isRegister ? "new-password" : "current-password"}
           value={draft.password}
           onChange={set("password")}

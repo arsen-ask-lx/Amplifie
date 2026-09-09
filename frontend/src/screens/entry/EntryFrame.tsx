@@ -1,7 +1,8 @@
-import { type ReactNode, useLayoutEffect } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Logo } from "../../shared/Logo.js";
 import { apply, chosen } from "../../shared/theme.js";
 import { Halftone } from "./Halftone.js";
+import { type Picture, МОСТ } from "./pictures.js";
 
 /**
  * Рама входа: слева имя и форма, справа растровая картинка (task-022).
@@ -27,7 +28,79 @@ import { Halftone } from "./Halftone.js";
 /** Тема двери. Не выбирается и не запоминается — она одна. */
 const ENTRY = "монохром светлая";
 
-export function EntryFrame({ children }: { children: ReactNode }) {
+/** Сколько длится растворение при смене картинки. */
+const FADE_MS = 200;
+
+/**
+ * Показывать ли переход.
+ *
+ * ⚠️ ЭТО НЕ УКРАШЕНИЕ, А ТРЕБОВАНИЕ ДОСТУПНОСТИ. У кого движение
+ * выключено в системе, тот получает мгновенную смену: для части людей
+ * анимация — не «приятнее», а физически плохо.
+ */
+function движение(): boolean {
+  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Растворение между картинками.
+ *
+ * Уходящая держится на месте, приходящая проявляется поверх неё. Так
+ * не бывает пустого кадра: подмена без перекрытия читается как моргание.
+ *
+ * Переход отвечает на действие человека и показывает, что изменилось, —
+ * ровно то, что свод разрешает. Эффектов на каждом блоке здесь нет.
+ */
+function Картинка({ picture, className }: { picture: Picture; className: string }) {
+  const [уходит, setУходит] = useState<Picture | null>(null);
+  /** Проявилась ли приходящая. Ноль → единица и есть всё растворение. */
+  const [видна, setВидна] = useState(true);
+  const было = useRef(picture);
+
+  useEffect(() => {
+    if (было.current === picture) return;
+    const прошлая = было.current;
+    было.current = picture;
+
+    if (!движение()) return;
+
+    setУходит(прошлая);
+    setВидна(false);
+    // Следующим кадром — иначе браузер увидит сразу конечное состояние
+    // и переход не сыграет вовсе.
+    const кадр = requestAnimationFrame(() => setВидна(true));
+    const timer = setTimeout(() => setУходит(null), FADE_MS);
+    return () => {
+      cancelAnimationFrame(кадр);
+      clearTimeout(timer);
+    };
+  }, [picture]);
+
+  return (
+    <div className={`relative ${className}`}>
+      {уходит ? <Halftone picture={уходит} className="absolute inset-0" /> : null}
+      {/* ⚠️ ПЕРЕХОД ЗАДАН ЗДЕСЬ, А НЕ КЛЮЧЕВЫМ КАДРОМ В ОБЩЕМ СТИЛЕ.
+        Ради одного растворения заводить правило в `styles.css` значило бы
+        связать экран входа с общим файлом ради того, что дальше двери
+        нигде не используется. */}
+      <Halftone
+        key={picture.src}
+        picture={picture}
+        className="absolute inset-0 transition-opacity duration-200 ease-out"
+        style={{ opacity: видна ? 1 : 0 }}
+      />
+    </div>
+  );
+}
+
+export function EntryFrame({
+  children,
+  picture = МОСТ,
+}: {
+  children: ReactNode;
+  /** Какая картинка справа. У каждого шага установки своя (task-026). */
+  picture?: Picture;
+}) {
   /**
    * ⚠️ ТЕМА СТАВИТСЯ ВСЕМУ ДОКУМЕНТУ, А НЕ ОБЁРТКЕ, И ЭТО ВТОРАЯ ПОПЫТКА.
    *
@@ -66,7 +139,7 @@ export function EntryFrame({ children }: { children: ReactNode }) {
 
       {/* Картинка объявлена скрытой на узком окне, а не убрана условием:
         холст должен пережить растягивание окна без пересборки дерева. */}
-      <Halftone className="hidden min-[800px]:block" />
+      <Картинка picture={picture} className="hidden min-[800px]:block" />
     </div>
   );
 }

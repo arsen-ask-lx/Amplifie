@@ -47,31 +47,30 @@ async function install(page: import("@playwright/test").Page) {
   return person;
 }
 
-test("после установки открывается мастер, а не пустой чат", async ({ page }) => {
+test("после установки открывается подключение модели, а не пустой чат", async ({ page }) => {
   await install(page);
 
   // Главное утверждение задачи: человек не остаётся один на один
   // с пустым каналом, где всё непонятно.
-  await expect(page.getByRole("heading", { name: "Чем будет думать агент" })).toBeVisible();
-  await expect(page.getByText("Шаг 1 из 2")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Подключение модели" })).toBeVisible();
 
   // Продукта под мастером нет вовсе — иначе это подсказка, а не установка.
   await expect(page.getByRole("button", { name: "Новый канал" })).toBeHidden();
 });
 
-test("мастер предлагает оба способа и объясняет цену каждого", async ({ page }) => {
+test("предлагаются оба способа, и у каждого названо условие", async ({ page }) => {
   await install(page);
 
   await expect(page.getByRole("button", { name: /Своя подписка/u })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Ключ/u })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Ключ API/u })).toBeVisible();
 
   // Подписка бесплатна, но требует включённой машины; про это сказано
   // на экране, а не в документации, — иначе человек узнает об этом
   // в тот вечер, когда закроет ноутбук.
-  await expect(page.getByText(/компьютер должен быть включён/u)).toBeVisible();
+  await expect(page.getByText(/пока компьютер включён/u)).toBeVisible();
 });
 
-test("пропустивший мастер оказывается в рабочем чате", async ({ page }) => {
+test("пропустивший подключение оказывается в рабочем чате", async ({ page }) => {
   await install(page);
   await skipSetup(page);
 

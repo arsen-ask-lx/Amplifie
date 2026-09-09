@@ -115,8 +115,20 @@ export function AgentsScreen() {
         </section>
       ))}
 
-      <ModelScreen bridges={bridges} onChanged={refresh} />
-      <KeyPanel onChange={() => void refresh()} />
+      {/* Заголовки даёт хозяин: у окна установки они свои (task-026). */}
+      <section className="mb-6" aria-labelledby="подписка">
+        <h3 id="подписка" className="mb-3 text-lead font-semibold text-ink">
+          Своя подписка
+        </h3>
+        <ModelScreen bridges={bridges} onChanged={refresh} />
+      </section>
+
+      <section className="mb-6" aria-labelledby="ключ">
+        <h3 id="ключ" className="mb-3 text-lead font-semibold text-ink">
+          Ключ API
+        </h3>
+        <KeyPanel onChange={() => void refresh()} />
+      </section>
     </div>
   );
 }

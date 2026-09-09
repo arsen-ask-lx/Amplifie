@@ -1,8 +1,7 @@
 import { Check, Copy } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { api } from "../data/api.js";
-import { copyAndTell } from "../shared/clipboard.js";
-import { СКОПИРОВАНО } from "../shared/toast.js";
+import { copyQuietly, ГАЛОЧКА_МС } from "../shared/clipboard.js";
 import { Button } from "../shared/ui/button.js";
 
 /**
@@ -17,9 +16,6 @@ import { Button } from "../shared/ui/button.js";
  * значок на полторы секунды становится галочкой — так у Телеграма,
  * и так у нас в блоке кода. Одно поведение на две кнопки.
  */
-
-/** Сколько держится галочка после копирования. Столько же, что в коде. */
-const COPIED_MS = 1500;
 
 /**
  * Сколько дней осталось до срока. Считаем от того, что прислал сервер:
@@ -57,7 +53,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), COPIED_MS);
+    const timer = setTimeout(() => setCopied(false), ГАЛОЧКА_МС);
     return () => clearTimeout(timer);
   }, [copied]);
 
@@ -94,11 +90,14 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
               aria-label={copied ? "Скопировано" : "Копировать ссылку"}
               title="Копировать ссылку"
               onClick={() => {
-                // ⚠️ ЧЕРЕЗ ОБЩИЙ `copyAndTell`, А НЕ СВОИМ ОБРАЩЕНИЕМ
-                // К БУФЕРУ. Здесь стоял голый `navigator.clipboard` без
-                // обработки отказа: браузер мог не дать, а окно всё равно
-                // показывало галочку. Общее место и копирует, и говорит.
-                void copyAndTell(link, СКОПИРОВАНО.ссылка).then(setCopied);
+                // ⚠️ ЧЕРЕЗ ОБЩЕЕ МЕСТО, А НЕ СВОИМ ОБРАЩЕНИЕМ К БУФЕРУ.
+                // Здесь стоял голый `navigator.clipboard` без обработки
+                // отказа: браузер мог не дать, а окно всё равно показывало
+                // галочку.
+                //
+                // Молча — потому что галочка на кнопке уже отвечает.
+                // Отказ плашкой остаётся: при нём галочки нет.
+                void copyQuietly(link).then(setCopied);
               }}
             >
               {copied ? <Check /> : <Copy />}
