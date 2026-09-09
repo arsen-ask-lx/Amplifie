@@ -3,6 +3,7 @@ import { api, type Me } from "../data/api.js";
 import { describeFailure, type FormProblem } from "../shared/authMessages.js";
 import { Field } from "../shared/Field.js";
 import { Button } from "../shared/ui/button.js";
+import { EntryFrame } from "./entry/EntryFrame.js";
 
 /**
  * Вход по приглашению — ОТДЕЛЬНЫЙ экран, а не галочка на регистрации.
@@ -42,12 +43,8 @@ export function JoinScreen({ token, onEntered }: { token: string; onEntered: (me
   }
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-bg p-6">
-      <form
-        className="w-full max-w-96 rounded-xl border border-line bg-card p-6 shadow-float"
-        onSubmit={submit}
-        noValidate
-      >
+    <EntryFrame>
+      <form onSubmit={submit} noValidate>
         <h1 className="mb-1 text-brand leading-tight text-ink">Вас пригласили</h1>
         <p className="mt-2 text-body leading-relaxed text-muted">
           Заведите себе вход — и окажетесь в рабочем пространстве
@@ -89,6 +86,6 @@ export function JoinScreen({ token, onEntered }: { token: string; onEntered: (me
           {busy ? "Минуту…" : "Войти"}
         </Button>
       </form>
-    </div>
+    </EntryFrame>
   );
 }

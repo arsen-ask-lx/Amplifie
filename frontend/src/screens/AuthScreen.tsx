@@ -3,6 +3,7 @@ import { api, type Me } from "../data/api.js";
 import { describeFailure, type FormProblem } from "../shared/authMessages.js";
 import { Field } from "../shared/Field.js";
 import { Button } from "../shared/ui/button.js";
+import { EntryFrame } from "./entry/EntryFrame.js";
 
 type Mode = "login" | "register";
 
@@ -45,17 +46,15 @@ export function AuthScreen({ onEntered }: { onEntered: (me: Me) => void }) {
   }
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-bg p-6">
-      <form
-        className="w-full max-w-96 rounded-xl border border-line bg-card p-6 shadow-float"
-        onSubmit={submit}
-        noValidate
-      >
+    <EntryFrame>
+      <form onSubmit={submit} noValidate>
         <h1 className="mb-1 text-brand leading-tight text-ink">
-          {isRegister ? "Создать пространство" : "Вход"}
+          {isRegister ? "Создать пространство" : "С возвращением"}
         </h1>
-        <p className="mt-2 text-body leading-relaxed text-muted">
-          {isRegister ? "Рабочее место, где агенты слышат разговор" : "Рады видеть снова"}
+        <p className="mt-2 mb-6 text-body leading-relaxed text-muted">
+          {isRegister
+            ? "Рабочее место, где агенты слышат разговор"
+            : "Разговор, из которого выходят задачи"}
         </p>
 
         {problem.common ? (
@@ -103,10 +102,25 @@ export function AuthScreen({ onEntered }: { onEntered: (me: Me) => void }) {
           {busy ? "Минуту…" : isRegister ? "Создать" : "Войти"}
         </Button>
 
-        <Button variant="link" onClick={switchMode}>
-          {isRegister ? "У меня уже есть вход" : "Создать новое пространство"}
-        </Button>
+        {/* Вторая дверь тише первой и по середине: главное действие здесь
+          одно — войти. «Создать пространство» — это УСТАНОВКА продукта,
+          и делают её один раз в жизни сервера (Р-024).
+
+          ⚠️ ССЫЛКА ПОКАЗЫВАЕТСЯ ВСЕГДА, А РЕГИСТРАЦИЯ ОТКРЫТА ТОЛЬКО
+          ДО ПЕРВОГО ЧЕЛОВЕКА. На занятом сервере она приведёт к отказу
+          403. Спрашивать у сервера, открыта ли дверь, — отдельная работа;
+          строка в очередь заведена. */}
+        <div className="mt-2 text-center">
+          <Button
+            variant="link"
+            size="sm"
+            className="text-aside! font-normal text-muted"
+            onClick={switchMode}
+          >
+            {isRegister ? "У меня уже есть вход" : "Создать новое пространство"}
+          </Button>
+        </div>
       </form>
-    </div>
+    </EntryFrame>
   );
 }
