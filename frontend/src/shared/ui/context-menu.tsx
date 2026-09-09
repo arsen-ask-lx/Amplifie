@@ -116,14 +116,27 @@ function ContextMenuSubContent({
   ...props
 }: React.ComponentProps<typeof Menu.SubContent>) {
   return (
-    <Menu.SubContent
-      data-slot="context-menu-sub-content"
-      className={cn(
-        "z-50 min-w-[10rem] overflow-hidden rounded-md bg-popover p-1.5 text-popover-foreground shadow-menu data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
-        className,
-      )}
-      {...props}
-    />
+    /**
+     * ⚠️ В ПОРТАЛЕ, КАК И САМО МЕНЮ. Без него подменю рисуется ВНУТРИ
+     * родительского меню, а у того стоит обрезка по краю — «Форматирование»
+     * раскрывалось в никуда.
+     *
+     * Держалось это до тех пор, пока у родителя не появился сдвиг:
+     * `transform` делает элемент системой координат для всего, что внутри
+     * него позиционировано «намертво», и подменю стало считаться от меню,
+     * а не от окна. То есть недоделка была давно, а проявилась от моей
+     * же правки положения меню.
+     */
+    <Menu.Portal>
+      <Menu.SubContent
+        data-slot="context-menu-sub-content"
+        className={cn(
+          "z-50 min-w-[10rem] overflow-hidden rounded-md bg-popover p-1.5 text-popover-foreground shadow-menu data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          className,
+        )}
+        {...props}
+      />
+    </Menu.Portal>
   );
 }
 
