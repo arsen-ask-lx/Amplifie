@@ -59,6 +59,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    ports:
+      # ⚠️ ТОЛЬКО ПЕТЛЯ И ТОЛЬКО ДЛЯ РАБОТЫ РУКАМИ. При `make work` фронт
+      # поднимается своим сервером на 8477, а Caddy на это время гаснет —
+      # значит к беку надо ходить напрямую. Снаружи машины порт закрыт;
+      # в прод-профиле этой строки не будет, как и у Postgres рядом.
+      - "127.0.0.1:${API_HOST_PORT:-3477}:3000"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s

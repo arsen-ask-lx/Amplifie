@@ -23,4 +23,9 @@
 KNIP_DISABLE_RAW_TRANSFER=1
 export KNIP_DISABLE_RAW_TRANSFER
 
-exec bash "$(dirname "$0")/../_native.sh" "${1:-.}" npx --yes knip@6 --directory "${1:-.}"
+# ⚠️ ВЕРСИЯ ЗАКРЕПЛЕНА ТОЧНО, А НЕ «ШЕСТАЯ ЛЮБАЯ». Было `knip@6` —
+# и в один день гейт покраснел на исправном коде: реестр показывал
+# 6.35.1, а поставить её не давал («No matching version found»),
+# то есть версия опубликована наполовину. Гейт, который краснеет
+# от чужого выката, — это не гейт, а лотерея. Поднимать вручную.
+exec bash "$(dirname "$0")/../_native.sh" "${1:-.}" npx --yes knip@6.35.0 --directory "${1:-.}"
