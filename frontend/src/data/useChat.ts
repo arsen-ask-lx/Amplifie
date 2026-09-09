@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { troubleOf } from "../shared/trouble.js";
-import { api, type Conversation, type Me, type Message, type Quote } from "./api.js";
+import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
+import { useReading } from "./useReading.js";
 import { useRooms } from "./useRooms.js";
 
 /**
@@ -74,6 +75,17 @@ export interface Chat {
   /** На что отвечаем прямо сейчас. Строка над полем ввода. */
   replying: Quote | null;
   reply: (message: Message | null) => void;
+  /**
+   * Сколько чужих реплик человек не видел в названном разговоре (Р-029).
+   * Не поле, а вопрос: число уточняется нашими же отметками, не дожидаясь
+   * ответа сервера.
+   */
+  unreadOf: (conversationId: string) => number;
+  /**
+   * Перед какой репликой стоит черта «Непрочитанные сообщения»
+   * в открытом разговоре. `null` — черты нет. Замирает при открытии.
+   */
+  boundary: number | null;
   /** Закреплённое этого разговора, свежее сверху. */
   pinned: Message[];
   pin: (messageId: string, pinned: boolean) => Promise<void>;
@@ -135,6 +147,11 @@ export function useChat(me: Me): Chat {
   // не спрашивает, он про ленту не знает.
   const rooms = useRooms(where);
 
+  // Перечитывание списка — ссылкой: догон зовёт его из эффекта, который
+  // не имеет права пересоздаваться на каждом обновлении списка.
+  const roomsRef = useRef(rooms.reload);
+  roomsRef.current = rooms.reload;
+
   // Что на экране сейчас — для отправки, которой нужен последний номер,
   // но не нужна перерисовка при каждом его изменении.
   const messagesRef = useRef<Message[]>([]);
@@ -181,28 +198,45 @@ export function useChat(me: Me): Chat {
    */
   const following = useRef(true);
 
+  /**
+   * Разложить приехавшее догоном: в ленту, в закреплённое, в счётчики.
+   *
+   * ⚠️ ЧУЖАЯ КОМНАТА — ПОВОД ПЕРЕЧИТАТЬ СПИСОК, И БЕЗ ЭТОГО СЧЁТЧИК
+   * НЕПРОЧИТАННОГО МЁРТВ. Догон приносит реплики всего пространства,
+   * но в ленту попадают только реплики ОТКРЫТОГО разговора (Р-023):
+   * остальные отбрасываются здесь же. Значит про сообщение в соседнем
+   * канале клиент не узнаёт ничего, и число у канала никогда бы
+   * не выросло, пока туда не зайдёшь.
+   *
+   * Перечитываем список, а не считаем сами: счётчик живёт на сервере
+   * (Р-029), и второй способ его получить разошёлся бы с первым.
+   * Запрос идёт, только когда событие ЕСТЬ, — то есть ровно по делу.
+   */
+  const принять = useCallback(
+    (приехавшие: SyncLine[]) => {
+      const открыт = currentIdRef.current;
+      setMessages((current) =>
+        merge(current, ofRoom(приехавшие, открыт), following.current ? ОКНО : undefined),
+      );
+      setPinned((current) => mergePinned(current, приехавшие, открыт));
+      if (приехавшие.some((one) => one.conversationId !== открыт)) void roomsRef.current();
+    },
+    [currentIdRef],
+  );
+
   /** Догон до конца: страницами, пока сервер говорит, что есть ещё. */
   const catchUp = useCallback(async () => {
     for (let page = 0; page < 20; page++) {
       const batch = await api.sync(cursor.current);
       cursor.current = batch.seq;
-      if (batch.messages.length > 0) {
-        setMessages((current) =>
-          merge(
-            current,
-            ofRoom(batch.messages, currentIdRef.current),
-            following.current ? ОКНО : undefined,
-          ),
-        );
-        setPinned((current) => mergePinned(current, batch.messages, currentIdRef.current));
-      }
+      if (batch.messages.length > 0) принять(batch.messages);
       if (!batch.hasMore) return;
     }
     // ⚠️ ССЫЛКА В ЗАВИСИМОСТЯХ, А НЕ ЕЁ СОДЕРЖИМОЕ. Сам объект ссылки
     // неизменен, и от него ничего не пересоздаётся; `currentIdRef.current`
     // в списке означал бы пересоздание догона на каждом переключении
     // канала — ровно то, ради чего ссылка и заведена.
-  }, [currentIdRef]);
+  }, [принять]);
 
   // Список разговоров — один раз при входе. `navigate` в зависимостях
   // стоит честно, хотя маршрутизатор и обещает его неизменность: обещание
@@ -570,18 +604,46 @@ export function useChat(me: Me): Chat {
     following.current = yes;
   }, []);
 
+  // Лента открытого разговора — одна на возврат наружу и на подсчёт
+  // прочитанного: два разных выражения для одного и того же однажды
+  // разошлись бы.
+  const видимые = messages.filter((m) => m.conversationId === currentId);
+
+  /**
+   * ⚠️ ПЕРЕЧИТЫВАЕМ СПИСОК И ПРИ СМЕНЕ РАЗГОВОРА. Пока человек сидел
+   * в одном канале, его собственная отметка прочтения ушла на сервер,
+   * а список в памяти остался прежним. Без этого число у только что
+   * покинутого канала висело бы до перезагрузки страницы.
+   */
+  useEffect(() => {
+    if (currentId) void roomsRef.current();
+  }, [currentId]);
+
+  // Что человек уже видел — отдельным знанием (Р-029). `useChat` про это
+  // ничего не решает: он только даёт номер последней реплики и говорит,
+  // внизу ли лента.
+  const reading = useReading({
+    rooms: rooms.items,
+    currentId,
+    messages: видимые,
+    meId: me.participant.id,
+    following,
+  });
+
   return {
     conversations: rooms.items,
     current: rooms.items.find((c) => c.id === currentId) ?? null,
     follow,
     replying,
     reply,
+    unreadOf: reading.unreadOf,
+    boundary: reading.boundary,
     pinned,
     pin,
     edit,
     remove,
     forward,
-    messages: messages.filter((m) => m.conversationId === currentId),
+    messages: видимые,
     hasOlder,
     loading,
     failure,

@@ -6,7 +6,7 @@ import { день as dayOf } from "../../shared/when.js";
 import type { Deeds, Picking } from "./Actions.js";
 import { useFeedScroll } from "./feedScroll.js";
 import { Group } from "./Group.js";
-import { groupsOf, keyOf, rowsOf } from "./rows.js";
+import { groupsOf, keyOf, type Row, rowsOf } from "./rows.js";
 
 /**
  * Лента сообщений — по модели Телеграма (Р-008).
@@ -33,6 +33,57 @@ function Empty() {
   );
 }
 
+/**
+ * Разрезать ленту чертой «Непрочитанные сообщения».
+ *
+ * ⚠️ ЧЕРТА РЕЖЕТ ГРУППУ, А НЕ ВСТАЁТ ПЕРЕД НЕЙ. Реплики одного автора
+ * подряд склеиваются в группу; если черта пришлась на середину такой
+ * группы, поставить её «перед группой» значило бы соврать на две-три
+ * реплики — человек начал бы перечитывать уже прочитанное. Поэтому
+ * строки делятся ПО НОМЕРУ, и каждая половина группируется сама.
+ * У Телеграма черта тоже разрывает склейку.
+ */
+function надвое(rows: Row[], boundary: number | null) {
+  if (boundary === null) return { доЧерты: rows, послеЧерты: [] as Row[] };
+  return {
+    доЧерты: rows.filter((one) => one.message.seq <= boundary),
+    послеЧерты: rows.filter((one) => one.message.seq > boundary),
+  };
+}
+
+/**
+ * Склейки реплик с разделителями дней.
+ *
+ * ⚠️ ВЫНЕСЕНО ИЗ `Feed`, КОГДА ЧЕРТА «НЕПРОЧИТАННЫЕ» РАЗРЕЗАЛА ЛЕНТУ
+ * НАДВОЕ. До неё это была одна выкладка внутри разметки; с чертой их
+ * стало две одинаковых, а два одинаковых куска разметки — это тот самый
+ * повтор, который расходится при первой же правке одного из них.
+ */
+function Groups({
+  rows,
+  deeds,
+  onGo,
+  picking,
+}: {
+  rows: Row[];
+  deeds: Deeds;
+  onGo: (seq: number) => void;
+  picking: Picking | null;
+}) {
+  return groupsOf(rows).map((group) => (
+    <div key={group[0] ? keyOf(group[0].message) : "пусто"}>
+      {group[0]?.newDay ? (
+        <p className="my-4 text-center">
+          <span className="rounded-pill border border-line bg-card px-3 py-1 text-mark text-muted">
+            {dayOf.format(new Date(group[0].message.createdAt))}
+          </span>
+        </p>
+      ) : null}
+      <Group rows={group} deeds={deeds} onGo={onGo} picking={picking} />
+    </div>
+  ));
+}
+
 export function Feed({
   messages,
   hasOlder,
@@ -43,6 +94,7 @@ export function Feed({
   deeds,
   onGo,
   picking,
+  boundary,
   onFollow,
 }: {
   messages: Message[];
@@ -58,6 +110,11 @@ export function Feed({
   onGo: (seq: number) => void;
   /** Идёт выделение. `null` — обычный режим. */
   picking: Picking | null;
+  /**
+   * Перед какой репликой стоит черта «Непрочитанные сообщения».
+   * `null` — черты нет. Замирает при открытии разговора (Р-029).
+   */
+  boundary: number | null;
   /**
    * Сказать наружу, внизу ли человек. По этому ответу лента решает,
    * можно ли вытеснять старое сверху (Р-023): у листающего назад —
@@ -92,6 +149,8 @@ export function Feed({
 
   const rows = rowsOf(messages, meId, wasThereAtFirst.current);
 
+  const { доЧерты, послеЧерты } = надвое(rows, boundary);
+
   return (
     // Обёртка нужна кнопке «вниз»: она висит НАД лентой и не должна
     // ни ездить вместе с ней, ни попадать в поток сообщений.
@@ -124,18 +183,20 @@ export function Feed({
             </p>
           )}
 
-          {groupsOf(rows).map((group) => (
-            <div key={group[0] ? keyOf(group[0].message) : "пусто"}>
-              {group[0]?.newDay ? (
-                <p className="my-4 text-center">
-                  <span className="rounded-pill border border-line bg-card px-3 py-1 text-mark text-muted">
-                    {dayOf.format(new Date(group[0].message.createdAt))}
-                  </span>
-                </p>
-              ) : null}
-              <Group rows={group} deeds={deeds} onGo={onGo} picking={picking} />
-            </div>
-          ))}
+          <Groups rows={доЧерты} deeds={deeds} onGo={onGo} picking={picking} />
+
+          {/* ⚠️ НАДПИСЬ БЕЗ ЧИСЛА — как `lng_unread_bar_some` у них.
+              Сколько именно, человек уже прочёл у канала в панели;
+              повторять число здесь значит сказать одно и то же дважды. */}
+          {послеЧерты.length > 0 ? (
+            <p className="my-3 flex items-center gap-3 text-mark text-muted">
+              <span className="h-px flex-1 bg-line" />
+              Непрочитанные сообщения
+              <span className="h-px flex-1 bg-line" />
+            </p>
+          ) : null}
+
+          <Groups rows={послеЧерты} deeds={deeds} onGo={onGo} picking={picking} />
         </div>
       </div>
 

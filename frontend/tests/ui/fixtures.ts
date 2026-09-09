@@ -43,17 +43,46 @@ function counterUp() {
   счётчик += 1;
 }
 
+/**
+ * Встать на нужную дверь (task-023).
+ *
+ * ⚠️ ДВЕРЬ ТЕПЕРЬ ВЫБИРАЕТ СЕРВЕР, А НЕ ЭКРАН. На этом стенде
+ * `AMPLIFIE_MULTI_WORKSPACE=true`, поэтому регистрация всегда открыта
+ * и первой показывается УСТАНОВКА, а не вход. На коробке будет наоборот
+ * — и подготовка обязана работать в обоих случаях, иначе прогоны
+ * привязаны к настройке стенда, а не к продукту.
+ */
+async function door(page: Page, want: "установка" | "вход"): Promise<void> {
+  const need = page.getByRole("button", {
+    name: want === "установка" ? "Создать новое пространство" : "У меня уже есть вход",
+  });
+  // Ждём, пока экран определится: до ответа сервера формы нет вовсе.
+  await expect(page.getByRole("button", { name: /Войти|Создать/u })).toBeVisible();
+  if (await need.isVisible()) await need.click();
+}
+
+/** Пройти мастер первого запуска насквозь, ничего не подключая. */
+export async function skipSetup(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Пропустить — подключу позже" }).click();
+  await page.getByRole("button", { name: "Позже — открыть чат" }).click();
+}
+
 /** Завести пространство и войти в него. Возвращает, кто вошёл. */
 export async function register(page: Page, role = "Проверяющий"): Promise<Person> {
   const person = newPerson(role);
   await page.goto("/");
-  await page.getByRole("button", { name: "Создать новое пространство" }).click();
+  await door(page, "установка");
 
   await page.getByLabel("Почта").fill(person.email);
   await page.getByLabel("Пароль").fill(person.password);
   await page.getByLabel("Как вас зовут").fill(person.name);
   await page.getByLabel("Название пространства").fill(`Пространство ${person.name}`);
   await page.getByRole("button", { name: "Создать", exact: true }).click();
+
+  // ⚠️ ПОСЛЕ УСТАНОВКИ ИДЁТ МАСТЕР, А НЕ ЧАТ (task-023). Подготовка
+  // проходит его насквозь «пропустить»: здесь проверяют не установку,
+  // а то, что за ней. Сам мастер проверяет `setup.spec.ts`.
+  await skipSetup(page);
 
   // Ждём не «нет ошибки», а появления рабочего экрана: отсутствие ошибки
   // наступает и тогда, когда не произошло ничего.
@@ -64,10 +93,39 @@ export async function register(page: Page, role = "Проверяющий"): Pro
 /** Войти существующим человеком — для второй вкладки того же человека. */
 export async function login(page: Page, person: Person): Promise<void> {
   await page.goto("/");
+  await door(page, "вход");
   await page.getByLabel("Почта").fill(person.email);
   await page.getByLabel("Пароль").fill(person.password);
   await page.getByRole("button", { name: "Войти" }).click();
   await expect(page.getByRole("button", { name: "Новый канал" })).toBeVisible();
+}
+
+/**
+ * Позвать второго человека по ссылке и войти им.
+ *
+ * ⚠️ ВТОРАЯ ВКЛАДКА — ЭТО НЕ ВТОРОЙ ЧЕЛОВЕК, и для непрочитанного разница
+ * решающая: свои реплики не считаются, значит проверять счётчик двумя
+ * вкладками одного человека нельзя вовсе. Ссылка-приглашение —
+ * единственный вход второго (Р-009), поэтому идём через неё.
+ *
+ * `хозяин` — вкладка того, кто зовёт; `гость` — чистая вкладка новичка.
+ */
+export async function invited(гость: Page, хозяин: Page, name: string): Promise<void> {
+  await хозяин.getByLabel("Профиль и настройки").click();
+  await хозяин.getByRole("menuitem", { name: "Пригласить в пространство" }).click();
+
+  const поле = хозяин.getByLabel("Ссылка-приглашение");
+  await expect(поле).toBeVisible();
+  const ссылка = await поле.inputValue();
+  await хозяин.getByRole("button", { name: "Закрыть" }).click();
+
+  counterUp();
+  await гость.goto(ссылка);
+  await гость.getByLabel("Почта").fill(`ui-guest-${Date.now()}-${счётчик}@example.test`);
+  await гость.getByLabel("Пароль").fill("очень-длинный-пароль-для-теста");
+  await гость.getByLabel("Как вас зовут").fill(name);
+  await гость.getByRole("button", { name: "Войти" }).click();
+  await expect(гость.getByRole("button", { name: "Новый канал" })).toBeVisible();
 }
 
 /** Завести канал и открыть его. */
@@ -80,7 +138,11 @@ export async function createChannel(page: Page, title: string): Promise<void> {
 
 /** Открыть канал по названию в боковой панели. */
 export async function openChannel(page: Page, title: string): Promise<void> {
-  await page.getByRole("button", { name: title, exact: true }).click();
+  // ⚠️ ПО НАЧАЛУ ИМЕНИ, А НЕ ЦЕЛИКОМ. У канала с непрочитанным доступное
+  // имя кнопки длиннее названия: в него входит число со словом для чтения
+  // с экрана (task-024). Точное совпадение перестало бы открывать ровно
+  // те каналы, куда человек и идёт.
+  await page.getByRole("button", { name: new RegExp(`^${title}`) }).click();
   await expect(field(page)).toBeVisible();
 }
 

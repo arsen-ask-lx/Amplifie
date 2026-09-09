@@ -64,6 +64,19 @@ export interface Conversation {
   parentId: string | null;
   /** Когда тут в последний раз говорили. По нему сервер и сортирует. */
   lastAt?: string;
+  /**
+   * Сколько ЧУЖИХ реплик человек ещё не видел (Р-029).
+   *
+   * Считает сервер: клиент держит окно в 300 реплик (Р-023) и про
+   * остальное не знает.
+   */
+  unread: number;
+  /**
+   * Докуда человек дочитал. Отвечает на «откуда черта», а `unread` —
+   * на «сколько». Одно из другого не выводится: у клиента только окно
+   * ленты в 300 реплик.
+   */
+  readSeq: number;
 }
 
 /** На что отвечает реплика. Кусок текста присылает сервер — здесь не режем. */
@@ -265,6 +278,18 @@ export const api = {
   /** Удалить канал. Мягко на сервере; здесь это просто «его больше нет». */
   removeChannel: (id: string) => request<void>(`/v1/conversations/${id}`, { method: "DELETE" }),
 
+  /**
+   * Отметить разговор прочитанным ДО номера включительно.
+   *
+   * Возвращает остаток, пересчитанный сервером: клиент видит только окно
+   * ленты и посчитать сам не может (Р-029).
+   */
+  markRead: (id: string, seq: number) =>
+    request<{ unread: number }>(`/v1/conversations/${id}/read`, {
+      method: "POST",
+      body: JSON.stringify({ seq }),
+    }),
+
   createChannel: (title: string) =>
     request<Conversation>("/v1/conversations", {
       method: "POST",
@@ -281,6 +306,14 @@ export const api = {
   /** Догон по номеру — им же клиент и живёт, и восстанавливается (Р-006). */
   sync: (after: number) =>
     request<{ messages: SyncLine[]; seq: number; hasMore: boolean }>(`/v1/sync?after=${after}`),
+
+  /**
+   * Что за дверью: можно ли здесь завести компанию (task-023).
+   *
+   * Спрашивается ДО входа и без печеньки: отвечает на вопрос экрана
+   * «показать установку или вход».
+   */
+  entry: () => request<{ registrationOpen: boolean }>("/v1/entry"),
 
   register: (input: {
     email: string;

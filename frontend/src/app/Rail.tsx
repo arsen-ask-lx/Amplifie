@@ -135,6 +135,7 @@ export function Rail({
           <RoomList
             rooms={chat.conversations}
             currentId={chat.current?.id ?? null}
+            unreadOf={chat.unreadOf}
             onSelect={(id) => chat.select(id)}
             onCreate={chat.addChannel}
             onRemove={chat.removeChannel}

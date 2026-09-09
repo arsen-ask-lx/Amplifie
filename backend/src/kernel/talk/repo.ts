@@ -1,5 +1,5 @@
-import { and, asc, desc, eq, gt, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, asc, desc, eq, gt, isNotNull, isNull, lt, lte, type SQL, sql } from "drizzle-orm";
+import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
@@ -140,12 +140,67 @@ export async function insertMember(
  * последнего сообщения берётся время создания. Иначе только что заведённый
  * канал оказывался бы в самом хвосте — там, где его никто не найдёт.
  */
+/**
+ * Сколько чужих реплик человек ещё не видел в НАЗВАННОМ разговоре.
+ *
+ * ⚠️ СЧИТАЕТСЯ, А НЕ ХРАНИТСЯ (Р-029). Хранимое число — второй источник
+ * правды о том же факте, и оно разойдётся с репликами при первом же
+ * удалении. Индекс `(conversation_id, seq)` для этого счёта уже есть.
+ *
+ * ⚠️ СВОИ РЕПЛИКИ НЕ СЧИТАЮТСЯ. Автор уже видел то, что написал, —
+ * иначе счётчик рос бы от собственного письма.
+ *
+ * ⚠️ ПОТОЛОК В ТЫСЯЧУ, И ОН НЕ ДЛЯ КРАСОТЫ. Выше тысячи число на экране
+ * всё равно показывается как «999+», а `LIMIT` внутри превращает счёт
+ * по огромному каналу в счёт по первой тысяче строк индекса.
+ */
+const UNREAD_CAP = 1000;
+
+/**
+ * Ссылка на разговор ИЗ ВЛОЖЕННОГО запроса, написанная именем таблицы.
+ *
+ * ⚠️ БЕЗ ЭТОГО СВЯЗАННЫЙ ПОДЗАПРОС МОЛЧА СЧИТАЕТ НЕ ТО, и мы на этом
+ * уже обожглись дважды в одном файле. Внутри списка выбираемых полей
+ * drizzle печатает колонку БЕЗ имени таблицы: `${conversation.id}`
+ * превращается в `"id"`. А внутри `SELECT ... FROM "message"` имя `"id"`
+ * означает `message.id`, потому что у реплики своя колонка `id`.
+ * Условие `"conversation_id" = "id"` становится
+ * `message.conversation_id = message.id` — вечная ложь.
+ *
+ * Ошибка не падает и не логируется: подзапрос честно возвращает пусто.
+ * Непрочитанное показывалось нулём всегда; время последней активности
+ * рядом — временем СОЗДАНИЯ разговора, то есть список каналов никогда
+ * не сортировался по свежести. Второе жило в коде месяц и найдено
+ * попутно (см. лог task-024).
+ *
+ * `sql.raw` здесь — не грубость, а единственный способ сказать «именно
+ * та таблица снаружи»: имя разговора в этом файле одно и не меняется.
+ */
+const ЭТОТ_РАЗГОВОР = sql.raw('"conversation"."id"');
+
+function unreadOf(conversationId: PgColumn | SQL | string, participantId: string) {
+  return sql<number>`(
+    SELECT count(*)::int FROM (
+      SELECT 1 FROM ${message}
+      WHERE ${message.conversationId} = ${conversationId}
+        AND ${message.authorParticipantId} <> ${participantId}
+        AND ${message.deletedAt} IS NULL
+        AND ${message.seq} > COALESCE((
+          SELECT ${conversationMember.readSeq} FROM ${conversationMember}
+          WHERE ${conversationMember.conversationId} = ${conversationId}
+            AND ${conversationMember.participantId} = ${participantId}
+        ), 0)
+      LIMIT ${UNREAD_CAP}
+    ) AS невидённые
+  )`;
+}
+
 export async function listConversationsFor(tx: Executor, participantId: string) {
   const lastAt = sql<Date>`GREATEST(
     ${conversation.createdAt},
     COALESCE((
       SELECT MAX(${message.createdAt}) FROM ${message}
-      WHERE ${message.conversationId} = ${conversation.id}
+      WHERE ${message.conversationId} = ${ЭТОТ_РАЗГОВОР}
     ), ${conversation.createdAt})
   )`;
 
@@ -156,10 +211,90 @@ export async function listConversationsFor(tx: Executor, participantId: string) 
       title: conversation.title,
       parentId: conversation.parentId,
       lastAt,
+      unread: unreadOf(ЭТОТ_РАЗГОВОР, participantId),
+      /**
+       * Докуда человек дочитал. Едет наружу вместе со счётчиком, потому
+       * что число отвечает на «сколько», а черта «Непрочитанные
+       * сообщения» — на «откуда», и второго из первого не вывести:
+       * клиент держит только окно ленты. У Телеграма рядом с
+       * `unread_count` по той же причине лежит `read_inbox_max_id`.
+       *
+       * Ноль у того, кто в разговоре не состоит: он видит его по
+       * открытости пространству, а своей отметки у него нет.
+       */
+      readSeq: sql<number>`COALESCE((
+        SELECT ${conversationMember.readSeq} FROM ${conversationMember}
+        WHERE ${conversationMember.conversationId} = ${ЭТОТ_РАЗГОВОР}
+          AND ${conversationMember.participantId} = ${participantId}
+      ), 0)`,
     })
     .from(conversation)
     .where(visibleTo(participantId))
     .orderBy(desc(lastAt));
+}
+
+/**
+ * Непрочитанное в одном разговоре — после отметки.
+ *
+ * ⚠️ ЧЕРЕЗ `select`, А НЕ ЧЕРЕЗ `execute`, И ЭТО НЕ ВКУСОВЩИНА. Сперва
+ * здесь стоял `tx.execute(sql...)` — он возвращает не список строк,
+ * а ответ драйвера целиком, и чтение `[0]` давало `undefined`. Счётчик
+ * молча оказывался нулём: ни ошибки, ни исключения, просто «всё
+ * прочитано». Ровно тот отказ, от которого мы защищаемся всей задачей.
+ *
+ * Теперь путь один и тот же, что у списка разговоров, — значит и ломаться
+ * им предстоит вместе, а не по отдельности.
+ */
+export async function countUnread(
+  tx: Executor,
+  conversationId: string,
+  participantId: string,
+): Promise<number> {
+  const rows = await tx
+    .select({ n: unreadOf(conversationId, participantId) })
+    .from(conversationMember)
+    .where(
+      and(
+        eq(conversationMember.conversationId, conversationId),
+        eq(conversationMember.participantId, participantId),
+      ),
+    )
+    .limit(1);
+  return Number(rows[0]?.n ?? 0);
+}
+
+/**
+ * Отметить прочитанным всё до номера включительно.
+ *
+ * ⚠️ ТОЛЬКО ВПЕРЁД, И ЭТО ГЛАВНАЯ СТРОКА ВСЕЙ ЗАТЕИ. `GREATEST` вместо
+ * присваивания — защита от того, что две вкладки одного человека шлют
+ * «дочитал» вразнобой: первая долистала до конца, вторая стояла на
+ * старом месте и отправила свой номер ПОЗЖЕ. Присваивание откатило бы
+ * прочитанное, и непрочитанное воскресло бы само (Р-029).
+ *
+ * Отметить прочитанным то, чего человек не видел, нечем отменить —
+ * поэтому откат запрещён базой, а не порядком вызовов.
+ *
+ * Возвращает `false`, если участника в разговоре нет: это и есть проверка
+ * права, сделанная самим `UPDATE`, а не отдельным чтением до него.
+ */
+export async function markRead(
+  tx: Executor,
+  conversationId: string,
+  participantId: string,
+  seq: number,
+): Promise<boolean> {
+  const rows = await tx
+    .update(conversationMember)
+    .set({ readSeq: sql`GREATEST(${conversationMember.readSeq}, ${seq})` })
+    .where(
+      and(
+        eq(conversationMember.conversationId, conversationId),
+        eq(conversationMember.participantId, participantId),
+      ),
+    )
+    .returning({ readSeq: conversationMember.readSeq });
+  return rows.length > 0;
 }
 
 /**

@@ -172,7 +172,35 @@ export async function listConversations(viewer: Viewer) {
     // Время последней активности отдаём наружу: по нему клиент показывает
     // «когда тут в последний раз говорили», не запрашивая ленту.
     lastAt: r.lastAt,
+    // Сколько чужих реплик человек ещё не видел (Р-029). Едет вместе
+    // со списком, а не отдельной дверью: панель каналов и так его
+    // перечитывает, и второй запрос был бы ровно тем же обходом.
+    unread: r.unread,
+    readSeq: Number(r.readSeq),
   }));
+}
+
+/**
+ * Отметить разговор прочитанным до номера включительно.
+ *
+ * ⚠️ ПРАВО ПРОВЕРЯЕТ САМ `UPDATE`, а не чтение до него: `markRead`
+ * не находит строки участника — значит человека в разговоре нет.
+ * Отдельная проверка до записи была бы вторым ответом на тот же вопрос
+ * и разошлась бы с первым (то же рассуждение, что у приглашений, Р-009).
+ *
+ * Видимость всё же спрашиваем: удалённый канал и разговор чужого
+ * пространства обязаны давать ту же ошибку, что несуществующий, —
+ * иначе по ответу можно перебирать чужие разговоры.
+ *
+ * Возвращает пересчитанный остаток: клиент видит только загруженный
+ * кусок ленты и посчитать сам не может. Так же поступает Телеграм,
+ * присылая `still_unread_count` рядом с номером.
+ */
+export async function markRead(viewer: Viewer, conversationId: string, seq: number) {
+  await requireVisible(db, viewer, conversationId);
+  const marked = await repo.markRead(db, conversationId, viewer.participantId, seq);
+  if (!marked) throw new ConversationNotVisibleError();
+  return { unread: await repo.countUnread(db, conversationId, viewer.participantId) };
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../shared/ui/dropdown-menu.js";
+import { ChannelRow } from "./ChannelRow.js";
 import { SidebarSection } from "./SidebarSection.js";
 
 /**
@@ -77,12 +78,15 @@ function NewChannel({
 export function RoomList({
   rooms,
   currentId,
+  unreadOf,
   onSelect,
   onCreate,
   onRemove,
 }: {
   rooms: Conversation[];
   currentId: string | null;
+  /** Сколько чужих реплик человек не видел в этом канале (Р-029). */
+  unreadOf: (conversationId: string) => number;
   onSelect: (id: string) => void;
   onCreate: (title: string) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
@@ -112,6 +116,7 @@ export function RoomList({
               key={channel.id}
               channel={channel}
               current={channel.id === currentId}
+              unread={unreadOf(channel.id)}
               onSelect={onSelect}
               onRemove={() => setRemoving(channel)}
             />
@@ -155,63 +160,6 @@ export function RoomList({
  * разметка: браузер её распрямляет, и нажатие на точки выбирало бы канал
  * заодно.
  */
-function ChannelRow({
-  channel,
-  current,
-  onSelect,
-  onRemove,
-}: {
-  channel: Conversation;
-  current: boolean;
-  onSelect: (id: string) => void;
-  onRemove: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div
-      className={[
-        "group/room flex items-center rounded pr-1 transition-colors",
-        current ? "bg-selected" : "bg-transparent hover:bg-raised",
-      ].join(" ")}
-    >
-      <button
-        type="button"
-        aria-current={current ? "page" : undefined}
-        onClick={() => onSelect(channel.id)}
-        className={[
-          "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors",
-          current ? "font-medium text-ink" : "text-muted group-hover/room:text-ink",
-        ].join(" ")}
-      >
-        <Hash className="size-4 shrink-0 opacity-60" />
-        <span className="truncate">{channel.title}</span>
-      </button>
-
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Что сделать с каналом «${channel.title}»`}
-            className={[
-              "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
-              "hover:bg-selected hover:text-ink focus-visible:opacity-100",
-              open ? "opacity-100" : "opacity-0 group-hover/room:opacity-100",
-            ].join(" ")}
-          >
-            <DotsThree className="size-4" weight="bold" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-52">
-          <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-            <Trash />
-            Удалить канал
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-}
 
 /**
  * «Точно удалить канал?» — своим окном, а не `window.confirm`.

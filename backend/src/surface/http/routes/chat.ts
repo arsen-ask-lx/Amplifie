@@ -16,13 +16,14 @@ import {
   listConversations,
   listMessages,
   listPinned,
+  markRead,
   pinMessage,
   sendMessage,
   sync,
   type Viewer,
 } from "../../../kernel/talk/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
-import { SEND, SYNC } from "../limits.js";
+import { READ, SEND, SYNC } from "../limits.js";
 import { parse } from "./parse.js";
 import { SESSION_COOKIE } from "./viewer.js";
 
@@ -40,6 +41,18 @@ const sendSchema = z.object({
 
 const editSchema = z.object({
   body: z.string().trim().min(1, "сообщение пустое").max(8000, "сообщение длиннее 8000 символов"),
+});
+
+/**
+ * ⚠️ НОМЕР ЦЕЛЫЙ И НЕОТРИЦАТЕЛЬНЫЙ, БОЛЬШЕ ПРОВЕРЯТЬ НЕЧЕГО. «Номер
+ * из будущего» отдельной ошибкой не делаем: он безобиден. Отметить
+ * прочитанным то, чего ещё не написали, значит прочитать это вперёд —
+ * а следующая реплика получит номер больше и станет непрочитанной как
+ * положено. Проверка же «не больше последнего» стоила бы лишнего чтения
+ * на каждую отметку ради предотвращения ничего.
+ */
+const readSchema = z.object({
+  seq: z.int().min(0, "номер не бывает отрицательным"),
 });
 
 const channelSchema = z.object({
@@ -146,6 +159,35 @@ export function registerChatRoutes(app: FastifyInstance): void {
     if (!viewer) return reply;
     return { items: await listConversations(viewer) };
   });
+
+  /**
+   * Отметить разговор прочитанным до номера включительно.
+   *
+   * ⚠️ «ДО НОМЕРА», А НЕ «ВОТ ЭТУ РЕПЛИКУ». Так у Телеграма
+   * (`messages.readHistory peer max_id`), и так единственно верно:
+   * человек читает подряд, а не выборочно, и отметка на каждой реплике
+   * была бы записью того же факта сотней строк вместо одной.
+   *
+   * ⚠️ ОТВЕТ НЕСЁТ ОСТАТОК. Клиент видит только загруженный кусок ленты
+   * и посчитать оставшееся сам не может — сервер видит всё. У них рядом
+   * с номером едет `still_unread_count`, у нас то же самое.
+   *
+   * Повтор безобиден: номер двигается только вперёд, и вторая отметка
+   * тем же числом не меняет ничего (Р-029).
+   */
+  app.post<{ Params: { id: string } }>(
+    "/v1/conversations/:id/read",
+    { config: { rateLimit: READ } },
+    async (request, reply) => {
+      const viewer = await viewerOf(request, reply);
+      if (!viewer) return reply;
+
+      const input = parse(readSchema, request.body, reply);
+      if (!input) return reply;
+
+      return orNotFound(reply, async () => markRead(viewer, request.params.id, input.seq));
+    },
+  );
 
   app.post("/v1/conversations", async (request, reply) => {
     const viewer = await viewerOf(request, reply);
