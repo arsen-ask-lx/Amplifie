@@ -1,11 +1,16 @@
 import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
+import { config } from "../../platform/config.js";
 import { db, type Tx, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
+import { mayRegister } from "./registration.js";
 import * as repo from "./repo.js";
 import { hashToken, newToken } from "./tokens.js";
 
 /** Сколько живёт сессия. Продлевать будем позже — сейчас проще некуда. */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Читается один раз: настройка стенда не меняется на ходу. */
+const { multiWorkspace } = config;
 
 /**
  * Хеш пароля. Argon2id — то, что рекомендуют вместо bcrypt с 2015 года.
@@ -21,6 +26,11 @@ const ARGON_OPTIONS = { algorithm: 2 } as const;
 const DUMMY_HASH = await argonHash("несуществующий-пароль-для-выравнивания", ARGON_OPTIONS);
 
 export class EmailTakenError extends Error {}
+/**
+ * Регистрация закрыта: компания на этой установке уже есть (Р-024).
+ * Единственная дверь внутрь — приглашение.
+ */
+export class RegistrationClosedError extends Error {}
 export class InvalidCredentialsError extends Error {}
 
 export interface Actor {
@@ -122,6 +132,15 @@ export async function register(
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
   return withTransaction(async (tx) => {
+    /**
+     * ⚠️ ПРОВЕРКА ВНУТРИ ТРАНЗАКЦИИ, А НЕ ПЕРЕД НЕЙ. Две регистрации,
+     * пришедшие разом на пустую установку, обе увидели бы «компаний нет»
+     * и обе завели бы по компании. Та же гонка, что у приглашений и кодов
+     * моста; здесь она стоит дешевле, но обходится тем же приёмом.
+     */
+    if (!mayRegister({ workspacesExist: await repo.anyWorkspaceExists(tx), multiWorkspace })) {
+      throw new RegistrationClosedError();
+    }
     if (await repo.findAccountByEmail(tx, email)) throw new EmailTakenError();
 
     const createdAccount = await repo.insertAccount(tx, email, passwordHash);

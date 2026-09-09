@@ -28,6 +28,7 @@ export {
   login,
   logout,
   type RegisterInput,
+  RegistrationClosedError,
   register,
   resolveActor,
   setSessionTouchFailureReporter,

@@ -69,6 +69,7 @@ export function keyTroubleOf(error: unknown): KeyTrouble {
 export type AuthTrouble =
   | "не-та-пара"
   | "ссылка-не-работает"
+  | "регистрация-закрыта"
   | "почта-занята"
   | "слишком-часто"
   | "иное";
@@ -77,6 +78,8 @@ export function authTroubleOf(error: unknown): AuthTrouble {
   switch (statusOf(error)) {
     case 401:
       return "не-та-пара";
+    case 403:
+      return "регистрация-закрыта";
     case 404:
       return "ссылка-не-работает";
     case 409:

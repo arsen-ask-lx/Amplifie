@@ -10,6 +10,7 @@ import {
   joinByInvite,
   login,
   logout,
+  RegistrationClosedError,
   resolveActor,
   revokeInvite,
 } from "../../../kernel/identity/index.js";
@@ -86,6 +87,13 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       setSessionCookie(reply, token);
       return reply.code(201).send(present(actor));
     } catch (error) {
+      if (error instanceof RegistrationClosedError) {
+        // ⚠️ ГОВОРИМ ПРЯМО, А НЕ МОЛЧИМ. Скрывать тут нечего: «на этом
+        // сервере уже есть компания» видно и по тому, что открывается
+        // страница входа. Зато человек узнаёт, что делать дальше —
+        // просить ссылку, а не подбирать пароль.
+        return reply.code(403).send({ error: "registration_closed" });
+      }
       if (error instanceof EmailTakenError) {
         return reply.code(409).send({ error: "email_taken" });
       }

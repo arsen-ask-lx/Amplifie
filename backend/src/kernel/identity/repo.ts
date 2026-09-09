@@ -34,6 +34,18 @@ export async function insertWorkspace(tx: Executor, name: string) {
  * `participant_account_matches_kind_ck` не даст завести человека
  * без аккаунта и агента с аккаунтом.
  */
+/**
+ * Есть ли на установке хоть одна компания (Р-024).
+ *
+ * ⚠️ СПРАШИВАЕМ «ХОТЬ ОДНА», А НЕ «СКОЛЬКО». Считать все строки, чтобы
+ * узнать, есть ли хоть одна, — это работа, которая растёт вместе с базой
+ * ради ответа «да».
+ */
+export async function anyWorkspaceExists(tx: Executor): Promise<boolean> {
+  const rows = await tx.select({ id: workspace.id }).from(workspace).limit(1);
+  return rows.length > 0;
+}
+
 /** Пространство по его идентификатору — нужно, чтобы назвать его вошедшему. */
 export async function findWorkspace(tx: Executor, id: string) {
   const rows = await tx.select().from(workspace).where(eq(workspace.id, id)).limit(1);
