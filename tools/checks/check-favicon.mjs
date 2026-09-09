@@ -20,16 +20,24 @@ import { readFileSync } from "node:fs";
 const CODE = "frontend/src/shared/Logo.tsx";
 const ICON = "frontend/public/favicon.svg";
 
-/** Контур из файла. Пробелы схлопнуты: перенос строки — не отличие. */
+/**
+ * Контур из файла. Пробелы схлопнуты: перенос строки — не отличие.
+ *
+ * ⚠️ СОБИРАЕМ ВСЕ `d`, А НЕ ПЕРВЫЙ. Знак разошёлся на две части —
+ * корону и шарик, — чтобы краситься от темы порознь: в компоненте это
+ * два `path`, в значке вкладки по-прежнему один. Гейт, смотревший
+ * только на первый, сравнивал корону с короной-и-шариком и краснел
+ * на исправном знаке.
+ */
 function outline(path) {
   const text = readFileSync(path, "utf8");
-  const found = /d="([^"]+)"/su.exec(text);
-  if (!found?.[1]) {
+  const found = [...text.matchAll(/d="([^"]+)"/gsu)].map((one) => one[1]);
+  if (found.length === 0) {
     console.error(`${path} — не нашёл контур (атрибут d)`);
     console.error("  ПОЧИНИТЬ: контур знака обязан быть в обоих файлах.");
     process.exit(1);
   }
-  return found[1].replaceAll(/\s+/gu, " ").trim();
+  return found.join(" ").replaceAll(/\s+/gu, " ").trim();
 }
 
 if (outline(CODE) !== outline(ICON)) {

@@ -149,6 +149,12 @@ stages: ## список стадий задачи совпадает с CHECK в
 favicon: ## знак на вкладке не разошёлся со знаком в интерфейсе
 > npm run favicon
 
+# ⚠️ ЗАПУСКАЕТСЯ РУКАМИ И РЕДКО — при правке знака. Картинки собираются
+# из `favicon.svg` браузером, который у нас и так есть; складывать их
+# в сборку незачем: знак меняется раз в год, а сборка идёт каждый день.
+icons: ## пересобрать растровые значки вкладки из нашего SVG
+> node tools/dev/make-icons.mjs
+
 model: ## спросить подключённую модель вживую (не гейт, а проверка связи)
 > npm run model
 
@@ -197,4 +203,4 @@ test-ui: ## проверки интерфейса настоящим брауз�
 check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui check
+.PHONY: help env up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon icons duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui check

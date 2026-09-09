@@ -273,3 +273,118 @@
   --on-danger: #ffffff;
   color-scheme: dark;
 }
+
+:root[data-theme="алая"],
+[data-theme="алая"] {
+  --bg: #1a1416;
+  --card: #241a1d;
+  --panel: #1e171a;
+  --raised: #2c2024;
+  --selected: #35262b;
+  --ink: #f8f2f3;
+  --muted: #a89a9c;
+  --line: #33262a;
+  --edge: #7d6c70;
+  --accent: #ff7b80;
+  --on-accent: #000000;
+  --accent-soft: #35262b;
+  --accent-soft-edge: #33262a;
+  --ink-on-soft: #f8f2f3;
+  --muted-on-soft: #ada0a2;
+  --accent-ink: #ff7b80;
+  --danger: #ff5c62;
+  --on-danger: #ffffff;
+  color-scheme: dark;
+}
+
+:root[data-theme="сирень"],
+[data-theme="сирень"] {
+  --bg: #17141c;
+  --card: #201c28;
+  --panel: #1a1722;
+  --raised: #282232;
+  --selected: #312a3d;
+  --ink: #f4f1f8;
+  --muted: #a09aab;
+  --line: #2e2839;
+  --edge: #736d80;
+  --accent: #c58cf0;
+  --on-accent: #000000;
+  --accent-soft: #312a3d;
+  --accent-soft-edge: #2e2839;
+  --ink-on-soft: #f4f1f8;
+  --muted-on-soft: #a59fb0;
+  --accent-ink: #c58cf0;
+  --danger: #ff6369;
+  --on-danger: #ffffff;
+  color-scheme: dark;
+}
+
+:root[data-theme="бирюза"],
+[data-theme="бирюза"] {
+  --bg: #111a19;
+  --card: #182422;
+  --panel: #141d1c;
+  --raised: #1e2c2a;
+  --selected: #243634;
+  --ink: #eff6f5;
+  --muted: #93a5a2;
+  --line: #233230;
+  --edge: #6a7a78;
+  --accent: #2fd4be;
+  --on-accent: #000000;
+  --accent-soft: #243634;
+  --accent-soft-edge: #233230;
+  --ink-on-soft: #eff6f5;
+  --muted-on-soft: #98aaa7;
+  --accent-ink: #2fd4be;
+  --danger: #ff6369;
+  --on-danger: #ffffff;
+  color-scheme: dark;
+}
+
+:root[data-theme="индиго"],
+[data-theme="индиго"] {
+  --bg: #14151f;
+  --card: #1c1e2b;
+  --panel: #171824;
+  --raised: #242637;
+  --selected: #2c2f44;
+  --ink: #f1f2f8;
+  --muted: #9a9db0;
+  --line: #2a2c3e;
+  --edge: #6f7286;
+  --accent: #8fa4ff;
+  --on-accent: #000000;
+  --accent-soft: #2c2f44;
+  --accent-soft-edge: #2a2c3e;
+  --ink-on-soft: #f1f2f8;
+  --muted-on-soft: #9fa2b5;
+  --accent-ink: #8fa4ff;
+  --danger: #ff6369;
+  --on-danger: #ffffff;
+  color-scheme: dark;
+}
+
+:root[data-theme="малина"],
+[data-theme="малина"] {
+  --bg: #1a1319;
+  --card: #241a22;
+  --panel: #1e161d;
+  --raised: #2c2029;
+  --selected: #352530;
+  --ink: #f8f1f5;
+  --muted: #a8989f;
+  --line: #33252e;
+  --edge: #7d6b74;
+  --accent: #ff8ac4;
+  --on-accent: #000000;
+  --accent-soft: #352530;
+  --accent-soft-edge: #33252e;
+  --ink-on-soft: #f8f1f5;
+  --muted-on-soft: #ad9da4;
+  --accent-ink: #ff8ac4;
+  --danger: #ff5c62;
+  --on-danger: #ffffff;
+  color-scheme: dark;
+}
