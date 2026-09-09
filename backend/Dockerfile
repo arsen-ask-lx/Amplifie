@@ -36,6 +36,16 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/packages/model/dist packages/model/dist
 COPY --from=build /app/packages/contract/dist packages/contract/dist
 COPY --from=build /app/backend/dist backend/dist
+# ⚠️ ФАЙЛЫ МИГРАЦИЙ ЕДУТ В ОБРАЗ, И БЕЗ НИХ КОРОБКУ НЕЛЬЗЯ ОБНОВИТЬ (Р-030 ③).
+#
+# До этой строки образ вёз только `dist`, а накатывать миграции предлагалось
+# `drizzle-kit`-ом с хоста — то есть инструментом разработки, которого в образе
+# нет, и по адресу, которого у клиента нет. Обещание Р-024 «миграции
+# накатываются сами» не выполнялось ни одним из своих слов.
+#
+# Сам накатыватель — вторая точка входа этого же образа (`migrate.js`),
+# а не отдельный образ: один артефакт, две команды.
+COPY --from=build /app/backend/migrations backend/migrations
 USER node
 EXPOSE 3000
 CMD ["node", "backend/dist/main.js"]

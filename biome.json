@@ -57,9 +57,11 @@
       "includes": [
         "tools/checks/**",
         "tools/arbiter/**",
+        "tools/ops/**",
         "tools/dev/**",
         "tools/load/**",
-        "bridge/**"
+        "bridge/**",
+        "backend/src/migrate.ts"
       ],
       "linter": {
         "rules": {

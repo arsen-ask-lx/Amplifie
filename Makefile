@@ -8,9 +8,26 @@ SHELL := /bin/sh
 help: ## показать этот список
 > @grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-env: hooks ## создать .env из шаблона, если его нет
-> @test -f .env || (cp .env.example .env && echo "создан .env из .env.example")
-> @node tools/checks/ensure-secret.mjs
+env: hooks ## создать .env стенда из шаблона, если его нет
+> @node tools/ops/make-env.mjs dev
+
+# ⚠️ ЭТО НАСТРОЙКИ НАСТОЯЩЕЙ УСТАНОВКИ, А НЕ КОПИЯ ОБРАЗЦА (Р-030 ⑤).
+#
+# `.env.example` копировать клиенту НЕЛЬЗЯ: там слабый пароль,
+# `NODE_ENV=development` и разрешение заводить много компаний — то есть дыра,
+# при которой любой, знающий адрес, поднимает на чужом сервере свою компанию.
+#
+# Здесь всё рождается своё: случайный пароль базы, случайный мастер-ключ,
+# боевой режим, и строки `AMPLIFIE_MULTI_WORKSPACE` нет вовсе.
+#
+# ⚠️ СУЩЕСТВУЮЩИЙ .env НЕ ПЕРЕЗАПИСЫВАЕТСЯ. Перезапись выдала бы НОВЫЙ
+# мастер-ключ, а с ним пропали бы все сохранённые ключи моделей: восстановления
+# нет и быть не может (Р-016).
+env-box: ## настройки настоящей установки: всё своё, ничего дев-ового
+> @node tools/ops/make-env.mjs box
+
+env-check: ## проверки самого генератора настроек (подсаженное нарушение)
+> npm run env:check
 
 # ⚠️ ХУКИ ЖИВУТ В РЕПОЗИТОРИИ, НО НЕ ВКЛЮЧАЮТСЯ САМИ. Git берёт их из
 # `.git/hooks`, куда содержимое репозитория не попадает, — поэтому нужен
@@ -230,7 +247,7 @@ test-ui: ## проверки интерфейса настоящим брауз�
 > npx playwright install chromium
 > npm run test-ui
 
-check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check env-check openspec duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui load check
+.PHONY: help env env-box env-check hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui load check
