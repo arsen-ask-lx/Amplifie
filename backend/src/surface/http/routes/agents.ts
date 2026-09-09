@@ -9,8 +9,8 @@ import {
   revokeKey,
   saveKey,
 } from "../../../kernel/identity/index.js";
-import { SESSION_COOKIE } from "./auth.js";
 import { parse } from "./parse.js";
+import { SESSION_COOKIE, viewerOf } from "./viewer.js";
 
 const keySchema = z.object({
   provider: z.enum(["anthropic", "openai"]),
@@ -40,14 +40,6 @@ function keyFailure(error: unknown): { code: number; body: object } | null {
 }
 
 /** Кто спрашивает. Ключи — вещь участника, поэтому нужен и он, и арендатор. */
-async function actorOf(request: FastifyRequest, reply: FastifyReply) {
-  const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
-  if (!actor) {
-    reply.code(401).send({ error: "not_authenticated" });
-    return null;
-  }
-  return { workspaceId: actor.workspaceId, participantId: actor.participantId };
-}
 
 /**
  * Раздел «Агенты»: кто есть в пространстве и через чей мост они отвечают.
@@ -75,7 +67,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
    * Это проверяется приёмочным тестом, который ищет ключ во всех ответах.
    */
   app.post("/v1/model-keys", async (request, reply) => {
-    const actor = await actorOf(request, reply);
+    const actor = await viewerOf(request, reply);
     if (!actor) return reply;
 
     const input = parse(keySchema, request.body, reply);
@@ -92,14 +84,14 @@ export function registerAgentRoutes(app: FastifyInstance): void {
 
   /** Свои ключи и ключи пространства. Чужих личных здесь не бывает. */
   app.get("/v1/model-keys", async (request, reply) => {
-    const actor = await actorOf(request, reply);
+    const actor = await viewerOf(request, reply);
     if (!actor) return reply;
     return { items: await listKeys(actor) };
   });
 
   /** Убрать ключ. Чужой личный неотличим от несуществующего — так и надо. */
   app.delete<{ Params: { id: string } }>("/v1/model-keys/:id", async (request, reply) => {
-    const actor = await actorOf(request, reply);
+    const actor = await viewerOf(request, reply);
     if (!actor) return reply;
 
     const gone = await revokeKey(actor, request.params.id);

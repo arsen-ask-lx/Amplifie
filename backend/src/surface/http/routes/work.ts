@@ -13,19 +13,10 @@ import {
   TaskNotVisibleError,
 } from "../../../kernel/work/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
-import { SESSION_COOKIE } from "./auth.js";
 import { parse } from "./parse.js";
+import { SESSION_COOKIE, viewerOf } from "./viewer.js";
 
 /** Ядро продукта наружу: разбор разговора, договорённости, задачи. */
-
-async function actorOf(request: FastifyRequest, reply: FastifyReply) {
-  const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
-  if (!actor) {
-    reply.code(401).send({ error: "not_authenticated" });
-    return null;
-  }
-  return actor;
-}
 
 const newTaskSchema = z.object({
   title: z.string().trim().min(1, "у задачи нужно название").max(200),
@@ -97,21 +88,21 @@ function runFailure(error: unknown): { code: number; body: object } | null {
 
 export function registerWorkRoutes(app: FastifyInstance): void {
   app.get("/v1/tasks", async (request, reply) => {
-    const actor = await actorOf(request, reply);
+    const actor = await viewerOf(request, reply);
     if (!actor) return reply;
     return { items: await listTasks(actor.workspaceId) };
   });
 
   /** Участники пространства: кого можно назначить исполнителем. */
   app.get("/v1/participants", async (request, reply) => {
-    const actor = await actorOf(request, reply);
+    const actor = await viewerOf(request, reply);
     if (!actor) return reply;
     return { items: await listParticipants(actor.workspaceId) };
   });
 
   /** Завести задачу руками — без договорённости (task-010). */
   app.post("/v1/tasks", async (request, reply) => {
-    const actor = await actorOf(request, reply);
+    const actor = await viewerOf(request, reply);
     if (!actor) return reply;
 
     const input = parse(newTaskSchema, request.body, reply);
@@ -128,7 +119,7 @@ export function registerWorkRoutes(app: FastifyInstance): void {
    * не заводил.
    */
   app.post<{ Params: { id: string } }>("/v1/tasks/:id/run", async (request, reply) => {
-    const actor = await actorOf(request, reply);
+    const actor = await viewerOf(request, reply);
     if (!actor) return reply;
 
     try {
@@ -142,7 +133,7 @@ export function registerWorkRoutes(app: FastifyInstance): void {
 
   /** Подвинуть по доске, назначить исполнителя, сменить ответственного. */
   app.patch<{ Params: { id: string } }>("/v1/tasks/:id", async (request, reply) => {
-    const actor = await actorOf(request, reply);
+    const actor = await viewerOf(request, reply);
     if (!actor) return reply;
 
     const input = parse(patchTaskSchema, request.body, reply);

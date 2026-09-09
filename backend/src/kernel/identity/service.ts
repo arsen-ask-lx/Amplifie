@@ -36,8 +36,52 @@ export interface Actor {
 }
 
 /** Почта приводится к одному виду ровно здесь, на границе домена. */
-function normalizeEmail(raw: string): string {
+export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
+}
+
+/**
+ * Новая сессия: значение для печеньки, хеш для базы и срок.
+ *
+ * ⚠️ ОДНО МЕСТО НА ВСЕ ТРИ ДВЕРИ — вход, регистрация и приглашение.
+ * Сессия, выданная по приглашению, обязана быть неотличима от обычной:
+ * иначе появляется второй сорт сессий, и однажды его забудут проверить.
+ */
+export function newSession(): { token: string; tokenHash: string; expiresAt: Date } {
+  return { ...newSessionToken(), expiresAt: new Date(Date.now() + SESSION_TTL_MS) };
+}
+
+/**
+ * Собрать «кто вошёл» из только что созданных строк.
+ *
+ * ⚠️ ОДНО МЕСТО НА ОБЕ ДВЕРИ — регистрацию и приглашение. Гейт повторов
+ * нашёл здесь четырнадцать одинаковых строк, и он был прав не про длину:
+ * это описание того, ЧТО ВИДИТ ВОШЕДШИЙ. Разойдись две копии — и человек,
+ * вошедший по приглашению, окажется в приложении с чуть другой ролью
+ * или чуть другим пространством, чем тот, кто зарегистрировался.
+ */
+export function asActor(parts: {
+  session: { id: string };
+  account: { id: string; email: string };
+  participant: { id: string; displayName: string; kind: string; role: string };
+  workspace: { id: string; name: string };
+}): Actor {
+  return {
+    sessionId: parts.session.id,
+    accountId: parts.account.id,
+    email: parts.account.email,
+    participantId: parts.participant.id,
+    displayName: parts.participant.displayName,
+    kind: parts.participant.kind,
+    role: parts.participant.role,
+    workspaceId: parts.workspace.id,
+    workspaceName: parts.workspace.name,
+  };
+}
+
+/** Пароль хешируется одинаково всюду: иначе однажды разойдётся. */
+export async function hashPassword(password: string): Promise<string> {
+  return argonHash(password, ARGON_OPTIONS);
 }
 
 function newSessionToken(): { token: string; tokenHash: string } {
@@ -124,17 +168,12 @@ export async function register(
 
     return {
       token,
-      actor: {
-        sessionId: createdSession.id,
-        accountId: createdAccount.id,
-        email: createdAccount.email,
-        participantId: createdParticipant.id,
-        displayName: createdParticipant.displayName,
-        kind: createdParticipant.kind,
-        role: createdParticipant.role,
-        workspaceId: createdWorkspace.id,
-        workspaceName: createdWorkspace.name,
-      },
+      actor: asActor({
+        session: createdSession,
+        account: createdAccount,
+        participant: createdParticipant,
+        workspace: createdWorkspace,
+      }),
     };
   });
 }

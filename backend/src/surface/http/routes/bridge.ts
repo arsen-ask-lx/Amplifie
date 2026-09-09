@@ -15,7 +15,7 @@ import {
   deliver,
   nextJob,
 } from "../../../platform/rendezvous.js";
-import { SESSION_COOKIE } from "./auth.js";
+import { SESSION_COOKIE } from "./viewer.js";
 
 /**
  * Мост участника: своя подписка у каждого (task-001).

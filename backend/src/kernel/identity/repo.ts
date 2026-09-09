@@ -1,7 +1,7 @@
-import { and, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { Executor } from "../../platform/db.js";
 import { workspace } from "../space/schema.js";
-import { account, bridge, modelKey, participant, session } from "./schema.js";
+import { account, bridge, invite, modelKey, participant, session } from "./schema.js";
 
 /**
  * Слой хранилища модуля identity. Только запросы, никакой логики.
@@ -34,6 +34,12 @@ export async function insertWorkspace(tx: Executor, name: string) {
  * `participant_account_matches_kind_ck` не даст завести человека
  * без аккаунта и агента с аккаунтом.
  */
+/** Пространство по его идентификатору — нужно, чтобы назвать его вошедшему. */
+export async function findWorkspace(tx: Executor, id: string) {
+  const rows = await tx.select().from(workspace).where(eq(workspace.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
 export async function insertParticipant(
   tx: Executor,
   input: {
@@ -118,27 +124,63 @@ export async function touchSession(tx: Executor, sessionId: string, now: Date) {
 
 /* ── Приглашения (Р-009) ──────────────────────────────────────────────── */
 
+/** Завести приглашение. Наружу отдаётся токен, в базу — только его хеш. */
+export async function insertInvite(
+  tx: Executor,
+  input: {
+    workspaceId: string;
+    createdBy: string;
+    tokenHash: string;
+    expiresAt: Date;
+    maxUses: number;
+  },
+) {
+  const rows = await tx.insert(invite).values(input).returning();
+  const created = rows[0];
+  if (!created) throw new Error("не удалось завести приглашение");
+  return created;
+}
+
 /**
  * Погасить приглашение — атомарно.
  *
- * Одноразовость держится ЗДЕСЬ, условием в самом изменении, а не проверкой
- * «а не занято ли» отдельным запросом: та была бы гонкой. Два устройства
- * одновременно — ровно одно получит строку, второе ноль строк.
+ * ⚠️ ПРАВО ПРОВЕРЯЕТСЯ ЗДЕСЬ, УСЛОВИЕМ В САМОМ ИЗМЕНЕНИИ, а не проверкой
+ * «а можно ли» отдельным запросом: та была бы гонкой. Два устройства
+ * с последним оставшимся входом — ровно одно получит строку, второе ноль.
+ * Ту же гонку мы уже ловили в отправке сообщений и в кодах моста.
  *
- * Ни срок, ни отзыв, ни повтор наружу не различаются: вызывающий видит
- * только «получилось или нет», и отвечает одинаково (Р-009).
- *
- * Оба поля погашения ставятся ОДНИМ запросом: «погашено, но неизвестно кем»
- * не должно существовать даже на миг внутри транзакции. Отложить проверку
- * до фиксации нельзя — Postgres не умеет DEFERRABLE для CHECK.
+ * ⚠️ ЧЕТЫРЕ ПРИЧИНЫ ОТКАЗА НАРУЖУ НЕ РАЗЛИЧАЮТСЯ: просрочено, отозвано,
+ * исчерпано, не существует. Вызывающий видит только «получилось или нет»
+ * и отвечает одним и тем же 404 (Р-009) — иначе по разнице ответов
+ * переберут живые приглашения.
  */
+export async function redeemInvite(tx: Executor, tokenHash: string, now: Date) {
+  const rows = await tx
+    .update(invite)
+    .set({ used: sql`${invite.used} + 1` })
+    .where(
+      and(
+        eq(invite.tokenHash, tokenHash),
+        isNull(invite.revokedAt),
+        gt(invite.expiresAt, now),
+        lt(invite.used, invite.maxUses),
+      ),
+    )
+    .returning();
+  return rows[0] ?? null;
+}
 
-/**
- * Пространство приглашения по токену — быстрый отказ до всякой работы.
- *
- * Это НЕ проверка права: право проверяет `redeemInvite` своим условием.
- * Здесь только «есть ли вообще смысл заводить аккаунт».
- */
+/** Отозвать своё приглашение. Чужое не находится — как несуществующее. */
+export async function revokeInvite(tx: Executor, workspaceId: string, inviteId: string, now: Date) {
+  const rows = await tx
+    .update(invite)
+    .set({ revokedAt: now })
+    .where(
+      and(eq(invite.id, inviteId), eq(invite.workspaceId, workspaceId), isNull(invite.revokedAt)),
+    )
+    .returning({ id: invite.id });
+  return rows[0] ?? null;
+}
 
 /** Участник-агент пространства, если он уже заведён. */
 export async function findAgent(tx: Executor, workspaceId: string) {

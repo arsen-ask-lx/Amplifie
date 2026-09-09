@@ -22,8 +22,8 @@ import {
   type Viewer,
 } from "../../../kernel/talk/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
-import { SESSION_COOKIE } from "./auth.js";
 import { parse } from "./parse.js";
+import { SESSION_COOKIE } from "./viewer.js";
 
 const MAX_PAGE = 200;
 const DEFAULT_PAGE = 50;

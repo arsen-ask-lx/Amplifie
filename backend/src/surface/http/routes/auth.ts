@@ -1,24 +1,47 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { signUp } from "../../../app/signUp.js";
 import {
   type Actor,
+  createInvite,
   EmailTakenError,
   InvalidCredentialsError,
+  InviteNotUsableError,
+  joinByInvite,
   login,
   logout,
   resolveActor,
+  revokeInvite,
 } from "../../../kernel/identity/index.js";
 import { config } from "../../../platform/config.js";
 import { parse } from "./parse.js";
-
-export const SESSION_COOKIE = "amplifie_session";
+import { SESSION_COOKIE, viewerOf } from "./viewer.js";
 
 const registerSchema = z.object({
   email: z.email("нужен корректный адрес почты"),
   password: z.string().min(12, "пароль короче 12 символов"),
   displayName: z.string().trim().min(1, "как вас зовут?").max(80),
   workspaceName: z.string().trim().min(1, "название пространства пустое").max(120),
+});
+
+/**
+ * Вход по приглашению — ОТДЕЛЬНАЯ дверь и отдельная схема (Р-009).
+ *
+ * ⚠️ РЕГИСТРАЦИЯ ПРО ТОКЕН НЕ ЗНАЕТ И НЕ УЗНАЕТ. Класс уязвимости, ради
+ * которого это разделение и сделано: тот же токен, поданный через ДРУГОЙ
+ * поток входа, обходил проверку доступа. Схема регистрации выше не имеет
+ * поля `token`, и zod лишнее просто отбрасывает.
+ */
+const joinSchema = z.object({
+  token: z.string().min(1),
+  email: z.email("нужен корректный адрес почты"),
+  password: z.string().min(12, "пароль короче 12 символов"),
+  displayName: z.string().trim().min(1, "как вас зовут?").max(80),
+});
+
+/** Ссылка для команды. Верхнюю границу держит ещё и CHECK в базе. */
+const inviteSchema = z.object({
+  maxUses: z.number().int().min(1).max(500).optional(),
 });
 
 /**
@@ -93,6 +116,57 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (token) await logout(token);
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
     return reply.code(204).send();
+  });
+
+  /**
+   * ⚠️ ОДИН И ТОТ ЖЕ ОТКАЗ НА ЧЕТЫРЕ ПРИЧИНЫ: просрочено, отозвано,
+   * исчерпано, нет такого. Разница в ответе — это способ перебрать живые
+   * приглашения, и он бесплатен для того, кто перебирает.
+   */
+  app.post("/v1/auth/join", async (request, reply) => {
+    const input = parse(joinSchema, request.body, reply);
+    if (!input) return reply;
+
+    try {
+      const { actor, token } = await joinByInvite(input);
+      setSessionCookie(reply, token);
+      return reply.code(201).send(present(actor));
+    } catch (error) {
+      if (error instanceof InviteNotUsableError) {
+        return reply.code(404).send({ error: "not_found" });
+      }
+      if (error instanceof EmailTakenError) {
+        return reply.code(409).send({ error: "email_taken" });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/v1/invites", async (request, reply) => {
+    const who = await viewerOf(request, reply);
+    if (!who) return reply;
+    const input = parse(inviteSchema, request.body ?? {}, reply);
+    if (!input) return reply;
+
+    const created = await createInvite(who, input);
+    return reply.code(201).send({
+      id: created.id,
+      // Токен виден ОДИН раз, здесь. В базе только его хеш.
+      token: created.token,
+      expiresAt: created.expiresAt.toISOString(),
+      maxUses: created.maxUses,
+      used: created.used,
+    });
+  });
+
+  app.delete("/v1/invites/:id", async (request, reply) => {
+    const who = await viewerOf(request, reply);
+    if (!who) return reply;
+
+    const { id } = request.params as { id: string };
+    // Чужое приглашение не находится — ровно как несуществующее.
+    const revoked = await revokeInvite(who, id);
+    return revoked ? reply.code(204).send() : reply.code(404).send({ error: "not_found" });
   });
 
   app.get("/v1/me", async (request, reply) => {

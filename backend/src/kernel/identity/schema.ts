@@ -125,6 +125,47 @@ export const bridge = pgTable(
 );
 
 /**
+ * Приглашение в компанию (Р-009, task-017).
+ *
+ * ⚠️ ОДНА ДВЕРЬ ВНУТРЬ, И ЭТО ГЛАВНОЕ В ЭТОЙ ТАБЛИЦЕ. Класс уязвимости,
+ * ради которого написано Р-009: тот же токен, поданный через ДРУГОЙ
+ * поток входа, обходил проверку доступа. Ошибка была не в токене —
+ * в том, что путей входа оказалось два, и второй забыли проверить.
+ * Поэтому участник по приглашению рождается ровно в одном месте, и это
+ * стережёт приёмочная, а не память.
+ *
+ * ⚠️ ПРЕДЕЛ ВХОДОВ ПОЛЕМ, А НЕ ОДНОРАЗОВОСТЬЮ. Р-009 требовало ссылки
+ * на каждого человека; при тысяче сотрудников это тысяча ссылок вручную.
+ * `maxUses = 1` воспроизводит прежнее поведение знак в знак, `maxUses = 50`
+ * даёт ссылку для команды. Дверь та же, механизм тот же — меняется число
+ * в условии погашения.
+ */
+export const invite = pgTable(
+  "invite",
+  {
+    id: uuid("id").primaryKey().default(sql`uuidv7()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => participant.id, { onDelete: "cascade" }),
+    /**
+     * ⚠️ ЗДЕСЬ ХЕШ, А НЕ ТОКЕН. Токен — это пароль: утечка дампа не должна
+     * давать входа. Форму стережёт CHECK в миграции, а не только код.
+     */
+    tokenHash: text("token_hash").notNull().unique(),
+    role: text("role").notNull().default("member"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    maxUses: integer("max_uses").notNull(),
+    used: integer("used").notNull().default(0),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("invite_workspace_idx").on(table.workspaceId, table.createdAt)],
+);
+
+/**
  * Ключ поставщика модели: личный участника либо общий для пространства.
  *
  * ОДНА ТАБЛИЦА НА ОБА СЛУЧАЯ. `participant_id` назван — ключ личный;

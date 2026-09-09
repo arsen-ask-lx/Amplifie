@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { resolveActor } from "../../../kernel/identity/index.js";
 import { subscribe } from "../../../platform/bus.js";
-import { SESSION_COOKIE } from "./auth.js";
+import { SESSION_COOKIE } from "./viewer.js";
 
 /**
  * Поток живых обновлений (Р-006). Звонок, а не доставка.

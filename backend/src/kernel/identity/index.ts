@@ -6,6 +6,12 @@ export {
   resolveBridge,
 } from "./bridges.js";
 export {
+  createInvite,
+  InviteNotUsableError,
+  joinByInvite,
+  revokeInvite,
+} from "./invites.js";
+export {
   BadKeyFormatError,
   keyFor,
   listKeys,
