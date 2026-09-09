@@ -59,8 +59,7 @@
         "tools/arbiter/**",
         "tools/dev/**",
         "tools/load/**",
-        "bridge/**",
-        "frontend/src/dev/**"
+        "bridge/**"
       ],
       "linter": {
         "rules": {
