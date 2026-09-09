@@ -6,6 +6,7 @@
         "tools/checks/*.mjs",
         "tools/arbiter/*.mjs",
         "tools/dev/*.mjs",
+        "tools/load/*.mjs",
         "tools/dependency-cruiser.cjs"
       ],
       "project": ["tools/**/*.{mjs,ts,cjs}"],

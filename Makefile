@@ -8,9 +8,17 @@ SHELL := /bin/sh
 help: ## показать этот список
 > @grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-env: ## создать .env из шаблона, если его нет
+env: hooks ## создать .env из шаблона, если его нет
 > @test -f .env || (cp .env.example .env && echo "создан .env из .env.example")
 > @node tools/checks/ensure-secret.mjs
+
+# ⚠️ ХУКИ ЖИВУТ В РЕПОЗИТОРИИ, НО НЕ ВКЛЮЧАЮТСЯ САМИ. Git берёт их из
+# `.git/hooks`, куда содержимое репозитория не попадает, — поэтому нужен
+# `core.hooksPath`. Настройка местная, в git не хранится: на новой машине
+# её надо поставить заново, и делает это `make env`, то есть первый же
+# `make up`. Иначе хук был бы обещанием, которое не исполняется.
+hooks: ## включить хуки git из .githooks (карта проекта на коммите)
+> @if [ -d .git ]; then git config core.hooksPath .githooks && echo "хуки включены: .githooks"; else echo "не репозиторий git — хуки не включены"; fi
 
 up: env ## поднять весь стек
 > docker compose up -d --build
@@ -149,6 +157,17 @@ stages: ## список стадий задачи совпадает с CHECK в
 favicon: ## знак на вкладке не разошёлся со знаком в интерфейсе
 > npm run favicon
 
+# ⚠️ ДВА ВХОДА У ОДНОГО ПРАВИЛА. Хук `commit-msg` не даёт сделать коммит;
+# эта цель смотрит на ПОСЛЕДНИЙ коммит и потому переживает обход хука
+# ключом и чужой клон, где хуки никто не включал.
+#
+# ⚠️ Сам ключ обхода здесь не написан: `gate-not-weakened` ищет его
+# в Makefile и был прав, покраснев на прежней редакции этой строки.
+map: ## карта проекта обновлена вместе с коммитом
+> npm run map
+
+map-check: ## проверки самого правила карты (подсаженное нарушение)
+> npm run map:check
 
 model: ## спросить подключённую модель вживую (не гейт, а проверка связи)
 > npm run model
@@ -178,6 +197,16 @@ aqk: ## ступень соответствия AQK и что до следую�
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
+# ⚠️ ЗАПУСКАЕТСЯ РУКАМИ И РЕДКО, И В `make check` ЕМУ НЕЛЬЗЯ. Это минуты
+# и сотни соединений; быстрые проверки обязаны оставаться быстрыми, иначе
+# их перестают гонять. Числа отсюда идут в реестр долга руками — вместе
+# с оговоркой, на чём мерили.
+#
+# Настройки — переменными: TABS=50 RATE=5 SECONDS=10 make load
+# (латиницей: кириллицу в имени переменной оболочка не принимает)
+load: ## нагрузочный замер по живому стеку (сначала: make up)
+> node tools/load/measure.mjs
+
 # ⚠️ УСТАНОВКА БРАУЗЕРА СТОИТ ЗДЕСЬ, А НЕ В ЧЬЕЙ-ТО ПАМЯТИ. Самая частая
 # поломка Playwright у других — версия пакета уехала, браузеры остались
 # старые, и прогон падает «нет браузера» на исправном коде. Команда
@@ -195,7 +224,7 @@ test-ui: ## проверки интерфейса настоящим брауз�
 > npx playwright install chromium
 > npm run test-ui
 
-check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
+check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui check
+.PHONY: help env hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui load check

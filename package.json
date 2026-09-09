@@ -23,6 +23,8 @@
     "failure-map": "node tools/checks/check-failure-map.mjs",
     "stages": "node tools/checks/check-stages.mjs",
     "favicon": "node tools/checks/check-favicon.mjs",
+    "map": "node tools/checks/check-map.mjs",
+    "map:check": "node --test tools/checks/map-rule.test.mjs",
     "model": "node tools/checks/check-model.mjs",
     "duplicates": "node tools/checks/check-duplicates.mjs",
     "gates": "node tools/checks/run-gates.mjs",
