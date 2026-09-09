@@ -38,5 +38,10 @@ COPY frontend frontend
 RUN npx tsc -p frontend --noEmit && npm run build --workspace=@amplifie/frontend
 
 FROM caddy:2-alpine AS runtime
+# Метка, а не переменная: у статики спрашивать версию некому — на вопрос
+# «что у вас стоит» отвечает `/health` бека. Метка нужна тому, кто разбирает
+# образы на диске у клиента.
+ARG AMPLIFIE_VERSION=""
+LABEL org.opencontainers.image.title="amplifie-web"       org.opencontainers.image.version="$AMPLIFIE_VERSION"
 COPY --from=build /app/frontend/dist /srv
 COPY frontend/Caddyfile /etc/caddy/Caddyfile

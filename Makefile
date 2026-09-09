@@ -5,6 +5,30 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/sh
 
+# ⚠️ НАШ СТЕНД ПОДКЛЮЧАЕТСЯ ЯВНО, И ЭТО ЕДИНСТВЕННОЕ МЕСТО, ГДЕ ОБ ЭТОМ
+# СКАЗАНО (Р-030 ①).
+#
+# `compose.yml` описывает УСТАНОВКУ КЛИЕНТА: ни портов наружу, ни сборки,
+# ни разрешения заводить чужие компании. Всё наше — в `compose.dev.yml`.
+#
+# Имя дев-файла нарочно не `override`: такое Compose подхватывает сам,
+# и тогда любой, у кого файл окажется рядом, молча получил бы наши
+# настройки. Здесь подключение видно глазами и живёт в одной строке.
+#
+# Проверить, что достаётся клиенту:  docker compose -f compose.yml config
+COMPOSE := docker compose -f compose.yml -f compose.dev.yml
+
+# ⚠️ ВЕРСИЯ БЕРЁТСЯ ИЗ ТЕГА GIT, И БОЛЬШЕ НИОТКУДА (Р-030 ⑥).
+#
+# Поля `version` в `package.json` нарочно нет: их четыре штуки, они разъедутся,
+# и понадобится пятый гейт, стерегущий их совпадение. Тег невозможно забыть
+# обновить — он и есть акт выпуска.
+#
+# Тега ещё нет — `--always` отдаёт короткий хеш, `--dirty` дописывает пометку
+# о несохранённых правках. Это честнее пустоты: «собрано из такого-то
+# состояния» — ровно то, что нужно поддержке.
+export AMPLIFIE_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null)
+
 help: ## показать этот список
 > @grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
@@ -38,10 +62,10 @@ hooks: ## включить хуки git из .githooks (карта проект�
 > @if [ -d .git ]; then git config core.hooksPath .githooks && echo "хуки включены: .githooks"; else echo "не репозиторий git — хуки не включены"; fi
 
 up: env ## поднять весь стек
-> docker compose up -d --build
+> $(COMPOSE) up -d --build
 > @echo "ждём здоровья api..."
 > @for i in $$(seq 1 30); do \
->   if docker compose ps api --format '{{.Health}}' | grep -q healthy; then echo "готово: http://localhost:$${HTTP_PORT:-8477}/health"; exit 0; fi; \
+>   if $(COMPOSE) ps api --format '{{.Health}}' | grep -q healthy; then echo "готово: http://localhost:$${HTTP_PORT:-8477}/health"; exit 0; fi; \
 >   sleep 2; \
 > done; echo "api не стал здоровым за 60с — смотри 'make logs'"; exit 1
 
@@ -80,7 +104,7 @@ dev: ## фронт с горячей перезагрузкой (стек уже
 # а не часть продукта. Значит на собранном стенде Alt не работает —
 # и это не поломка, а граница.
 work: up ## начать работу: один адрес :8477, горячая перезагрузка и тыкалка
-> docker compose stop caddy
+> $(COMPOSE) stop caddy
 > @echo "фронт с тыкалкой поднимается на http://localhost:8477 (Ctrl+C — выйти)"
 > @echo "вернуть собранное на тот же адрес: make up"
 > API_URL=http://localhost:$${API_HOST_PORT:-3477} npm run dev --workspace=@amplifie/frontend
@@ -93,20 +117,20 @@ work: up ## начать работу: один адрес :8477, горячая
 #   make dev API_URL=http://localhost:3000
 # Вернуть всё как было: make up
 dev-api: ## бек на этой машине, с перезапуском на каждую правку
-> docker compose stop api caddy
+> $(COMPOSE) stop api caddy
 > set -a; . ./.env; set +a; DATABASE_URL="postgres://$$POSTGRES_USER:$$POSTGRES_PASSWORD@127.0.0.1:$$POSTGRES_HOST_PORT/$$POSTGRES_DB" API_PORT=3000 npm run dev --workspace=@amplifie/backend
 
 down: ## остановить стек (данные сохраняются)
-> docker compose down
+> $(COMPOSE) down
 
 reset: ## остановить и СТЕРЕТЬ данные (дев-база)
-> docker compose down -v
+> $(COMPOSE) down -v
 
 logs: ## хвост логов всех сервисов
-> docker compose logs -f --tail=100
+> $(COMPOSE) logs -f --tail=100
 
 ps: ## что запущено
-> docker compose ps
+> $(COMPOSE) ps
 
 health: ## дёрнуть /health как пользователь (не test client)
 > curl -fsS http://localhost:$${HTTP_PORT:-8477}/health && echo
@@ -120,20 +144,28 @@ themes: ## перенести темы из audit_project (PATH=... путь к 
 > @echo "перенесено; проверь: make contrast"
 
 demo: ## завести демо-канал с диалогом (дев-данные, стираются make reset)
-> docker compose exec -T postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie} -v ON_ERROR_STOP=1 -f - < tools/dev/demo.sql
+> $(COMPOSE) exec -T postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie} -v ON_ERROR_STOP=1 -f - < tools/dev/demo.sql
 
 psql: ## консоль базы
-> docker compose exec postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie}
+> $(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie}
 
 install: ## поставить зависимости локально (для типов и линтера)
 > npm install
 
-# ⚠️ ЧИТАЕТ .env, А НЕ ГАДАЕТ. Здесь стояли значения по умолчанию, и порт
-# в них давно разошёлся с настоящим: команда молча ходила не туда и падала
-# с невнятным «applying migrations...». Умолчаний у адреса базы быть
-# не должно — он либо известен, либо команду запускать нельзя.
-migrate: ## применить миграции к базе
-> set -a; . ./.env; set +a; cd backend && DATABASE_URL="postgres://$$POSTGRES_USER:$$POSTGRES_PASSWORD@127.0.0.1:$$POSTGRES_HOST_PORT/$$POSTGRES_DB" npx drizzle-kit migrate
+# ⚠️ ТЕМ ЖЕ СПОСОБОМ, ЧТО У КЛИЕНТА, А НЕ СВОИМ (Р-030 ③).
+#
+# Было: `npx drizzle-kit migrate` с хоста. Три беды разом. Инструмент —
+# оснастка разработки, в рантайм-образе его нет вовсе, значит у клиента
+# этот путь не работал в принципе. Адрес собирался руками из `.env`, и это
+# уже стоило нам разбора: порт в умолчаниях разошёлся с настоящим, команда
+# молча ходила не туда и падала невнятным «applying migrations...». И самое
+# главное — способов накатить было ДВА, наш и клиентский, а проверялся
+# только наш.
+#
+# Теперь способ один: тот же одноразовый сервис, что поднимается у клиента.
+# Замок, отчёт и коды возврата — те же самые.
+migrate: ## накатить миграции — тем же способом, что у клиента
+> $(COMPOSE) run --rm migrate
 
 migrate-new: ## сгенерировать миграцию из схемы (SQL потом читать и править руками)
 > cd backend && npx drizzle-kit generate
@@ -243,11 +275,20 @@ test-ui: ## проверки интерфейса настоящим брауз�
 # ловит поломки сборки. Забыл после `make work` — и проверки молча
 # прошли бы по дев-сборке, то есть арбитр соврал бы, а это худший
 # вид отказа (см. инцидент с заглушкой в Caddyfile).
-> @docker compose up -d caddy || (echo ""; echo "8477 занят дев-сервером: погаси его (Ctrl+C в окне make work) и повтори."; exit 1)
+> @$(COMPOSE) up -d caddy || (echo ""; echo "8477 занят дев-сервером: погаси его (Ctrl+C в окне make work) и повтори."; exit 1)
 > npx playwright install chromium
 > npm run test-ui
+
+# ⚠️ ВНЕ `make check`, И ПО ТОЙ ЖЕ ПРИЧИНЕ, ЧТО `test` И `test-ui`: это
+# сборка образов, выгрузка их архивом и подъём отдельной установки — минуты.
+# Быстрые проверки обязаны оставаться быстрыми, иначе их перестают гонять.
+#
+# ⚠️ УДАЛЯЕТ ЛОКАЛЬНЫЕ ОБРАЗЫ И ВОЗВРАЩАЕТ ИХ ИЗ АРХИВА. Работающий стенд
+# при этом не трогается: у проверки свой порт, своё имя проекта и свои тома.
+delivery: ## пройти путь клиента: архив образов → голый up → живая установка
+> bash tools/ops/check-delivery.sh $${DELIVERY_PORT:-8479}
 
 check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check env-check openspec duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env env-box env-check hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui load check
+.PHONY: help env env-box env-check delivery hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui load check

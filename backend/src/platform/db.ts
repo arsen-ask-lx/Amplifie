@@ -34,6 +34,27 @@ export async function withTransaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>
   return db.transaction(fn);
 }
 
+/**
+ * Сколько миграций накатано (Р-030 ⑥).
+ *
+ * Стоит рядом с `pingDatabase`, а не в модуле-владельце: у служебной таблицы
+ * миграций владельца нет — она принадлежит самой установке, как и ответ
+ * на вопрос «что у вас стоит».
+ *
+ * `null`, если таблицы ещё нет: на пустой базе это начало, а не отказ,
+ * и врать нулём здесь нельзя — ноль накатанных и «не знаю» разные новости.
+ */
+export async function appliedMigrations(): Promise<number | null> {
+  try {
+    const { rows } = await pool.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM drizzle.__drizzle_migrations",
+    );
+    return Number(rows[0]?.n ?? 0);
+  } catch {
+    return null;
+  }
+}
+
 export async function pingDatabase(): Promise<void> {
   const client = await pool.connect();
   try {

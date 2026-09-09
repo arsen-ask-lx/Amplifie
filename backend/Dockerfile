@@ -28,6 +28,20 @@ RUN npx tsc --build backend
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# ⚠️ ВЕРСИЯ ВПЕКАЕТСЯ В ОБРАЗ, А НЕ ПРИХОДИТ ПРИ ЗАПУСКЕ (Р-030 ⑥).
+#
+# Если бы она передавалась переменной в `compose.yml`, клиент, поднявший
+# установку без этой переменной, увидел бы «версия не задана» — при том
+# что у него на диске лежит совершенно определённый образ. Версия — свойство
+# АРТЕФАКТА, и жить она обязана внутри него.
+#
+# Источник — тег git: единственное, что невозможно забыть обновить, потому
+# что он и есть акт выпуска. Пусто — значит собрано мимо выпуска, и `/health`
+# скажет об этом прямо, а не выдумает «dev».
+ARG AMPLIFIE_VERSION=""
+ENV AMPLIFIE_VERSION=$AMPLIFIE_VERSION
+LABEL org.opencontainers.image.title="amplifie-api"       org.opencontainers.image.version="$AMPLIFIE_VERSION"
 COPY package.json package-lock.json* ./
 COPY backend/package.json backend/
 COPY packages/model/package.json packages/model/
