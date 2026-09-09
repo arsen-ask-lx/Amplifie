@@ -183,14 +183,13 @@ export async function listConversations(viewer: Viewer) {
 /**
  * Отметить разговор прочитанным до номера включительно.
  *
- * ⚠️ ПРАВО ПРОВЕРЯЕТ САМ `UPDATE`, а не чтение до него: `markRead`
- * не находит строки участника — значит человека в разговоре нет.
- * Отдельная проверка до записи была бы вторым ответом на тот же вопрос
- * и разошлась бы с первым (то же рассуждение, что у приглашений, Р-009).
- *
- * Видимость всё же спрашиваем: удалённый канал и разговор чужого
- * пространства обязаны давать ту же ошибку, что несуществующий, —
- * иначе по ответу можно перебирать чужие разговоры.
+ * ⚠️ ПРАВО — ЭТО ВИДИМОСТЬ РАЗГОВОРА, А НЕ ЧЛЕНСТВО В НЁМ. Сперва
+ * проверкой служил пустой результат `UPDATE` по строке участника —
+ * и это оказалось неверно: канал открыт всему пространству, читатель
+ * может не быть его участником, и отметка глохла 404-й у всех, кто вошёл
+ * позже заведения канала. Кто разговор ВИДИТ, тот вправе отметить его
+ * прочитанным: прочтение — это про его собственный взгляд, а не про
+ * права в разговоре.
  *
  * Возвращает пересчитанный остаток: клиент видит только загруженный
  * кусок ленты и посчитать сам не может. Так же поступает Телеграм,
@@ -198,8 +197,7 @@ export async function listConversations(viewer: Viewer) {
  */
 export async function markRead(viewer: Viewer, conversationId: string, seq: number) {
   await requireVisible(db, viewer, conversationId);
-  const marked = await repo.markRead(db, conversationId, viewer.participantId, seq);
-  if (!marked) throw new ConversationNotVisibleError();
+  await repo.markRead(db, conversationId, viewer.participantId, seq);
   return { unread: await repo.countUnread(db, conversationId, viewer.participantId) };
 }
 

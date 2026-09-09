@@ -1,13 +1,6 @@
-import { DotsThree, Hash, Trash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { Conversation } from "../data/api.js";
 import { Button } from "../shared/ui/button.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../shared/ui/dropdown-menu.js";
 import { ChannelRow } from "./ChannelRow.js";
 import { SidebarSection } from "./SidebarSection.js";
 

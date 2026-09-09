@@ -31,6 +31,7 @@ export interface FeedScroll {
 
 export function useFeedScroll({
   newest,
+  newestMine,
   count,
   hasOlder,
   onLoadOlder,
@@ -38,6 +39,19 @@ export function useFeedScroll({
 }: {
   /** Номер самой свежей реплики — по его смене лента едет вниз. */
   newest: number;
+  /**
+   * Самую свежую реплику сказал ТЫ.
+   *
+   * ⚠️ СВОЯ РЕПЛИКА УВОДИТ ЛЕНТУ ВНИЗ ВСЕГДА, даже если человек листал
+   * историю. У Телеграма так же (`item->isSending()` → прыжок в конец),
+   * и иначе получается нелепость: нажал Enter — и не видишь, что
+   * отправил. Владелец поймал это словами «напечатал, нажал Enter,
+   * и меня вниз не перелистнуло».
+   *
+   * Чужая реплика при этом ленту НЕ дёргает: читающего историю нельзя
+   * выкидывать вниз чужим сообщением.
+   */
+  newestMine: boolean;
   /** Сколько реплик сейчас: по его смене возвращается место после догрузки. */
   count: number;
   hasOlder: boolean;
@@ -129,6 +143,10 @@ export function useFeedScroll({
   useEffect(() => {
     const node = box.current;
     if (!node || newest === 0) return;
+    // Своя реплика возвращает ленту вниз и возвращает туда же взгляд:
+    // дальше человек снова «внизу», и следующие чужие реплики его тоже
+    // подвинут — ровно как если бы он не листал.
+    if (newestMine) stuckToBottom.current = true;
     if (!stuckToBottom.current) return;
 
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -145,7 +163,7 @@ export function useFeedScroll({
       else node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [newest]);
+  }, [newest, newestMine]);
 
   /**
    * Переход по цитате: довести до реплики и отметить её.

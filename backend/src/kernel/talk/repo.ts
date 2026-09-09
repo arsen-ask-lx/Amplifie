@@ -3,7 +3,7 @@ import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
-import { conversation, conversationMember, message } from "./schema.js";
+import { conversation, conversationMember, conversationRead, message } from "./schema.js";
 
 /** Слой хранилища модуля talk. Только запросы, никакой логики. */
 
@@ -186,9 +186,9 @@ function unreadOf(conversationId: PgColumn | SQL | string, participantId: string
         AND ${message.authorParticipantId} <> ${participantId}
         AND ${message.deletedAt} IS NULL
         AND ${message.seq} > COALESCE((
-          SELECT ${conversationMember.readSeq} FROM ${conversationMember}
-          WHERE ${conversationMember.conversationId} = ${conversationId}
-            AND ${conversationMember.participantId} = ${participantId}
+          SELECT ${conversationRead.readSeq} FROM ${conversationRead}
+          WHERE ${conversationRead.conversationId} = ${conversationId}
+            AND ${conversationRead.participantId} = ${participantId}
         ), 0)
       LIMIT ${UNREAD_CAP}
     ) AS невидённые
@@ -223,9 +223,9 @@ export async function listConversationsFor(tx: Executor, participantId: string) 
        * открытости пространству, а своей отметки у него нет.
        */
       readSeq: sql<number>`COALESCE((
-        SELECT ${conversationMember.readSeq} FROM ${conversationMember}
-        WHERE ${conversationMember.conversationId} = ${ЭТОТ_РАЗГОВОР}
-          AND ${conversationMember.participantId} = ${participantId}
+        SELECT ${conversationRead.readSeq} FROM ${conversationRead}
+        WHERE ${conversationRead.conversationId} = ${ЭТОТ_РАЗГОВОР}
+          AND ${conversationRead.participantId} = ${participantId}
       ), 0)`,
     })
     .from(conversation)
@@ -252,13 +252,8 @@ export async function countUnread(
 ): Promise<number> {
   const rows = await tx
     .select({ n: unreadOf(conversationId, participantId) })
-    .from(conversationMember)
-    .where(
-      and(
-        eq(conversationMember.conversationId, conversationId),
-        eq(conversationMember.participantId, participantId),
-      ),
-    )
+    .from(conversation)
+    .where(eq(conversation.id, conversationId))
     .limit(1);
   return Number(rows[0]?.n ?? 0);
 }
@@ -275,26 +270,30 @@ export async function countUnread(
  * Отметить прочитанным то, чего человек не видел, нечем отменить —
  * поэтому откат запрещён базой, а не порядком вызовов.
  *
- * Возвращает `false`, если участника в разговоре нет: это и есть проверка
- * права, сделанная самим `UPDATE`, а не отдельным чтением до него.
+ * ⚠️ ВСТАВКА С ДОПИСЫВАНИЕМ, А НЕ `UPDATE`, И ЭТО ИСПРАВЛЕНИЕ ОТКАЗА.
+ * Сперва здесь стоял `UPDATE conversation_member`, и его пустой результат
+ * служил заодно проверкой права. Приём хороший, но опора неверная:
+ * строки участника у читателя может не быть вовсе — канал открыт всему
+ * пространству. У всех, кто вошёл позже заведения канала, отметка
+ * не находила строки, отвечала 404 и глохла; число непрочитанного
+ * не гасло никогда. Поймал владелец на «Демо».
+ *
+ * Право теперь проверяется ВИДИМОСТЬЮ разговора — до вызова, в службе.
+ * Здесь только запись.
  */
 export async function markRead(
   tx: Executor,
   conversationId: string,
   participantId: string,
   seq: number,
-): Promise<boolean> {
-  const rows = await tx
-    .update(conversationMember)
-    .set({ readSeq: sql`GREATEST(${conversationMember.readSeq}, ${seq})` })
-    .where(
-      and(
-        eq(conversationMember.conversationId, conversationId),
-        eq(conversationMember.participantId, participantId),
-      ),
-    )
-    .returning({ readSeq: conversationMember.readSeq });
-  return rows.length > 0;
+): Promise<void> {
+  await tx
+    .insert(conversationRead)
+    .values({ conversationId, participantId, readSeq: seq })
+    .onConflictDoUpdate({
+      target: [conversationRead.conversationId, conversationRead.participantId],
+      set: { readSeq: sql`GREATEST(${conversationRead.readSeq}, ${seq})` },
+    });
 }
 
 /**

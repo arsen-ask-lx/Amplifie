@@ -123,11 +123,13 @@ export function Feed({
   onFollow: (yes: boolean) => void;
 }) {
   const newest = messages.at(-1)?.seq ?? 0;
+  const newestMine = messages.at(-1)?.author.id === meId;
 
   // Как лента ЕДЕТ — отдельным вопросом и отдельным файлом. Здесь только
   // то, как она ВЫГЛЯДИТ.
   const { box, atBottom, onScroll, toBottom } = useFeedScroll({
     newest,
+    newestMine,
     count: messages.length,
     hasOlder,
     onLoadOlder,
