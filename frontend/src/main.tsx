@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./app/App.js";
+import { Toasts } from "./shared/toast.js";
 import { TooltipProvider } from "./shared/ui/tooltip.js";
 // Geist — свой, а не с чужого домена. Пакет кладёт .woff2 рядом, сборщик
 // вшивает их в статику: ни одного обращения наружу при открытии
@@ -47,6 +48,11 @@ createRoot(root).render(
       <IconContext.Provider value={{ weight: "regular" }}>
         <TooltipProvider delayDuration={300}>
           <App />
+          {/* ⚠️ ПЛАШКА ОБЪЯВЛЕНА ОДИН РАЗ И ЗДЕСЬ, как и начертание значков
+              выше. Она стоит по центру ОКНА — так у Телеграма, где
+              родителем плашки служит окно целиком, а не лента (Р-028).
+              Вторая такая же в глубине экрана дала бы два центра. */}
+          <Toasts />
         </TooltipProvider>
       </IconContext.Provider>
     </BrowserRouter>

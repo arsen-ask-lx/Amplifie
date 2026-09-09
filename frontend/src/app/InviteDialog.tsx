@@ -1,6 +1,8 @@
 import { Check, Copy } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { api } from "../data/api.js";
+import { copyAndTell } from "../shared/clipboard.js";
+import { СКОПИРОВАНО } from "../shared/toast.js";
 import { Button } from "../shared/ui/button.js";
 
 /**
@@ -80,7 +82,11 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
               aria-label={copied ? "Скопировано" : "Копировать ссылку"}
               title="Копировать ссылку"
               onClick={() => {
-                void navigator.clipboard.writeText(link).then(() => setCopied(true));
+                // ⚠️ ЧЕРЕЗ ОБЩИЙ `copyAndTell`, А НЕ СВОИМ ОБРАЩЕНИЕМ
+                // К БУФЕРУ. Здесь стоял голый `navigator.clipboard` без
+                // обработки отказа: браузер мог не дать, а окно всё равно
+                // показывало галочку. Общее место и копирует, и говорит.
+                void copyAndTell(link, СКОПИРОВАНО.ссылка).then(setCopied);
               }}
             >
               {copied ? <Check /> : <Copy />}

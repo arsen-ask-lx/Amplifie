@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { api, type Bridge } from "../../data/api.js";
-import { NOT_COPIED, copy as toClipboard } from "../../shared/clipboard.js";
+import { copyAndTell, NOT_COPIED } from "../../shared/clipboard.js";
 import { detailOf } from "../../shared/failure.js";
+import { СКОПИРОВАНО } from "../../shared/toast.js";
 import { troubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
 import { часы } from "../../shared/when.js";
@@ -131,7 +132,7 @@ export function ModelScreen({
     if (!command) return;
     // Строка при этом на экране и выделяется — поэтому отказ буфера
     // не поломка, а повод сказать словами (shared/clipboard.ts).
-    if (await toClipboard(command)) setCopied(true);
+    if (await copyAndTell(command, СКОПИРОВАНО.текст)) setCopied(true);
     else setFailure(NOT_COPIED);
   }
 

@@ -2,6 +2,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import {
   $getSelection,
   $isRangeSelection,
+  $isTextNode,
   COMMAND_PRIORITY_LOW,
   INSERT_LINE_BREAK_COMMAND,
   KEY_DOWN_COMMAND,
@@ -29,6 +30,51 @@ const KEYS: Record<string, { shift: boolean; format: TextFormatType }> = {
   KeyX: { shift: true, format: "strikethrough" },
   KeyM: { shift: true, format: "code" },
 };
+
+/**
+ * Виды, которые не уживаются с моноширинным (Р-028).
+ *
+ * ⚠️ У ТЕЛЕГРАМА ЭТО ОГРАНИЧЕНИЕ САМОЙ МОДЕЛИ ДАННЫХ, А НЕ ОФОРМЛЕНИЯ:
+ * «bold, italic, underline, strikethrough, and spoiler entities can
+ * contain and can be part of any other entities, **except pre and code**».
+ * Мы копируем чат — значит копируем и это.
+ */
+const НЕ_С_МОНОШИРИННЫМ: TextFormatType[] = [
+  "bold",
+  "italic",
+  "underline",
+  "strikethrough",
+  "highlight",
+];
+
+/**
+ * Развести моноширинный с остальными видами прямо в поле.
+ *
+ * ⚠️ ЗАПРЕТ ЖИВЁТ ЗДЕСЬ, А НЕ В РАЗБОРЩИКЕ, И ЭТО ВЕСЬ ЕГО СМЫСЛ. Пока
+ * его не было, поле спокойно накладывало жирный поверх моноширинного
+ * и отправляло `` **`код`** `` — строку, которую не мог прочесть никто:
+ * в ленте выходило жирное слово в кавычках. Владелец так это и описал —
+ * «моноширинный перестаёт работать, когда типы перемешиваются».
+ *
+ * Молча выкидывать вид при ПОКАЗЕ было бы той же бедой, только позже:
+ * человек набрал одно, а увидел другое. Здесь он видит, как жирный
+ * снимается, — в тот же миг, своими глазами.
+ *
+ * ⚠️ ПО УЗЛАМ, А НЕ ПО ВЫДЕЛЕНИЮ ЦЕЛИКОМ. `selection.hasFormat` отвечает
+ * «весь ли кусок такой», и на выделении, где жирная только половина,
+ * он говорит «нет» — половина осталась бы жирной. Узлы к этому моменту
+ * уже разрезаны по границам выделения самой `formatText`.
+ */
+function $развести(selection: ReturnType<typeof $getSelection>, format: TextFormatType): void {
+  if (!$isRangeSelection(selection)) return;
+  const лишние = format === "code" ? НЕ_С_МОНОШИРИННЫМ : (["code"] as TextFormatType[]);
+  for (const node of selection.getNodes()) {
+    if (!$isTextNode(node)) continue;
+    for (const лишний of лишние) {
+      if (node.hasFormat(лишний)) node.toggleFormat(лишний);
+    }
+  }
+}
 
 /**
  * Пометить ВЫДЕЛЕННОЕ и не залипнуть.
@@ -59,20 +105,23 @@ export function markSelection(editor: LexicalEditor, format: TextFormatType): vo
     if (!$isRangeSelection(selection) || selection.isCollapsed()) return;
 
     selection.formatText(format);
+    $развести(selection, format);
 
     /**
-     * ⚠️ СХЛОПЫВАЕМ В КОНЕЦ ВЫДЕЛЕНИЯ, А НЕ В «ФОКУС». Фокус — это тот
-     * край, где отпустили мышь: при выделении СПРАВА НАЛЕВО он стоит
-     * в НАЧАЛЕ, и курсор улетал в начало сообщения. Владелец поймал это
-     * сразу; из кода не видно вовсе — в половине случаев всё верно.
+     * ⚠️ ВЫДЕЛЕНИЕ ОСТАЁТСЯ, А НЕ СХЛОПЫВАЕТСЯ, И ЭТО ПЕРЕМЕНА (task-021).
+     *
+     * Раньше здесь курсор ставился в конец помеченного куска, а признак
+     * с него снимался — лекарство от «нажал Ctrl+B и всё дальше жирное».
+     * Лекарство лечило, но отрезало главное: ВТОРОЙ вид наложить было
+     * не на что. Пометил слово жирным — выделения больше нет, и Ctrl+I
+     * ничего не делает; чтобы получить жирный курсив, слово приходилось
+     * выделять заново. Владелец на это и наткнулся, назвав «перестаёт
+     * работать, когда типы перемешиваются».
+     *
+     * Болезнь при этом не возвращается: «режим» включается только на
+     * ПУСТОМ выделении, а такое мы отвергаем строкой выше. Пока кусок
+     * выделен, признак принадлежит ему, а не полю.
      */
-    const конец = selection.isBackward() ? selection.anchor : selection.focus;
-    const { key, offset, type } = конец;
-    selection.anchor.set(key, offset, type);
-    selection.focus.set(key, offset, type);
-
-    // И гасим унаследованный признак, иначе следующее слово будет таким же.
-    if (selection.hasFormat(format)) selection.toggleFormat(format);
   });
 }
 

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { Message } from "../../data/api.js";
 import type { Chat } from "../../data/useChat.js";
-import { copy } from "../../shared/clipboard.js";
+import { copyAndTell } from "../../shared/clipboard.js";
+import { СКОПИРОВАНО } from "../../shared/toast.js";
 import { Composer } from "./Composer.js";
 import { Feed } from "./Feed.js";
 import { ForwardPicker } from "./ForwardPicker.js";
@@ -114,7 +115,10 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
           // Копируется одним куском с именами: так выделенное и вставляется
           // потом — в письмо или в задачу, а не по одной строке.
           onCopy={() => {
-            void copy(chosen.map((one) => `${one.author.name}: ${one.body}`).join("\n"));
+            void copyAndTell(
+              chosen.map((one) => `${one.author.name}: ${one.body}`).join("\n"),
+              СКОПИРОВАНО.текст,
+            );
             setPicked(null);
           }}
           onForward={() => {

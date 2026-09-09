@@ -17,22 +17,47 @@
  * как их писали.
  */
 
+/**
+ * Виды, которые вкладываются друг в друга свободно (Р-028).
+ *
+ * ⚠️ СПИСОК ВЗЯТ У ТЕЛЕГРАМА ДОСЛОВНО, а не составлен по вкусу: у них
+ * ровно эти пять «can contain and can be part of any other entities,
+ * except pre and code». Моноширинного и блока кода здесь нет намеренно —
+ * они не совмещаются ни с чем, и это ограничение их модели данных,
+ * а не выбор оформления.
+ */
+export type Wrap = "bold" | "italic" | "underline" | "strike" | "spoiler";
+
 export type Token =
   | { kind: "text"; text: string }
-  | { kind: "bold"; text: string }
-  | { kind: "italic"; text: string }
-  | { kind: "underline"; text: string }
-  | { kind: "strike"; text: string }
   | { kind: "code"; text: string }
-  /** Многострочный кусок кода. Отдельно от `code`: рисуется блоком. */
   /**
    * Блок кода. `lang` — подпись языка из первой строки ограды
-   * (```` ```sql ````), если она там была.
+   * (```` ```sql ````), если она там была. Отдельно от `code`: рисуется
+   * блоком, а не течёт по строке.
    */
   | { kind: "pre"; text: string; lang?: string }
-  /** Скрытый до нажатия. У Телеграма — «спойлер». */
-  | { kind: "spoiler"; text: string }
-  | { kind: "link"; text: string; href: string };
+  | { kind: "link"; text: string; href: string }
+  /**
+   * Обёртка. Держит ДЕТЕЙ, а не строку: `**жирный *курсив***` — это
+   * жирный, внутри которого курсив. Скрытый («спойлер» у Телеграма) —
+   * тоже обёртка.
+   *
+   * ⚠️ ТАК БЫЛО НЕ ВСЕГДА, И ЦЕНА ПЛОСКОГО СПИСКА ИЗВЕСТНА. Поле умело
+   * наложить два вида на один кусок с самого начала, а разборщик такую
+   * строку прочесть не мог — обёртка вылезала в ленту буквами. Владелец
+   * поймал это на моноширинном: `` **`код`** `` показывался жирным словом
+   * в кавычках (Р-028, task-021).
+   */
+  | { kind: Wrap; children: Token[] };
+
+/**
+ * Текст куска без обёрток. Обходит дерево, потому что своего текста
+ * у обёртки нет — он у детей.
+ */
+export function plain(token: Token): string {
+  return "children" in token ? token.children.map(plain).join("") : token.text;
+}
 
 /** Единственные схемы, которым разрешено оказаться в href. */
 const ALLOWED = new Set(["http:", "https:"]);
@@ -66,16 +91,30 @@ export function safeHref(raw: string): string | null {
  * `имя_переменной` и пути, которых в рабочей переписке больше, чем
  * курсива; курсив пишется звёздочками. Единственное сознательное
  * расхождение с их разметкой.
+ *
+ * ⚠️ У ОБЁРТОК ВНУТРИ ТЕПЕРЬ «ЧТО УГОДНО, КРОМЕ ПЕРЕНОСА», А НЕ «ЧТО
+ * УГОДНО, КРОМЕ СВОЕГО ЗНАКА». Раньше жирный не пускал внутрь себя
+ * звёздочку — и `**жирный *курсив* внутри**` не разбирался вовсе.
+ * Нежадность (`+?`) держит границу на ПЕРВОЙ закрывающей паре, поэтому
+ * `**раз** и **два**` по-прежнему два жирных куска, а не один.
+ *
+ * ⚠️ ТРОЙНАЯ ЗВЁЗДОЧКА — СВОЯ ВЕТКА, И БЕЗ НЕЁ СТРОКА ЧИТАЕТСЯ ДВОЯКО.
+ * Жирный это `**`, курсив `*`, и вместе они дают `***слово***`, где
+ * непонятно, что кого обнимает. Телеграм в такой же беде со своей парой
+ * `_`/`__` советует вставлять между ними пустую сущность — приём,
+ * который в глазах человека выглядит мусором в тексте. Мы вместо этого
+ * читаем тройку целиком: жирный, внутри курсив (Р-028).
  */
 const PATTERN = new RegExp(
   [
     "```\\n?([\\s\\S]+?)```", // блок кода
     "`([^`\\n]+)`", // моноширинный
-    "\\*\\*([^*\\n]+)\\*\\*", // жирный
-    "__([^_\\n]+)__", // подчёркнутый
-    "~~([^~\\n]+)~~", // зачёркнутый
-    "\\|\\|([^|\\n]+)\\|\\|", // скрытый
-    "\\*([^*\\n]+)\\*", // курсив
+    "\\*\\*\\*([^\\n]+?)\\*\\*\\*", // жирный курсив разом
+    "\\*\\*([^\\n]+?)\\*\\*", // жирный
+    "__([^\\n]+?)__", // подчёркнутый
+    "~~([^\\n]+?)~~", // зачёркнутый
+    "\\|\\|([^\\n]+?)\\|\\|", // скрытый
+    "\\*([^\\n]+?)\\*", // курсив
     "\\[([^\\]\\n]+)\\]\\(([^)\\s]+)\\)", // ссылка с подписью
     "(https?://[^\\s<>()]+)", // голый адрес
   ].join("|"),
@@ -116,7 +155,26 @@ function bareToken(raw: string): { token: Token; tail: string } {
  * веток в самой регулярке — держать это списком, а не лестницей `if`,
  * дешевле: при добавлении ветки видно, что список стал длиннее.
  */
-const KINDS = ["pre", "code", "bold", "underline", "strike", "spoiler", "italic"] as const;
+const KINDS = [
+  "pre",
+  "code",
+  "bold+italic",
+  "bold",
+  "underline",
+  "strike",
+  "spoiler",
+  "italic",
+] as const;
+
+/**
+ * Глубже не разбираем — остаток остаётся обычным текстом.
+ *
+ * ⚠️ ЭТО НЕ ПЕРЕСТРАХОВКА. Разбор рекурсивный, и строка из тысячи
+ * звёздочек — прислать такую ничего не мешает — переполнила бы стек
+ * и уронила вкладку ЧИТАТЕЛЮ, а не отправителю. Восемь заведомо больше,
+ * чем случается у человека: три вложенных вида уже редкость.
+ */
+const ПРЕДЕЛ_ГЛУБИНЫ = 8;
 
 /**
  * Подпись языка в первой строке ограды: ```` ```sql ````.
@@ -137,16 +195,41 @@ function splitLang(raw: string): { text: string; lang?: string } {
   return { text: raw.slice(at + 1), lang: head };
 }
 
-function tokenOf(match: RegExpExecArray): { token: Token; tail: string } {
+/**
+ * Что внутри обёртки — разобранные дети.
+ *
+ * ⚠️ ВНУТРЬ МОНОШИРИННОГО И БЛОКА КОДА РЕКУРСИЯ НЕ ЗАХОДИТ, и это главное
+ * ограничение всей модели (Р-028). У Телеграма код не совмещается ни с чем,
+ * а значит звёздочка внутри кода — это звёздочка, а не начало жирного.
+ * Иначе нельзя было бы показать сам синтаксис, а в рабочей переписке
+ * его показывают постоянно.
+ */
+function children(text: string, depth: number): Token[] {
+  if (depth >= ПРЕДЕЛ_ГЛУБИНЫ) return [{ kind: "text", text }];
+  return разобрать(text, depth + 1);
+}
+
+/** Подошедшая ветка обёртки → кусок. */
+function wrapToken(kind: (typeof KINDS)[number], text: string, depth: number): Token {
+  if (kind === "pre") return { kind, ...splitLang(text) };
+  if (kind === "code") return { kind, text };
+  // Тройная звёздочка — это ДВЕ обёртки на одном куске, а не одна:
+  // жирный снаружи, курсив внутри. Разбираем сразу парой.
+  if (kind === "bold+italic") {
+    return { kind: "bold", children: [{ kind: "italic", children: children(text, depth) }] };
+  }
+  return { kind, children: children(text, depth) };
+}
+
+function tokenOf(match: RegExpExecArray, depth: number): { token: Token; tail: string } {
   for (let i = 0; i < KINDS.length; i++) {
     const text = match[i + 1];
     const kind = KINDS[i];
     if (text === undefined || kind === undefined) continue;
-    if (kind === "pre") return { token: { kind, ...splitLang(text) }, tail: "" };
-    return { token: { kind, text }, tail: "" };
+    return { token: wrapToken(kind, text, depth), tail: "" };
   }
 
-  // Ветки ссылки и голого адреса идут сразу за семью видами обёрток.
+  // Ветки ссылки и голого адреса идут сразу за восемью видами обёрток.
   const linkText = match[KINDS.length + 1];
   const linkHref = match[KINDS.length + 2];
   if (linkText !== undefined && linkHref !== undefined) {
@@ -159,27 +242,45 @@ function tokenOf(match: RegExpExecArray): { token: Token; tail: string } {
 }
 
 /**
- * Разобрать текст на куски. Вложенности нет намеренно: `**жирная [ссылка]()**`
- * останется жирным текстом со скобками. Предсказуемость важнее полноты —
- * вложенный разбор приносит с собой углы, в которых и живут дыры.
+ * ⚠️ РЕГУЛЯРКА ОДНА НА ВСЮ РЕКУРСИЮ, А `lastIndex` У НЕЁ ОБЩИЙ. Поэтому
+ * положение в строке хранится СВОЁ на каждом уровне, а `lastIndex`
+ * выставляется перед каждым шагом: вложенный разбор успевает сдвинуть
+ * его под собой, и без этого внешний уровень продолжил бы с чужого места.
+ * Заводить вторую регулярку ради этого — два места с одним знанием,
+ * и они разойдутся.
  */
-export function parseMarkup(body: string): Token[] {
+function разобрать(body: string, depth: number): Token[] {
   const tokens: Token[] = [];
   let at = 0;
+  let from = 0;
 
-  PATTERN.lastIndex = 0;
-  let match = PATTERN.exec(body);
-  while (match !== null) {
+  for (;;) {
+    PATTERN.lastIndex = from;
+    const match = PATTERN.exec(body);
+    if (match === null) break;
+    from = match.index + match[0].length;
+
     if (match.index > at) tokens.push({ kind: "text", text: body.slice(at, match.index) });
 
-    const { token, tail } = tokenOf(match);
+    const { token, tail } = tokenOf(match, depth);
     tokens.push(token);
     if (tail) tokens.push({ kind: "text", text: tail });
 
-    at = match.index + match[0].length;
-    match = PATTERN.exec(body);
+    at = from;
   }
 
   if (at < body.length) tokens.push({ kind: "text", text: body.slice(at) });
   return tokens;
+}
+
+/**
+ * Разобрать текст в дерево кусков.
+ *
+ * ⚠️ ВЛОЖЕННОСТЬ ЕСТЬ У ПЯТИ ВИДОВ И ТОЛЬКО У НИХ (Р-028): жирный,
+ * курсив, подчёркнутый, зачёркнутый, скрытый. Моноширинный, блок кода
+ * и ссылка держат простой текст: `**жирная [ссылка]()**` останется
+ * жирным текстом со скобками, как и было.
+ */
+export function parseMarkup(body: string): Token[] {
+  return разобрать(body, 0);
 }

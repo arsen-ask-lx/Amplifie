@@ -6,7 +6,7 @@ import {
   type LexicalEditor,
   type TextFormatType,
 } from "lexical";
-import { parseMarkup } from "../../shared/markup.js";
+import { parseMarkup, type Token } from "../../shared/markup.js";
 
 /**
  * Превращение «наша строка ↔ дерево редактора».
@@ -55,15 +55,82 @@ const AS_FORMAT: Partial<Record<string, TextFormatType>> = {
   pre: "code",
 };
 
-/** Чем обёрнут каждый вид при обратном превращении. */
+/**
+ * Чем обёрнут каждый вид при обратном превращении.
+ *
+ * ⚠️ ПОРЯДОК ЗДЕСЬ — ЭТО ПОРЯДОК ВЛОЖЕНИЯ, И ОН НЕ ПРОИЗВОЛЕН (Р-028).
+ * Обёртки надеваются сверху вниз по списку, поэтому первый в списке
+ * оказывается САМЫМ ВНУТРЕННИМ, последний — самым внешним.
+ *
+ * Курсив обязан быть внутренним, а жирный сразу за ним: `*` и `**`
+ * вместе дают `***слово***`, у которого в разборщике своя ветка.
+ * Встрянь между ними третья обёртка — тройка не соберётся, и строка
+ * станет неоднозначной.
+ *
+ * ⚠️ МОНОШИРИННОГО ЗДЕСЬ НЕТ НАМЕРЕННО. Он не совмещается ни с чем
+ * и обрабатывается отдельно, до всего этого списка.
+ */
 const AS_MARKS: Array<{ format: TextFormatType; with: string }> = [
-  { format: "code", with: "`" },
+  { format: "italic", with: "*" },
   { format: "bold", with: "**" },
   { format: "underline", with: "__" },
   { format: "strikethrough", with: "~~" },
   { format: "highlight", with: "||" },
-  { format: "italic", with: "*" },
 ];
+
+/**
+ * Какие признаки достаются узлу: накопленные по пути плюс свой.
+ *
+ * ⚠️ МОНОШИРИННЫЙ ОБРЫВАЕТ НАКОПЛЕННОЕ, а не добавляется к нему (Р-028).
+ * Пришла старая строка вида `` **`код`** `` — жирный с неё снимается,
+ * остаётся один моноширинный.
+ */
+function признаки(kind: Token["kind"], formats: TextFormatType[]): TextFormatType[] {
+  const own = AS_FORMAT[kind];
+  if (own === "code") return [own];
+  return own ? [...formats, own] : formats;
+}
+
+/**
+ * Один кусок дерева разбора → узлы абзаца.
+ *
+ * ⚠️ ПРИЗНАКИ НАКАПЛИВАЮТСЯ ПО ПУТИ ВНИЗ. У Lexical признаки текста —
+ * это НАБОР на одном узле, а не дерево: «жирный внутри зачёркнутого»
+ * и «зачёркнутый внутри жирного» для него одно и то же. Поэтому
+ * вложенность разбора здесь схлопывается в набор, а обратно
+ * собирается в том порядке, что задан списком выше.
+ */
+function $добавить(
+  paragraph: ReturnType<typeof $createParagraphNode>,
+  token: Token,
+  formats: TextFormatType[],
+): void {
+  /**
+   * ⚠️ ССЫЛКА СТАНОВИТСЯ УЗЛОМ ССЫЛКИ, А НЕ ПРОСТО ТЕКСТОМ. Раньше здесь
+   * бралась только подпись, и адрес ТЕРЯЛСЯ МОЛЧА: реплика
+   * `[договор](https://…)`, открытая на правку и сохранённая обратно,
+   * превращалась в слово «договор» без адреса. Ни одна проверка этого
+   * не видела — круг «строка → дерево → строка» на ссылках не гонялся.
+   * Ровно то расхождение, о котором предупреждало Р-020.
+   */
+  if (token.kind === "link") {
+    const link = $createLinkNode(token.href);
+    link.append($createTextNode(token.text));
+    paragraph.append(link);
+    return;
+  }
+
+  if ("children" in token) {
+    const format = AS_FORMAT[token.kind];
+    const внутрь = format ? [...formats, format] : formats;
+    for (const child of token.children) $добавить(paragraph, child, внутрь);
+    return;
+  }
+
+  const node = $createTextNode(token.text);
+  for (const format of признаки(token.kind, formats)) node.toggleFormat(format);
+  paragraph.append(node);
+}
 
 /**
  * Строка → дерево. Зовётся при открытии правки и при вставке цитаты.
@@ -76,27 +143,7 @@ export function $fillFromMarkup(text: string): void {
   root.clear();
 
   const paragraph = $createParagraphNode();
-  for (const token of parseMarkup(text)) {
-    /**
-     * ⚠️ ССЫЛКА СТАНОВИТСЯ УЗЛОМ ССЫЛКИ, А НЕ ПРОСТО ТЕКСТОМ. Раньше здесь
-     * бралась только подпись, и адрес ТЕРЯЛСЯ МОЛЧА: реплика
-     * `[договор](https://…)`, открытая на правку и сохранённая обратно,
-     * превращалась в слово «договор» без адреса. Ни одна проверка этого
-     * не видела — круг «строка → дерево → строка» на ссылках не гонялся.
-     * Ровно то расхождение, о котором предупреждало Р-020.
-     */
-    if (token.kind === "link") {
-      const link = $createLinkNode(token.href);
-      link.append($createTextNode(token.text));
-      paragraph.append(link);
-      continue;
-    }
-
-    const node = $createTextNode(token.text);
-    const format = AS_FORMAT[token.kind];
-    if (format) node.toggleFormat(format);
-    paragraph.append(node);
-  }
+  for (const token of parseMarkup(text)) $добавить(paragraph, token, []);
   root.append(paragraph);
 }
 
@@ -134,8 +181,17 @@ function markupOf(node: unknown): string {
    * кавычки, дальше шли обычные абзацы.
    *
    * Ограда — та же разметка того же вида, только на несколько строк.
+   *
+   * ⚠️ И ОН ОТМЕНЯЕТ ВСЁ ОСТАЛЬНОЕ, А НЕ СКЛАДЫВАЕТСЯ С НИМ (Р-028).
+   * Раньше признаки просто наслаивались, и жирный моноширинный уезжал
+   * как `` **`код`** `` — строка, которую разборщик прочесть не мог:
+   * в ленте выходило жирное слово в кавычках. Это и была жалоба
+   * владельца. Само поле такую пару больше не допускает, но узел мог
+   * приехать со старой строкой, и здесь последний рубеж.
    */
-  if (marked.hasFormat("code") && text.includes("\n")) return `\`\`\`${text}\`\`\``;
+  if (marked.hasFormat("code")) {
+    return text.includes("\n") ? `\`\`\`${text}\`\`\`` : `\`${text}\``;
+  }
 
   let out = text;
   for (const { format, with: mark } of AS_MARKS) {
@@ -151,6 +207,13 @@ function markupOf(node: unknown): string {
  * У него ветки перебираются сверху вниз, и длинные обёртки стоят раньше
  * коротких; если написать здесь наоборот, `**жирный**` соберётся как
  * `*` плюс `*жирный*` плюс `*`, и разбор вернёт курсив внутри курсива.
+ *
+ * ⚠️ ПОРЯДОК ВЛОЖЕНИЯ ЗДЕСЬ ОДИН И ТОТ ЖЕ ВСЕГДА — он задан `AS_MARKS`.
+ * Это не потеря: у Lexical признаки текста лежат НАБОРОМ на узле, и
+ * «жирный внутри зачёркнутого» для него неотличимо от обратного. Значит
+ * строка после круга приводится к одному написанию — а выглядит текст
+ * при любом из них одинаково. Проверяется это не равенством строк,
+ * а тем, что круг устойчив и не теряет ни одного вида.
  */
 export function toMarkup(editor: LexicalEditor): string {
   return editor.getEditorState().read(() => {

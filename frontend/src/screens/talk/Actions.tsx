@@ -10,7 +10,8 @@ import {
   Trash,
 } from "@phosphor-icons/react";
 import type { Message } from "../../data/api.js";
-import { copy } from "../../shared/clipboard.js";
+import { copyAndTell } from "../../shared/clipboard.js";
+import { СКОПИРОВАНО } from "../../shared/toast.js";
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -76,13 +77,16 @@ export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
         {pinned ? "Открепить" : "Закрепить"}
       </ContextMenuItem>
 
-      <ContextMenuItem onSelect={() => void copy(message.body)}>
+      <ContextMenuItem onSelect={() => void copyAndTell(message.body, СКОПИРОВАНО.текст)}>
         <Copy />
         Копировать текст
       </ContextMenuItem>
       <ContextMenuItem
         onSelect={() =>
-          void copy(`${window.location.origin}/c/${message.conversationId}/${message.seq}`)
+          void copyAndTell(
+            `${window.location.origin}/c/${message.conversationId}/${message.seq}`,
+            СКОПИРОВАНО.ссылка,
+          )
         }
       >
         <LinkSimple />

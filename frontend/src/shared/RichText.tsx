@@ -1,7 +1,8 @@
 import { Check, Copy } from "@phosphor-icons/react";
 import { useState } from "react";
-import { copy } from "./clipboard.js";
-import { parseMarkup, type Token } from "./markup.js";
+import { copyAndTell } from "./clipboard.js";
+import { parseMarkup, type Token, type Wrap } from "./markup.js";
+import { СКОПИРОВАНО } from "./toast.js";
 
 /**
  * Отрисовка размеченного текста.
@@ -29,9 +30,9 @@ import { parseMarkup, type Token } from "./markup.js";
  */
 
 /** Скрытый кусок: залит, пока не нажмут. */
-function Spoiler({ text }: { text: string }) {
+function Spoiler({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  if (open) return <span>{text}</span>;
+  if (open) return <span>{children}</span>;
   return (
     <button
       type="button"
@@ -47,7 +48,7 @@ function Spoiler({ text }: { text: string }) {
           из текущего цвета текста, который только что обнулили. Скрытое
           превращалось в пустое место, и владелец справедливо прочёл это
           как «буква уехала». `visibility` держит и место, и цвет. */}
-      <span className="invisible">{text}</span>
+      <span className="invisible">{children}</span>
     </button>
   );
 }
@@ -74,19 +75,79 @@ function Link({ text, href }: { text: string; href: string }) {
   );
 }
 
-const VIEWS: Record<Token["kind"], (token: Token) => React.ReactNode> = {
-  text: (t) => <span>{t.text}</span>,
-  bold: (t) => <strong>{t.text}</strong>,
-  italic: (t) => <em>{t.text}</em>,
-  underline: (t) => <u>{t.text}</u>,
-  strike: (t) => <s>{t.text}</s>,
-  code: (t) => (
-    <code className="rounded-sm bg-current/12 px-1 py-0.5 font-mono text-[0.92em]">{t.text}</code>
-  ),
+/** Оформление моноширинного куска — одно на ленту и на блок кода. */
+const MONO = "rounded-sm bg-current/12 px-1 py-0.5 font-mono text-[0.92em]";
+
+/**
+ * Человек ВЫДЕЛЯЕТ текст, а не нажимает.
+ *
+ * ⚠️ БЕЗ ЭТОЙ ПРОВЕРКИ КОПИРОВАНИЕ ПО НАЖАТИЮ ОТНИМАЕТ ВЫДЕЛЕНИЕ. Кто
+ * протащил мышь по куску кода, чтобы взять из него три слова, отпускает
+ * её ВНУТРИ куска — и это тоже нажатие. Скопировался бы весь кусок,
+ * молча затерев выбранное.
+ */
+function выделяют(): boolean {
+  const выбор = window.getSelection();
+  return выбор !== null && !выбор.isCollapsed && выбор.toString().length > 0;
+}
+
+/**
+ * Моноширинный кусок: нажали — скопировали.
+ *
+ * ⚠️ ЭТО ПОВЕДЕНИЕ ТЕЛЕГРАМА, А НЕ НАША ВЫДУМКА. У них это
+ * `MonospaceClickHandler`, и он вешается на ОБА вида — `Code` и `Pre`:
+ * левое или среднее нажатие кладёт текст в буфер и показывает ту же
+ * плашку «Текст скопирован в буфер обмена». Текст при этом обрезается
+ * по краям (`.trimmed()`) — переносим и это.
+ *
+ * ⚠️ НАСТОЯЩАЯ КНОПКА, А НЕ `onClick` НА `code`. Кусок обязан быть
+ * доступен с клавиатуры: нажатие мышью, которое нельзя повторить
+ * табуляцией и пробелом, — это функция, которой нет у половины людей.
+ */
+function Mono({ text }: { text: string }) {
+  return (
+    <button
+      type="button"
+      title="Скопировать"
+      onClick={() => {
+        if (выделяют()) return;
+        void copyAndTell(text.trim(), СКОПИРОВАНО.текст);
+      }}
+      className="cursor-pointer align-baseline"
+    >
+      {/* `code` остаётся: кнопка отвечает за нажатие, а смысл «это код»
+          несёт узел, и его читает не только глаз, но и чтение с экрана. */}
+      <code className={MONO}>{text}</code>
+    </button>
+  );
+}
+
+/**
+ * Обёртки: у них не текст, а ДЕТИ, и рисуются они рекурсивно (Р-028).
+ * Ровно пять — те же, что вкладываются друг в друга у Телеграма.
+ */
+const WRAPS: Record<Wrap, (inside: React.ReactNode) => React.ReactNode> = {
+  bold: (inside) => <strong>{inside}</strong>,
+  italic: (inside) => <em>{inside}</em>,
+  underline: (inside) => <u>{inside}</u>,
+  strike: (inside) => <s>{inside}</s>,
+  spoiler: (inside) => <Spoiler>{inside}</Spoiler>,
+};
+
+/**
+ * Виды с простым текстом: внутрь них разбор не заходит.
+ *
+ * ⚠️ ЭТО НЕ НЕДОДЕЛКА, А ЗАПРЕТ. У Телеграма моноширинный и блок кода
+ * не совмещаются ни с чем, поэтому звёздочка внутри кода — звёздочка.
+ * Ссылка держит простой текст по той же причине, что и раньше: подпись
+ * со своей разметкой приносит углы, а пользы не приносит.
+ */
+const LEAVES = {
+  text: (t: { text: string }) => <span>{t.text}</span>,
+  code: (t: { text: string }) => <Mono text={t.text} />,
   // Многострочный кусок кода — блоком: он не течёт по строке, он ею не является.
-  pre: (t) => <CodeBlock text={t.text} lang={t.kind === "pre" ? t.lang : undefined} />,
-  spoiler: (t) => <Spoiler text={t.text} />,
-  link: (t) => <Link text={t.text} href={t.kind === "link" ? t.href : ""} />,
+  pre: (t: { text: string; lang?: string }) => <CodeBlock text={t.text} lang={t.lang} />,
+  link: (t: { text: string; href: string }) => <Link text={t.text} href={t.href} />,
 };
 
 /**
@@ -107,6 +168,22 @@ const VIEWS: Record<Token["kind"], (token: Token) => React.ReactNode> = {
 function CodeBlock({ text, lang }: { text: string; lang: string | undefined }) {
   const [copied, setCopied] = useState(false);
 
+  /**
+   * ⚠️ ОДНО ДЕЙСТВИЕ НА ДВЕ КНОПКИ. Копируют и значок в углу, и само тело
+   * блока; разойдись они — одна из кнопок однажды начала бы копировать
+   * не то.
+   */
+  function скопировать(): void {
+    if (выделяют()) return;
+    void copyAndTell(text.trim(), СКОПИРОВАНО.код).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      // Галочка гаснет: оставшаяся навсегда, она соврёт при следующем
+      // взгляде — «а это я сейчас скопировал или вчера?»
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
   return (
     <span className="group/code relative my-1.5 block overflow-hidden rounded-md bg-current/10">
       {lang ? (
@@ -119,15 +196,7 @@ function CodeBlock({ text, lang }: { text: string; lang: string | undefined }) {
         type="button"
         aria-label={copied ? "Скопировано" : "Скопировать код"}
         title={copied ? "Скопировано" : "Скопировать код"}
-        onClick={() => {
-          void copy(text).then((ok) => {
-            if (!ok) return;
-            setCopied(true);
-            // Галочка гаснет: оставшаяся навсегда, она соврёт при
-            // следующем взгляде — «а это я сейчас скопировал или вчера?»
-            setTimeout(() => setCopied(false), 1500);
-          });
-        }}
+        onClick={скопировать}
         className={[
           "absolute top-1 right-1 z-10 grid size-7 place-items-center rounded",
           "bg-current/10 text-current/60 backdrop-blur-sm transition-opacity",
@@ -138,26 +207,45 @@ function CodeBlock({ text, lang }: { text: string; lang: string | undefined }) {
         {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
       </button>
 
-      <code className="block overflow-x-auto px-2.5 py-2 font-mono text-[0.92em] leading-snug whitespace-pre">
-        {text}
-      </code>
+      {/* ⚠️ ТЕЛО БЛОКА КОПИРУЕТСЯ ПО НАЖАТИЮ — как у них: тот же
+          `MonospaceClickHandler` висит и на `Pre`. Значок в углу при этом
+          остаётся: он показывает, что блок вообще можно скопировать,
+          а само тело об этом не говорит ничем. */}
+      <button
+        type="button"
+        title="Скопировать"
+        onClick={скопировать}
+        className="block w-full cursor-pointer overflow-x-auto text-left"
+      >
+        <code className="block px-2.5 py-2 font-mono text-[0.92em] leading-snug whitespace-pre">
+          {text}
+        </code>
+      </button>
     </span>
   );
 }
 
+/**
+ * Список кусков → узлы. Зовёт сам себя для детей обёртки.
+ *
+ * ⚠️ КЛЮЧ ПО МЕСТУ, И ЭТО ЕДИНСТВЕННЫЙ ВЕРНЫЙ ВЫБОР ЗДЕСЬ. Ключ из вида
+ * и текста выглядел аккуратнее и разваливался на первом же сообщении
+ * с двумя одинаковыми кусками: «два ребёнка с одним ключом». Список
+ * ПОЗИЦИОННЫЙ — куски не переставляются и не удаляются по одному,
+ * он пересобирается целиком при изменении текста, — поэтому место
+ * и есть их настоящее имя.
+ */
+function nodes(tokens: Token[]): React.ReactNode {
+  return tokens.map((token, at) => (
+    // biome-ignore lint/suspicious/noArrayIndexKey: список позиционный, см. выше
+    <span key={`${at}-${token.kind}`}>
+      {"children" in token
+        ? WRAPS[token.kind](nodes(token.children))
+        : LEAVES[token.kind](token as never)}
+    </span>
+  ));
+}
+
 export function RichText({ body }: { body: string }) {
-  return (
-    <>
-      {/* ⚠️ КЛЮЧ ПО МЕСТУ, И ЭТО ЕДИНСТВЕННЫЙ ВЕРНЫЙ ВЫБОР ЗДЕСЬ. Ключ
-          из вида и текста выглядел аккуратнее и разваливался на первом же
-          сообщении с двумя одинаковыми кусками: «два ребёнка с одним
-          ключом». Список ПОЗИЦИОННЫЙ — куски не переставляются и не
-          удаляются по одному, он пересобирается целиком при изменении
-          текста, — поэтому место и есть их настоящее имя. */}
-      {parseMarkup(body).map((token, at) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: список позиционный, см. выше
-        <span key={`${at}-${token.kind}`}>{VIEWS[token.kind](token)}</span>
-      ))}
-    </>
-  );
+  return <>{nodes(parseMarkup(body))}</>;
 }
