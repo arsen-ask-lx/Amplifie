@@ -7,6 +7,7 @@ import {
   INSERT_LINE_BREAK_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
+  KEY_ESCAPE_COMMAND,
   type LexicalEditor,
   type TextFormatType,
 } from "lexical";
@@ -181,9 +182,52 @@ export function Keys({ onSend }: { onSend: () => void }) {
       COMMAND_PRIORITY_LOW,
     );
 
+    /**
+     * ⚠️ ESCAPE НЕ ИМЕЕТ ПРАВА ВЫБИВАТЬ ИЗ ПОЛЯ, И ЭТО ПОЙМАНО ЖИВЫМ
+     * ОБХОДОМ, А НЕ ПРИДУМАНО. Chrome уводит фокус из редактируемой
+     * области на страницу. Снаружи это не видно ничем: поле выглядит
+     * прежним, а буквы, которые человек печатает дальше, не появляются
+     * нигде. В ленте после такого оказалась реплика, где хвост фразы
+     * встал ПЕРЕД началом.
+     *
+     * ⚠️ ЛОВИМ САМ УХОД, А НЕ ОТМЕНЯЕМ НАЖАТИЕ. Проверено обе дороги:
+     * `preventDefault` на нажатии Chrome не слушает, а возврат фокуса
+     * следующим тактом опаздывает — первая же буква после Escape уходит
+     * в никуда («и Пётр тоже» превращалось в «и Пётртоже»). Работает
+     * только возврат ВНУТРИ события ухода: он успевает до следующего
+     * нажатия.
+     *
+     * Флажок обязателен: уход бывает и законным — человек щёлкнул мимо
+     * поля или ушёл в другое окно. Возвращать фокус в таких случаях
+     * значило бы не отпускать человека из поля вовсе.
+     */
+    let изЗаEscape = false;
+    const offEscape = editor.registerCommand(
+      KEY_ESCAPE_COMMAND,
+      () => {
+        изЗаEscape = true;
+        // Возвращаем `false`: клавишу себе не забираем — отмену ответа
+        // и правки слушает то же нажатие выше по дереву.
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const вернуть = () => {
+      if (!изЗаEscape) return;
+      изЗаEscape = false;
+      editor.focus();
+    };
+    const offBlur = editor.registerRootListener((root, prev) => {
+      prev?.removeEventListener("blur", вернуть);
+      root?.addEventListener("blur", вернуть);
+    });
+
     return () => {
       offEnter();
       offKeys();
+      offEscape();
+      offBlur();
     };
   }, [editor, onSend]);
 

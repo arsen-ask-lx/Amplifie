@@ -149,6 +149,52 @@ test("Enter выбирает из подсказки, а не отправляе
   await expect(bubble(page, "глянь смету")).toBeVisible();
 });
 
+test("Escape закрывает подсказку, но не выбивает из поля", async ({ page, browser }) => {
+  await register(page, "Хозяин");
+  await createChannel(page, "Отказ");
+
+  const другой = await browser.newPage();
+  await invited(другой, page, "Мария Петрова");
+  await openChannel(page, "Отказ");
+
+  /**
+   * ⚠️ ПОЙМАНО ЖИВЫМ ОБХОДОМ, А НЕ ПРИДУМАНО. В ленте оказалась реплика
+   * «, а это просто текст@Пётр Ильин» — хвост встал ПЕРЕД набранным.
+   * Разбор показал: Escape выбивает фокус из поля вовсе (браузер уводит
+   * его на страницу), и всё, что человек печатает дальше, уходит в никуда.
+   * Подсказки для этого даже не нужно — но именно в ней Escape нажимают
+   * чаще всего: «список не нужен, пишу дальше».
+   */
+  await field(page).click();
+  await page.keyboard.type("@Мария", { delay: 20 });
+  await expect(page.getByRole("listbox", { name: "Кого позвать" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("listbox", { name: "Кого позвать" }),
+    "Escape не закрыл подсказку",
+  ).toHaveCount(0);
+
+  await page.keyboard.type(" и Пётр", { delay: 20 });
+  await expect(field(page), "после Escape при открытой подсказке поле потеряло фокус").toHaveText(
+    "@Мария и Пётр",
+  );
+
+  /**
+   * ⚠️ ВТОРОЙ ESCAPE — ГЛАВНЫЙ, И ИМЕННО ОН ЛОМАЛСЯ. Пока подсказка
+   * открыта, Escape забирает себе она и фокус цел. Стоит списку
+   * закрыться — и клавишу получает браузер, а он уводит фокус
+   * из редактируемой области на страницу. Человек этого не видит:
+   * поле выглядит прежним, курсор в нём не мигает, буквы пропадают.
+   */
+  await page.keyboard.press("Escape");
+  await page.keyboard.type(" тоже", { delay: 20 });
+  await expect(
+    field(page),
+    "Escape при закрытой подсказке выбил из поля: набранное уходит в никуда",
+  ).toHaveText("@Мария и Пётр тоже");
+});
+
 test("подсказка не растягивает страницу и не двигает интерфейс", async ({ page, browser }) => {
   await register(page, "Хозяин");
   await createChannel(page, "Ширина");
