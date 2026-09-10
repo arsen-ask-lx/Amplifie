@@ -1,5 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
-import { bubble, createChannel, field, invited, openChannel, register } from "./fixtures.js";
+import {
+  bubble,
+  bubbles,
+  createChannel,
+  field,
+  invited,
+  openChannel,
+  register,
+} from "./fixtures.js";
 
 /**
  * СЦЕНАРИИ УПОМИНАНИЯ (Р-031, task-033).
@@ -105,6 +113,40 @@ test("подсказка ставит упоминание, и у позванн
     канал(другой, "Совещание"),
     "у позванного не загорелся отдельный значок упоминания",
   ).toHaveAccessibleName(/упоминаний:/u);
+});
+
+test("Enter выбирает из подсказки, а не отправляет сообщение", async ({ page, browser }) => {
+  await register(page, "Хозяин");
+  await createChannel(page, "Выбор");
+
+  const другой = await browser.newPage();
+  await invited(другой, page, "Мария Петрова");
+  await openChannel(page, "Выбор");
+
+  /**
+   * ⚠️ ЗАМЕЧАНИЕ ВЛАДЕЛЬЦА, И ОНО ПРО ПОРЯДОК ОБРАБОТЧИКОВ, А НЕ ПРО ВИД.
+   * «Нажал собачку, стрелками выбрал нужного, нажал Enter — и сообщение
+   * отправилось». Пока подсказка открыта, Enter принадлежит ЕЙ: человек
+   * выбирает человека, а не заканчивает мысль. Отправляет уже следующий
+   * Enter.
+   */
+  await field(page).click();
+  await field(page).pressSequentially("@", { delay: 15 });
+  await expect(page.getByRole("listbox", { name: "Кого позвать" })).toBeVisible();
+
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+
+  await expect(
+    bubbles(page),
+    "первый Enter отправил сообщение, хотя человек всего лишь выбирал, кого позвать",
+  ).toHaveCount(0);
+  await expect(field(page), "выбранный человек не встал в поле").toContainText("Мария");
+
+  // А вот теперь Enter отправляет — как и всегда.
+  await field(page).pressSequentially(" глянь смету", { delay: 15 });
+  await page.keyboard.press("Enter");
+  await expect(bubble(page, "глянь смету")).toBeVisible();
 });
 
 test("подсказка не растягивает страницу и не двигает интерфейс", async ({ page, browser }) => {

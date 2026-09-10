@@ -5,7 +5,7 @@ import {
   LexicalTypeaheadMenuPlugin,
   useBasicTypeaheadTriggerMatch,
 } from "@lexical/react/LexicalTypeaheadMenuPlugin";
-import { $createTextNode, type TextNode } from "lexical";
+import { $createTextNode, COMMAND_PRIORITY_NORMAL, type TextNode } from "lexical";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Person } from "../../data/api.js";
 
@@ -173,6 +173,20 @@ export function Mentions({ conversationId }: { conversationId: string | null }) 
       onQueryChange={setЗапрос}
       onSelectOption={(кандидат, узел, закрыть) => выбрать(кандидат, узел, закрыть)}
       triggerFn={триггер}
+      /**
+       * ⚠️ ПОДСКАЗКА ЗАБИРАЕТ ENTER СЕБЕ, И БЕЗ ЭТОГО ОНА БЕСПОЛЕЗНА.
+       * Замечание владельца: «нажал собачку, стрелками выбрал нужного,
+       * нажал Enter — и сообщение отправилось». Оба обработчика Enter
+       * стояли на одной ступени важности, а решает тогда порядок
+       * подключения: наш подключается вместе с полем, подсказка — только
+       * когда открывается, то есть позже. Наш и срабатывал первым.
+       *
+       * Ступенью выше подсказка выигрывает, пока открыта, и только
+       * пока открыта: закрылась — Enter снова отправляет. Здесь важно
+       * именно это, а не «что-нибудь повыше»: перебей она обработчик
+       * поля навсегда, сообщение стало бы не отправить вовсе.
+       */
+      commandPriority={COMMAND_PRIORITY_NORMAL}
       /**
        * ⚠️ УЗЛУ ПЛАГИНА ОТБИРАЕМ РАЗМЕР И ВЫНИМАЕМ ЕГО ИЗ ПОТОКА.
        * Рисуем мы не в нём, но он всё равно создаётся и всё равно
