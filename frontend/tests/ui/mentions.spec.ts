@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { bubble, createChannel, field, invited, openChannel, register, say } from "./fixtures.js";
+import { bubble, createChannel, field, invited, openChannel, register } from "./fixtures.js";
 
 /**
  * СЦЕНАРИИ УПОМИНАНИЯ (Р-031, task-033).
@@ -24,6 +24,39 @@ import { bubble, createChannel, field, invited, openChannel, register, say } fro
  */
 function канал(page: Page, title: string) {
   return page.getByRole("button", { name: new RegExp(`^${title}`) });
+}
+
+/**
+ * Набить ленту репликами, чтобы она перестала помещаться на экране.
+ *
+ * ⚠️ ЗАПРОСОМ, А НЕ ЧЕРЕЗ ПОЛЕ ВВОДА, И ЭТО ЕДИНСТВЕННОЕ ИСКЛЮЧЕНИЕ
+ * ИЗ ПРАВИЛА «ВСЁ ЧЕРЕЗ ЭКРАН». Через поле пятнадцать реплик набираются
+ * десять секунд, и сценарий начал мигать: в одиночку укладывался,
+ * в общем прогоне — нет. Мигающий тест хуже отсутствующего.
+ *
+ * Правило при этом не нарушено по существу: проверяем мы не отправку —
+ * её стерегут другие сценарии, — а переход к зову. Это просто фон,
+ * и набирать его руками незачем.
+ */
+async function наговорить(page: Page, сколько: number): Promise<void> {
+  await page.evaluate(async (n) => {
+    const список = await fetch("/v1/conversations", { credentials: "include" }).then((r) =>
+      r.json(),
+    );
+    const свежий = список.items[0].id;
+    for (let i = 0; i < n; i++) {
+      await fetch(`/v1/conversations/${свежий}/messages`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          body: `обычная реплика номер ${i}`,
+          clientMsgId: crypto.randomUUID(),
+        }),
+      });
+    }
+  }, сколько);
+  await expect(page.getByText(`обычная реплика номер ${сколько - 1}`)).toBeVisible();
 }
 
 /** Позвать через подсказку: набрать собачку и выбрать первого из списка. */
@@ -72,6 +105,45 @@ test("подсказка ставит упоминание, и у позванн
     канал(другой, "Совещание"),
     "у позванного не загорелся отдельный значок упоминания",
   ).toHaveAccessibleName(/упоминаний:/u);
+});
+
+test("подсказка не растягивает страницу и не двигает интерфейс", async ({ page, browser }) => {
+  await register(page, "Хозяин");
+  await createChannel(page, "Ширина");
+
+  const другой = await browser.newPage();
+  await invited(другой, page, "Коллега");
+  await openChannel(page, "Ширина");
+
+  /**
+   * ⚠️ МЕРЯЕМ СТРАНИЦУ, А НЕ СПИСОК. Замечание владельца звучало так:
+   * «нажимаю собачку — появляется боковой скрол и сдвигает нам всё».
+   * Причина была не в виде списка, а в том, что плагин ставил свой узел
+   * в КОНЕЦ СТРАНИЦЫ и двигал его к каретке; страница от этого росла.
+   * Свойство, которое надо стеречь, — «страница не выросла», и увидеть
+   * его можно только по самой странице.
+   */
+  const ширина = () =>
+    page.evaluate(() => ({
+      прокрутка: document.documentElement.scrollWidth,
+      окно: document.documentElement.clientWidth,
+      высота: document.documentElement.scrollHeight,
+      экран: document.documentElement.clientHeight,
+    }));
+
+  const до = await ширина();
+  expect(до.прокрутка, "страница уже шире окна до всякой подсказки").toBeLessThanOrEqual(до.окно);
+
+  await field(page).click();
+  await field(page).pressSequentially("@", { delay: 15 });
+  await expect(page.getByRole("listbox", { name: "Кого позвать" })).toBeVisible();
+
+  const после = await ширина();
+  expect(после.прокрутка, "подсказка растянула страницу вбок — вернулась боковая полоса").toBe(
+    до.прокрутка,
+  );
+  expect(после.высота, "подсказка растянула страницу вниз").toBe(до.высота);
+  expect(после.прокрутка).toBeLessThanOrEqual(после.окно);
 });
 
 test("набранное руками имя упоминанием не становится", async ({ page, browser }) => {
@@ -126,7 +198,7 @@ test("кнопка ведёт к самому раннему зову", async ({
    * а до него там не был», и проверяется оно только на ленте, которая
    * не помещается целиком.
    */
-  for (let i = 0; i < 15; i++) await say(page, `обычная реплика номер ${i}`);
+  await наговорить(page, 15);
 
   /**
    * ⚠️ ВКЛАДКА ПОЗВАННОГО — В ФОНЕ, И БЕЗ ЭТОГО ПРОВЕРЯТЬ БЫЛО БЫ НЕЧЕГО.

@@ -56,8 +56,10 @@ function Unread({ count }: { count: number }) {
 function Mentions({ count }: { count: number }) {
   return (
     <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
-      <span className="sr-only">упоминаний: </span>
-      {count > 1 ? `@${count > 999 ? "999+" : count}` : "@"}
+      {/* Вслух — число, глазами — собачка: «упоминаний: @» не значит
+          ничего, а один зов цифрой на экране не поясняет собой ничего. */}
+      <span className="sr-only">упоминаний: {count > 999 ? "999+" : count}</span>
+      <span aria-hidden="true">{count > 1 ? `@${count > 999 ? "999+" : count}` : "@"}</span>
     </span>
   );
 }

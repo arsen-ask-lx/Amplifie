@@ -7,7 +7,6 @@ import {
 } from "@lexical/react/LexicalTypeaheadMenuPlugin";
 import { $createTextNode, type TextNode } from "lexical";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import { api, type Person } from "../../data/api.js";
 
 /**
@@ -174,13 +173,35 @@ export function Mentions({ conversationId }: { conversationId: string | null }) 
       onQueryChange={setЗапрос}
       onSelectOption={(кандидат, узел, закрыть) => выбрать(кандидат, узел, закрыть)}
       triggerFn={триггер}
-      menuRenderFn={(якорь, { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) => {
-        if (!якорь.current || подходящие.length === 0) return null;
-        return createPortal(
+      /**
+       * ⚠️ УЗЛУ ПЛАГИНА ОТБИРАЕМ РАЗМЕР И ВЫНИМАЕМ ЕГО ИЗ ПОТОКА.
+       * Рисуем мы не в нём, но он всё равно создаётся и всё равно
+       * ставится к каретке — а каретка стоит у нижнего края окна,
+       * и пустой узел высотой в строку растягивал страницу на пять
+       * точек. Полосы прокрутки хватает и пяти. `fixed` убирает узел
+       * из потока, нули отбирают размер; восклицательные знаки
+       * обязательны — плагин пишет `top`, `left` и `height` прямо
+       * в стиль узла, а стиль сильнее класса.
+       */
+      anchorClassName="fixed! top-0! left-0! h-0! w-0! overflow-hidden!"
+      menuRenderFn={(_якорь, { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) => {
+        if (подходящие.length === 0) return null;
+        return (
           <div
-            // ⚠️ СПИСОК НАД ПОЛЕМ, А НЕ ПОД НИМ. Поле ввода стоит внизу
-            // экрана, и выпавший вниз список ушёл бы за край окна.
-            className="absolute bottom-full z-30 mb-1 w-64 rounded-lg border border-line bg-card p-1 shadow-float"
+            /**
+             * ⚠️ СПИСОК ПРИВЯЗАН К ПОЛЮ, А НЕ К КУРСОРУ, И ЭТО ИСПРАВЛЕНИЕ
+             * ПО ЗАМЕЧАНИЮ ВЛАДЕЛЬЦА. Плагин умеет ставить список у самой
+             * каретки — для этого он кладёт свой узел в КОНЕЦ СТРАНИЦЫ
+             * и двигает его в нужную точку. Узел в конце страницы её
+             * растягивает: у окна появлялась боковая полоса прокрутки
+             * и сдвигала весь интерфейс вбок, стоило нажать собачку.
+             *
+             * У Телеграма список тоже привязан к полю, а не к каретке:
+             * панель над строкой ввода во всю её ширину. Значит и нам
+             * не за курсором бегать — а рисовать прямо здесь, внутри
+             * поля, где никакой страницы растягивать не надо.
+             */
+            className="absolute bottom-full left-0 z-30 mb-2 max-h-64 w-full max-w-xs overflow-y-auto rounded-lg border border-line bg-card p-1 shadow-float"
             role="listbox"
             aria-label="Кого позвать"
           >
@@ -193,8 +214,7 @@ export function Mentions({ conversationId }: { conversationId: string | null }) 
                 onPick={() => selectOptionAndCleanUp(кандидат)}
               />
             ))}
-          </div>,
-          якорь.current,
+          </div>
         );
       }}
     />
