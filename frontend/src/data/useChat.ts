@@ -11,6 +11,7 @@ import {
 } from "./api.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
+import { type Panel, usePanel } from "./usePanel.js";
 import { useReading } from "./useReading.js";
 import { useRooms } from "./useRooms.js";
 
@@ -85,16 +86,14 @@ export interface Chat {
   replying: Quote | null;
   reply: (message: Message | null) => void;
   /**
-   * Сколько чужих реплик человек не видел в названном разговоре (Р-029).
-   * Не поле, а вопрос: число уточняется нашими же отметками, не дожидаясь
-   * ответа сервера.
+   * Боковая панель ОДНИМ предметом (task-035).
+   *
+   * ⚠️ НЕ ПО ПОЛЮ, И ЭТО ГЛАВНОЕ ЗДЕСЬ. Раньше отсюда наружу торчали
+   * `projects`, `unreadOf`, `mentionsOf`, `moveToProject` и ещё пять
+   * свойств, и каждое новое умение панели проходило три файла насквозь.
+   * Теперь оболочка передаёт целое и о содержимом не знает.
    */
-  unreadOf: (conversationId: string) => number;
-  /** Сколько раз в разговоре позвали тебя и ты этого не видел (Р-031). */
-  mentionsOf: (conversationId: string) => number;
-  /** Проекты панели и перекладывание чатов между ними (Р-032). */
-  projects: Project[];
-  moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
+  panel: Panel;
   /**
    * Перед какой репликой стоит черта «Непрочитанные сообщения»
    * в открытом разговоре. `null` — черты нет. Замирает при открытии.
@@ -648,16 +647,15 @@ export function useChat(me: Me): Chat {
     following,
   });
 
+  const panel = usePanel({ rooms, reading, currentId, select });
+
   return {
     conversations: rooms.items,
     current: rooms.items.find((c) => c.id === currentId) ?? null,
     follow,
     replying,
     reply,
-    unreadOf: reading.unreadOf,
-    mentionsOf: reading.mentionsOf,
-    projects: rooms.projects,
-    moveToProject: rooms.moveToProject,
+    panel,
     boundary: reading.boundary,
     pinned,
     pin,

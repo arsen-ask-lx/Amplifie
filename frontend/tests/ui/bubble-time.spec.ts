@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { bubble, createChannel, register, say } from "./fixtures.js";
+import { bubble, createChannel, register, say, шрифтыГотовы } from "./fixtures.js";
 
 /**
  * Время в углу реплики стоит там же, где у Телеграма.
@@ -107,6 +107,9 @@ test("время в углу реплики стоит по правилам Т�
   const текст = "Привет";
   await say(page, текст);
   await expect(bubble(page, текст).locator("time")).toBeVisible();
+  // Меряем ПОСЛЕ того, как доехал наш шрифт: у системного запасного
+  // другая ширина знака, и просвет вышел бы другим.
+  await шрифтыГотовы(page);
 
   const мерка = await page.evaluate(МЕРИТЬ, текст);
 

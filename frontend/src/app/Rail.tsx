@@ -132,17 +132,10 @@ export function Rail({
         «Разговоров», а не общая: в «Работе» и «Агентах» ему нечего
         делать, и его присутствие там сбивало прицел. */}
         {section === "talk" ? (
-          <RoomList
-            rooms={chat.conversations}
-            currentId={chat.current?.id ?? null}
-            unreadOf={chat.unreadOf}
-            mentionsOf={chat.mentionsOf}
-            projects={chat.projects}
-            onMove={chat.moveToProject}
-            onSelect={(id) => chat.select(id)}
-            onCreate={chat.addChannel}
-            onRemove={chat.removeChannel}
-          />
+          /* ⚠️ ОДНО СВОЙСТВО, А НЕ ДЕВЯТЬ. Оболочка передаёт панель целиком
+             и не знает, что та умеет: прибавится действие — этот файл
+             не изменится (task-035, шаг 0). */
+          <RoomList panel={chat.panel} />
         ) : (
           <div className="flex-1" />
         )}

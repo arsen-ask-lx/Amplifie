@@ -7,6 +7,7 @@ import {
   invited,
   openChannel,
   register,
+  шрифтыГотовы,
 } from "./fixtures.js";
 
 /**
@@ -134,6 +135,17 @@ test("Enter выбирает из подсказки, а не отправляе
   await field(page).pressSequentially("@", { delay: 15 });
   await expect(page.getByRole("listbox", { name: "Кого позвать" })).toBeVisible();
 
+  /**
+   * ⚠️ ЖДЁМ НЕ СПИСОК, А СТРОКУ В НЁМ. Enter забирает себе подсказка —
+   * но только если ей есть что выбрать. Список появляется раньше, чем
+   * приезжает ответ «кого можно позвать»: между этими мгновениями Enter
+   * достаётся полю ввода, и сообщение уходит. Под нагрузкой промежуток
+   * растягивается, и сценарий мигал именно здесь.
+   */
+  await expect(
+    page.getByRole("listbox", { name: "Кого позвать" }).getByRole("option").first(),
+  ).toBeVisible();
+
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
 
@@ -219,6 +231,9 @@ test("подсказка не растягивает страницу и не д
       экран: document.documentElement.clientHeight,
     }));
 
+  // Ширину страницы меряем после доезда шрифта: пока он едет, вёрстка
+  // считается по запасному, и числа «до» и «после» окажутся про разное.
+  await шрифтыГотовы(page);
   const до = await ширина();
   expect(до.прокрутка, "страница уже шире окна до всякой подсказки").toBeLessThanOrEqual(до.окно);
 

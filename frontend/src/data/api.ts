@@ -358,10 +358,14 @@ export const api = {
   nearestMention: (conversationId: string) =>
     request<{ seq: number | null }>(`/v1/conversations/${conversationId}/mention`),
 
-  createChannel: (title: string) =>
+  /**
+   * Завести канал. `projectId` — сразу внутрь проекта (task-035): одним
+   * запросом, а не «завести и переложить».
+   */
+  createChannel: (title: string, projectId?: string) =>
     request<Conversation>("/v1/conversations", {
       method: "POST",
-      body: JSON.stringify({ title }),
+      body: JSON.stringify(projectId ? { title, projectId } : { title }),
     }),
 
   /** Ветка внутри канала. Своих участников не имеет — наследует канал. */

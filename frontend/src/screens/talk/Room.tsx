@@ -109,7 +109,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
         // до отрисовки» работает как «при открытии», без лишнего состояния.
         key={chat.current?.id ?? "пусто"}
         messages={chat.messages}
-        mentions={chat.current ? chat.mentionsOf(chat.current.id) : 0}
+        mentions={chat.current ? chat.panel.mentionsOf(chat.current.id) : 0}
         onGoToMention={() => void кЗову()}
         hasOlder={chat.hasOlder}
         onLoadOlder={() => chat.loadOlder()}

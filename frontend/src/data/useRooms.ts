@@ -22,7 +22,15 @@ export interface Rooms {
   projects: Project[];
   /** Перечитать. Возвращает то же, что положил в состояние. */
   reload: () => Promise<Conversation[]>;
-  addChannel: (title: string) => Promise<void>;
+  /**
+   * Завести канал. `projectId` — сразу внутрь проекта (task-035).
+   *
+   * ⚠️ ОДНА ФУНКЦИЯ С НЕОБЯЗАТЕЛЬНЫМ ДОВОДОМ, А НЕ ДВЕ. «Завести канал»
+   * и «завести канал в проекте» — одно знание с разной подробностью;
+   * двумя функциями они разъехались бы на первой правке, и одна из них
+   * перестала бы, скажем, открывать заведённое.
+   */
+  addChannel: (title: string, projectId?: string) => Promise<void>;
   removeChannel: (id: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
   /** Завести проект. */
@@ -60,8 +68,8 @@ export function useRooms(where: Address): Rooms {
   );
 
   const addChannel = useCallback(
-    async (title: string) => {
-      await openNew(() => api.createChannel(title));
+    async (title: string, projectId?: string) => {
+      await openNew(() => api.createChannel(title, projectId));
     },
     [openNew],
   );

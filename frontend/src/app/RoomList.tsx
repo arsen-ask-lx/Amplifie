@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Conversation, Project } from "../data/api.js";
+import type { Conversation } from "../data/api.js";
+import type { Panel } from "../data/usePanel.js";
 import { Button } from "../shared/ui/button.js";
 import {
   Dialog,
@@ -119,30 +120,15 @@ function useСвёрнутые() {
   return { свёрнуты, свернуть };
 }
 
-export function RoomList({
-  rooms,
-  projects,
-  currentId,
-  unreadOf,
-  mentionsOf,
-  onSelect,
-  onCreate,
-  onMove,
-  onRemove,
-}: {
-  rooms: Conversation[];
-  /** Проекты, в которых человеку виден хоть один чат (Р-032). */
-  projects: Project[];
-  currentId: string | null;
-  /** Сколько чужих реплик человек не видел в этом канале (Р-029). */
-  unreadOf: (conversationId: string) => number;
-  mentionsOf: (conversationId: string) => number;
-  onSelect: (id: string) => void;
-  onCreate: (title: string) => Promise<void>;
-  /** Отнести чат к проекту либо снять принадлежность (`null`). */
-  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
-  onRemove: (id: string) => Promise<void>;
-}) {
+/**
+ * ⚠️ ОДНО СВОЙСТВО, А НЕ ДЕВЯТЬ (task-035, шаг 0). Панель принимает свой
+ * предмет целиком: прибавится у неё умение — изменится этот файл и тип
+ * панели, а `Rail` между ними об этом не узнает. Замер, из-за которого
+ * так сделано, лежит в плане: упоминания тронули восемь файлов, проекты
+ * девять, и половина правок была чистым пробросом.
+ */
+export function RoomList({ panel }: { panel: Panel }) {
+  const { items, projects, currentId, unreadOf, mentionsOf } = panel;
   const [adding, setAdding] = useState(false);
   const { свёрнуты, свернуть } = useСвёрнутые();
   /**
@@ -155,9 +141,9 @@ export function RoomList({
    */
   const [removing, setRemoving] = useState<Conversation | null>(null);
 
-  // Только корневые: ветка открывается из самого разговора, а не отсюда.
-  const channels = rooms.filter((room) => room.parentId === null);
-  const внеПроектов = channels.filter((one) => one.projectId === null);
+  // Что панель показывает, решено при её сборке (`usePanel`): сюда
+  // приезжают уже только корневые разговоры.
+  const внеПроектов = items.filter((one) => one.projectId === null);
 
   /**
    * Строка канала одна и та же внутри проекта и снаружи.
@@ -173,8 +159,8 @@ export function RoomList({
       current={channel.id === currentId}
       unread={unreadOf(channel.id)}
       mentions={mentionsOf(channel.id)}
-      onSelect={onSelect}
-      onMove={onMove}
+      onSelect={panel.select}
+      onMove={panel.moveToProject}
       onRemove={() => setRemoving(channel)}
     />
   );
@@ -183,7 +169,9 @@ export function RoomList({
     <div className="flex min-h-0 flex-1 flex-col">
       <SidebarSection title="Каналы" addLabel="Новый канал" onAdd={() => setAdding(true)}>
         <div className="hide-scroll flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
-          {adding ? <NewChannel onCreate={onCreate} onDone={() => setAdding(false)} /> : null}
+          {adding ? (
+            <NewChannel onCreate={panel.addChannel} onDone={() => setAdding(false)} />
+          ) : null}
 
           {/* ⚠️ ПРОЕКТЫ СВЕРХУ, ОДИНОЧКИ СНИЗУ. Папка — это про предмет,
               и предметное идёт первым; «Общий» и курилка живут под ними,
@@ -193,7 +181,7 @@ export function RoomList({
             <ProjectRow
               key={project.id}
               project={project}
-              channels={channels.filter((one) => one.projectId === project.id)}
+              channels={items.filter((one) => one.projectId === project.id)}
               collapsed={свёрнуты.has(project.id)}
               onToggle={() => свернуть(project.id)}
               unreadOf={unreadOf}
@@ -204,7 +192,7 @@ export function RoomList({
 
           {внеПроектов.map((channel) => строка(channel))}
 
-          {channels.length === 0 && projects.length === 0 && !adding ? (
+          {items.length === 0 && projects.length === 0 && !adding ? (
             <p className="px-2.5 py-2 text-aside text-muted">
               Каналов нет. Заведите первый — плюс в заголовке.
             </p>
@@ -217,7 +205,7 @@ export function RoomList({
         onCancel={() => setRemoving(null)}
         onConfirm={async (id) => {
           setRemoving(null);
-          await onRemove(id);
+          await panel.removeChannel(id);
         }}
       />
     </div>
