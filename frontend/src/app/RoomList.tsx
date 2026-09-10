@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../shared/ui/dialog.js";
+import { Input } from "../shared/ui/input.js";
 import { ChannelRow } from "./ChannelRow.js";
 import { SidebarSection } from "./SidebarSection.js";
 
@@ -59,7 +60,7 @@ function NewChannel({
 
   return (
     <form onSubmit={(event) => void submit(event)} className="px-1 py-0.5">
-      <input
+      <Input
         ref={field}
         value={title}
         disabled={busy}
@@ -71,7 +72,7 @@ function NewChannel({
         // Пустое поле, потерявшее фокус, закрывается само: держать
         // на экране то, что человек уже мысленно закрыл, — мусор.
         onBlur={() => !title.trim() && onDone()}
-        className="h-7 w-full rounded-lg border border-accent bg-card px-2 text-body text-ink outline-none placeholder:text-muted"
+        className="h-7 border-accent bg-card px-2"
       />
     </form>
   );

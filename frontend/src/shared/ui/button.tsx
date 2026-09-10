@@ -4,18 +4,16 @@ import type * as React from "react";
 import { cn } from "@/shared/utils";
 
 const buttonVariants = cva(
-  "inline-flex w-auto shrink-0 items-center justify-center gap-2 rounded-lg border border-transparent bg-transparent text-body font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex w-auto shrink-0 items-center justify-center gap-2 rounded-lg border border-transparent bg-transparent text-body font-medium whitespace-nowrap transition-all outline-none focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-danger aria-invalid:ring-danger/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive:
-          "bg-destructive text-on-danger hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
-        outline:
-          "border bg-background shadow-raised hover:bg-selected hover:text-ink dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        default: "bg-accent text-on-accent hover:bg-accent/90",
+        destructive: "bg-danger text-on-danger hover:bg-danger/90 focus-visible:ring-danger/20",
+        outline: "border-edge bg-bg shadow-raised hover:bg-selected hover:text-ink",
+        secondary: "bg-raised text-ink hover:bg-raised/80",
         ghost: "bg-transparent hover:bg-selected hover:text-ink",
-        link: "bg-transparent text-primary underline-offset-4 hover:underline",
+        link: "bg-transparent text-accent underline-offset-4 hover:underline",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",

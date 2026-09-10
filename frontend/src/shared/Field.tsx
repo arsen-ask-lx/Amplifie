@@ -1,3 +1,6 @@
+import { useId } from "react";
+import { Input } from "./ui/input.js";
+
 interface FieldProps {
   label: string;
   /**
@@ -28,21 +31,21 @@ interface FieldProps {
  * заставляет искать, к чему относится строка.
  */
 export function Field({ label, name, value, onChange, error, type, autoComplete }: FieldProps) {
+  const generatedId = useId();
+  const id = name ?? generatedId;
+
   return (
-    <label className="mb-4 block">
+    <label className="mb-4 block" htmlFor={id}>
       <span className="mb-1 block text-aside text-muted">{label}</span>
-      <input
+      <Input
         type={type ?? "text"}
+        id={id}
         name={name ?? autoComplete}
         autoComplete={autoComplete ?? "off"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required
         aria-invalid={error ? "true" : undefined}
-        className={[
-          "h-9 w-full rounded-lg border bg-card px-3 text-body text-ink outline-none",
-          error ? "border-danger" : "border-edge focus-visible:border-accent",
-        ].join(" ")}
       />
       {error ? <span className="mt-1 block text-aside text-danger">{error}</span> : null}
     </label>

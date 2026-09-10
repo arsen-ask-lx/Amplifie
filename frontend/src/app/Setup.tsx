@@ -142,7 +142,9 @@ export function Setup({ onDone }: { onDone: () => void }) {
         в три строки, а появление кода подключения дёргает всю страницу.
         Окно шире и не двигает то, что под ним. */}
       <Dialog open={choice !== null} onOpenChange={(open) => !open && setChoice(null)}>
-        <DialogContent className="max-h-[80dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent
+          className={`max-h-[80dvh] overflow-y-auto ${choice === "подписка" ? "sm:max-w-2xl" : "sm:max-w-lg"}`}
+        >
           {окно ? (
             <DialogHeader>
               <DialogTitle>{окно.title}</DialogTitle>

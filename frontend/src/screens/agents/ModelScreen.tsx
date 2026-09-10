@@ -5,6 +5,7 @@ import { copyQuietly, NOT_COPIED, ГАЛОЧКА_МС } from "../../shared/clipb
 import { detailOf } from "../../shared/failure.js";
 import { troubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
+import { Input } from "../../shared/ui/input.js";
 import { часы } from "../../shared/when.js";
 
 /**
@@ -75,8 +76,8 @@ function Command({
         Выполните это у себя один раз. Код одноразовый и живёт 15 минут.
       </p>
       <div className="relative">
-        <input
-          className="h-9 w-full rounded-lg border border-edge bg-card px-3 pr-11 text-aside text-ink outline-none"
+        <Input
+          className="pr-11 text-aside"
           readOnly
           value={command}
           onFocus={(event) => event.target.select()}

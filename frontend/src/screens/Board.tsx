@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, type Participant, type Task } from "../data/api.js";
 
 import { Button } from "../shared/ui/button.js";
+import { Input } from "../shared/ui/input.js";
 import {
   Select,
   SelectContent,
@@ -69,12 +70,12 @@ function NewTask({
 
   return (
     <form className="mb-5 flex flex-wrap items-center gap-2" onSubmit={(e) => void add(e)}>
-      <input
+      <Input
         value={title}
         placeholder="Новая задача"
         aria-label="Название новой задачи"
         onChange={(event) => setTitle(event.target.value)}
-        className="h-9 min-w-60 flex-1 rounded-lg border border-edge bg-card px-3 text-body text-ink outline-none placeholder:text-muted focus-visible:border-accent"
+        className="min-w-60 flex-1"
       />
       <Select value={responsibleId} onValueChange={setResponsibleId}>
         <SelectTrigger className="w-auto">

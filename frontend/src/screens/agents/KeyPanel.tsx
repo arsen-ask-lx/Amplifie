@@ -4,6 +4,7 @@ import { detailOf, fieldsOf } from "../../shared/failure.js";
 import { Icon } from "../../shared/Icon.js";
 import { keyTroubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
+import { Input } from "../../shared/ui/input.js";
 import {
   Select,
   SelectContent,
@@ -118,6 +119,7 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const keyId = useId();
 
   const reload = useCallback(async () => {
     try {
@@ -166,30 +168,35 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
         </ul>
       ) : null}
 
-      <form className="mt-4 flex flex-col gap-3" onSubmit={(event) => void save(event)}>
-        <Choice label="Поставщик" value={provider} options={PROVIDERS} onPick={setProvider} />
+      <form
+        className={items.length > 0 ? "mt-4" : undefined}
+        onSubmit={(event) => void save(event)}
+      >
+        <div className="grid gap-4">
+          <Choice label="Поставщик" value={provider} options={PROVIDERS} onPick={setProvider} />
 
-        <label className="flex flex-col gap-1 text-aside text-muted">
-          Ключ
-          {/* Тот же вид, что у полей входа: высота, скругление и граница
-            берутся оттуда же. Голое поле рядом с ними читалось чужим. */}
-          <input
-            className="h-9 w-full rounded-lg border border-edge bg-card px-3 text-body text-ink outline-none focus-visible:border-accent"
-            type="password"
-            value={key}
-            placeholder={shape ? `${shape.prefix}…` : ""}
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(event) => setKey(event.target.value)}
-          />
-        </label>
+          <label className="flex flex-col gap-1 text-aside text-muted" htmlFor={keyId}>
+            Ключ
+            <Input
+              id={keyId}
+              type="password"
+              value={key}
+              placeholder={shape ? `${shape.prefix}…` : ""}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => setKey(event.target.value)}
+            />
+          </label>
 
-        <Choice label="Кому" value={scope} options={SCOPES} onPick={setScope} />
+          <Choice label="Кому" value={scope} options={SCOPES} onPick={setScope} />
+        </div>
 
-        <Button className="self-end" type="submit" disabled={busy || key.trim().length === 0}>
-          <Icon name="плюс" />
-          {busy ? "Сохраняем…" : "Сохранить ключ"}
-        </Button>
+        <div className="mt-6 flex justify-end">
+          <Button type="submit" disabled={busy || key.trim().length === 0}>
+            <Icon name="плюс" />
+            {busy ? "Сохраняем…" : "Сохранить ключ"}
+          </Button>
+        </div>
       </form>
 
       {failure ? <p className="mt-2 text-aside text-danger">{failure}</p> : null}

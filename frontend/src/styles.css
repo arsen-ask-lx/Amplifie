@@ -238,6 +238,8 @@
     0 0 0 1px rgb(23 23 23 / 5%), 0 1px 3px rgb(0 0 0 / 10%), 0 1px 2px -1px rgb(0 0 0 / 10%);
   --lift-float:
     0 0 0 1px rgb(23 23 23 / 5%), 0 8px 24px rgb(0 0 0 / 12%), 0 2px 6px rgb(0 0 0 / 8%);
+  --lift-menu:
+    0 0 0 1px rgb(23 23 23 / 6%), 0 12px 32px rgb(0 0 0 / 14%), 0 4px 12px rgb(0 0 0 / 8%);
 
   /* ── СКРУГЛЕНИЯ ───────────────────────────────────────────────────────
      Радиус здесь несёт смысл, а не вкус: по нему видно, что перед тобой.
@@ -374,7 +376,7 @@
   --text-head: var(--fs-head);
   --text-brand: var(--fs-brand);
 
-  /* Слои: `shadow-raised`, `shadow-float`. */
+  /* Слои: `shadow-raised`, `shadow-float`, `shadow-menu`. */
   --shadow-raised: var(--lift-raised);
   --shadow-float: var(--lift-float);
   --shadow-menu: var(--lift-menu);

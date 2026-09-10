@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../shared/ui/dialog.js";
+import { Input } from "../shared/ui/input.js";
 
 /**
  * Окно «Пригласить в пространство».
@@ -92,12 +93,12 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
 
         {link ? (
           <div className="flex items-center gap-2">
-            <input
+            <Input
               readOnly
               value={link}
               aria-label="Ссылка-приглашение"
               onFocus={(event) => event.currentTarget.select()}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-edge bg-bg px-3 text-body text-ink outline-none"
+              className="flex-1"
             />
             <Button
               type="button"
