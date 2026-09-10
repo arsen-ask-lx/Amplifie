@@ -85,7 +85,7 @@ export async function register(page: Page, role = "Проверяющий"): Pro
 
   // Ждём не «нет ошибки», а появления рабочего экрана: отсутствие ошибки
   // наступает и тогда, когда не произошло ничего.
-  await expect(page.getByRole("button", { name: "Новый канал" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Новый проект" })).toBeVisible();
   return person;
 }
 
@@ -96,7 +96,7 @@ export async function login(page: Page, person: Person): Promise<void> {
   await page.getByLabel("Почта").fill(person.email);
   await page.getByLabel("Пароль").fill(person.password);
   await page.getByRole("button", { name: "Войти" }).click();
-  await expect(page.getByRole("button", { name: "Новый канал" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Новый проект" })).toBeVisible();
 }
 
 /**
@@ -124,12 +124,21 @@ export async function invited(гость: Page, хозяин: Page, name: string
   await гость.getByLabel("Пароль").fill("очень-длинный-пароль-для-теста");
   await гость.getByLabel("Как вас зовут").fill(name);
   await гость.getByRole("button", { name: "Войти" }).click();
-  await expect(гость.getByRole("button", { name: "Новый канал" })).toBeVisible();
+  await expect(гость.getByRole("button", { name: "Новый проект" })).toBeVisible();
 }
 
-/** Завести канал и открыть его. */
-export async function createChannel(page: Page, title: string): Promise<void> {
-  await page.getByRole("button", { name: "Новый канал" }).click();
+/** Проект, который заводится при регистрации (task-037). */
+export const ДОМ = "Общее";
+
+/**
+ * Завести чат и открыть его.
+ *
+ * ⚠️ ВНУТРИ ПРОЕКТА, ПОТОМУ ЧТО СНАРУЖИ БОЛЬШЕ НЕГДЕ (task-037). Раздел
+ * «Каналы» убран: чат рождается в папке. Домашняя папка появляется при
+ * регистрации — в неё и заводим, если не сказано иное.
+ */
+export async function createChannel(page: Page, title: string, project = ДОМ): Promise<void> {
+  await page.getByRole("button", { name: `Новый чат в проекте «${project}»` }).click();
   await page.getByLabel("Название нового канала").fill(title);
   await page.getByLabel("Название нового канала").press("Enter");
   await openChannel(page, title);

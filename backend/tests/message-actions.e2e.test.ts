@@ -15,6 +15,7 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { домой } from "./дом.js";
 
 const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 const PASSWORD = "правильный-конский-скотч-батарейка";
@@ -217,7 +218,8 @@ describe("действия над репликой", () => {
     const created = await fetch(`${BASE}/v1/conversations`, {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ title: "Куда пересылаем" }),
+      // Чат заводится внутри проекта — вне его жить негде (task-037).
+      body: JSON.stringify({ title: "Куда пересылаем", projectId: await домой(cookie) }),
     });
     const target = (await created.json()) as { id: string };
 

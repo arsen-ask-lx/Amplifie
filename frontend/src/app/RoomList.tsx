@@ -8,7 +8,15 @@ import { ProjectRow } from "./ProjectRow.js";
 import { SidebarSection } from "./SidebarSection.js";
 
 /**
- * Список разговоров — одной секцией «Каналы».
+ * Панель разговоров: проекты, а внутри них чаты.
+ *
+ * ⚠️ РАЗДЕЛА «КАНАЛЫ» НЕТ (task-037), И ЭТО НЕ ПЕРЕСТАНОВКА МЕСТАМИ.
+ * У чата было два дома: «Проекты» и «Каналы». Разница между ними была
+ * ровно одна — заполнено поле принадлежности или нет, — и человеку
+ * приходилось решать вопрос, у которого нет смысла: «это канал или чат
+ * проекта?». Владелец 10.09: «мне не нужны отдельные каналы». Дом стал
+ * один, и теперь разделов здесь ровно столько, сколько СОРТОВ разговора:
+ * проекты сейчас, Избранное и личные — когда появятся.
  *
  * Список приходит уже отсортированным по свежести: это делает сервер,
  * и переупорядочивать его здесь нельзя — два порядка разойдутся.
@@ -74,8 +82,10 @@ function useСвёрнутые() {
 export function RoomList({ panel }: { panel: Panel }) {
   const { items, projects, currentId, unreadOf, mentionsOf } = panel;
   /**
-   * Где заводим канал: `null` — не заводим, `""` — вне проектов,
-   * иначе номер проекта. Одно состояние вместо флажка и номера рядом.
+   * В каком проекте заводим чат. `null` — не заводим.
+   *
+   * ⚠️ ПУСТАЯ СТРОКА ЗДЕСЬ БОЛЬШЕ НЕ ЗНАЧИТ НИЧЕГО. Прежде она значила
+   * «вне проектов» — этого случая не стало вместе с разделом «Каналы».
    */
   const [adding, setAdding] = useState<string | null>(null);
   const { свёрнуты, свернуть } = useСвёрнутые();
@@ -101,18 +111,16 @@ export function RoomList({ panel }: { panel: Panel }) {
    */
   const [removing, setRemoving] = useState<Conversation | null>(null);
 
-  // Что панель показывает, решено при её сборке (`usePanel`): сюда
-  // приезжают уже только корневые разговоры.
-  const внеПроектов = items.filter((one) => one.projectId === null);
-
-  /**
-   * Строка канала одна и та же внутри проекта и снаружи.
-   *
-   * ⚠️ ФУНКЦИЕЙ, А НЕ ДВУМЯ КУСКАМИ РАЗМЕТКИ. Два куска разъедутся
-   * на первой же правке — у одного появится значок, у другого нет.
-   */
   const закрыть = () => setСпрашиваем(null);
 
+  /**
+   * Строка чата — одной функцией, а не куском разметки внутри папки.
+   *
+   * ⚠️ ОНА ПЕРЕЖИЛА ИСЧЕЗНОВЕНИЕ ВТОРОГО ДОМА. Заводилась она ради того,
+   * чтобы чат внутри проекта и снаружи выглядел одинаково; «снаружи»
+   * не стало, а функция осталась нужной: рисует её `ProjectRow`, знать
+   * же про меню, значки и выбор ему незачем.
+   */
   const строка = (channel: Conversation) => (
     <ChannelRow
       key={channel.id}
@@ -129,15 +137,14 @@ export function RoomList({ panel }: { panel: Panel }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* ⚠️ ДВА РАЗДЕЛА, А НЕ ОДИН С ПАПКАМИ ВНУТРИ (task-035). Секция
-          называлась «Каналы» и первым делом показывала проекты — вывеска
-          врала. Проект — это про предмет, и предметное идёт первым. */}
       <SidebarSection
         title="Проекты"
         addLabel="Новый проект"
         onAdd={() => setСпрашиваем({ вид: "новый" })}
       >
-        <div className="flex flex-col gap-0.5">
+        {/* Прокрутка живёт на списке проектов: он единственный, кто здесь
+            растёт, и теперь в нём же лежат все чаты. */}
+        <div className="hide-scroll flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
           {projects.map((project) => (
             <ProjectRow
               key={project.id}
@@ -151,6 +158,16 @@ export function RoomList({ panel }: { panel: Panel }) {
               unreadOf={unreadOf}
               mentionsOf={mentionsOf}
               renderChannel={строка}
+              // Поле нового чата встаёт на место кнопки «Новый чат» —
+              // внутри той папки, куда чат и заводится.
+              newChat={
+                adding === project.id ? (
+                  <NewChannel
+                    onCreate={(title) => panel.addChannel(title, project.id)}
+                    onDone={() => setAdding(null)}
+                  />
+                ) : null
+              }
             />
           ))}
 
@@ -158,25 +175,6 @@ export function RoomList({ panel }: { panel: Panel }) {
             <p className="px-2.5 py-1.5 text-aside text-muted">
               Проектов нет. Заведите первый — плюс в заголовке.
             </p>
-          ) : null}
-        </div>
-      </SidebarSection>
-
-      <SidebarSection title="Каналы" addLabel="Новый канал" onAdd={() => setAdding("")}>
-        <div className="hide-scroll flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
-          {adding !== null ? (
-            <NewChannel
-              // Пустая строка — «вне проектов»: канал заводится там же,
-              // где и раньше. Иначе — сразу внутрь названной папки.
-              onCreate={(title) => panel.addChannel(title, adding || undefined)}
-              onDone={() => setAdding(null)}
-            />
-          ) : null}
-
-          {внеПроектов.map((channel) => строка(channel))}
-
-          {внеПроектов.length === 0 && adding === null ? (
-            <p className="px-2.5 py-2 text-aside text-muted">Каналов вне проектов нет.</p>
           ) : null}
         </div>
       </SidebarSection>
@@ -198,6 +196,13 @@ export function RoomList({ panel }: { panel: Panel }) {
 
       <ConfirmProjectRemoval
         title={спрашиваем?.вид === "убрать" ? спрашиваем.project.title : null}
+        // Число чатов берётся из того же списка, который человек видит
+        // на экране: второго способа сосчитать здесь нет.
+        чатов={
+          спрашиваем?.вид === "убрать"
+            ? items.filter((one) => one.projectId === спрашиваем.project.id).length
+            : 0
+        }
         onCancel={закрыть}
         onConfirm={async () => {
           if (спрашиваем?.вид !== "убрать") return;

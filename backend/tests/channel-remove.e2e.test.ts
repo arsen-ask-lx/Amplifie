@@ -9,6 +9,7 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { домой } from "./дом.js";
 
 const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 const PASSWORD = "правильный-конский-скотч-батарейка";
@@ -40,18 +41,26 @@ async function newOwner(tag: string): Promise<string> {
 }
 
 async function addChannel(cookie: string, title: string): Promise<string> {
+  // Чат заводится внутри проекта — другого дома у него нет (task-037).
   const response = await fetch(`${BASE}/v1/conversations`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, projectId: await домой(cookie) }),
   });
   if (response.status !== 201) throw new Error(`создание канала: ${response.status}`);
   return ((await response.json()) as { id: string }).id;
 }
 
-async function rooms(cookie: string): Promise<Array<{ id: string; title: string }>> {
+interface Room {
+  id: string;
+  title: string;
+  /** В каком проекте живёт. У канала — всегда (task-037). */
+  projectId: string | null;
+}
+
+async function rooms(cookie: string): Promise<Room[]> {
   const response = await fetch(`${BASE}/v1/conversations`, { headers: { cookie } });
-  return ((await response.json()) as { items: Array<{ id: string; title: string }> }).items;
+  return ((await response.json()) as { items: Room[] }).items;
 }
 
 const remove = (cookie: string, id: string) =>

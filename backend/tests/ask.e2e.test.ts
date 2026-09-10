@@ -33,6 +33,8 @@ interface Conversation {
   id: string;
   title: string;
   parentId: string | null;
+  /** В каком проекте живёт. У канала — всегда (task-037). */
+  projectId: string | null;
 }
 
 interface Message {
@@ -245,7 +247,13 @@ describe("агент отвечает в чате", () => {
       const first = await channelOf(person);
       const bridge = await connectBridge(person, "машина-4");
 
-      const made = await post("/v1/conversations", { title: "второй канал" }, person);
+      // Чат заводится в том же проекте, что и первый: вне проекта
+      // жить негде (task-037).
+      const made = await post(
+        "/v1/conversations",
+        { title: "второй канал", projectId: (await channelOf(person)).projectId },
+        person,
+      );
       expect(made.status).toBe(201);
       const second = (await made.json()) as Conversation;
 

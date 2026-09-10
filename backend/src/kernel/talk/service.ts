@@ -159,7 +159,7 @@ export async function listConversations(viewer: Viewer) {
       kind: r.kind,
       title: r.title,
       parentId: r.parentId,
-      // К какому проекту относится разговор. `null` — вне проектов (Р-032).
+      // К какому проекту относится. У канала — всегда (task-037).
       projectId: r.projectId,
       // Время последней активности отдаём наружу: по нему клиент показывает
       // «когда тут в последний раз говорили», не запрашивая ленту.
@@ -463,17 +463,38 @@ export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
 }
 
 /**
- * Первый канал пространства. Заводится при регистрации, а не миграцией:
- * миграция не знает идентификатор пространства.
+ * Первый проект пространства и первый чат внутри него. Заводится при
+ * регистрации, а не миграцией: миграция не знает идентификатор
+ * пространства.
+ *
+ * ⚠️ ПРОЕКТ ЗАВОДИТСЯ ТУТ ЖЕ, А НЕ «ПОТОМ, КОГДА ПОНАДОБИТСЯ»
+ * (task-037). Чат живёт только в проекте, значит без проекта пространство
+ * рождается пустым и непригодным: завести чат негде, а завести проект
+ * человек ещё не догадался. Пустой экран при первом входе — это отказ
+ * продукта, а не мелочь.
  */
 export async function createDefaultChannel(
   tx: Executor,
-  input: { workspaceId: string; participantId: string; title: string },
+  input: { workspaceId: string; participantId: string; title: string; projectTitle: string },
 ) {
+  const дом = await repo.insertProject(tx, {
+    workspaceId: input.workspaceId,
+    title: input.projectTitle,
+  });
+  await appendEvent(tx, {
+    kind: "project.created",
+    workspaceId: input.workspaceId,
+    actorParticipantId: input.participantId,
+    subjectType: "project",
+    subjectId: дом.id,
+    payload: { title: дом.title },
+  });
+
   const channel = await repo.insertConversation(tx, {
     workspaceId: input.workspaceId,
     kind: "channel",
     title: input.title,
+    projectId: дом.id,
   });
   await repo.insertMember(tx, {
     conversationId: channel.id,
@@ -515,6 +536,9 @@ async function openConversation(
     // ⚠️ ПРОЕКТ ПРОВЕРЯЕТСЯ ДО ВСТАВКИ И ТОЙ ЖЕ ПРОВЕРКОЙ, ЧТО И ПЕРЕНОС.
     // Иначе по номеру проекта из соседней компании можно было бы завести
     // канал прямо к ним в панель.
+    //
+    // Обсуждение задачи приходит сюда без проекта, и это законно: оно
+    // живёт на доске, а не в панели (task-037).
     if (input.projectId) await требуетсяПроект(tx, viewer.workspaceId, input.projectId);
 
     const made = await repo.insertConversation(tx, {
@@ -554,7 +578,7 @@ async function openConversation(
  */
 export async function createChannel(
   viewer: Viewer,
-  input: { title: string; visibility?: Visibility | undefined; projectId?: string | undefined },
+  input: { title: string; visibility?: Visibility | undefined; projectId: string },
 ) {
   const created = await openConversation(viewer, {
     kind: "channel",

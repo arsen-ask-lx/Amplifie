@@ -30,6 +30,9 @@ const AGENT = "memo";
  */
 const ТАЙНА = "криптоквазиморфный";
 
+/** Название проекта, который заводится при регистрации (task-037). */
+const ДОМ = "Общее";
+
 function freshEmail(): string {
   return `project-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
 }
@@ -125,14 +128,37 @@ async function newProject(person: Person, title: string): Promise<Project> {
   return (await response.json()) as Project;
 }
 
+/**
+ * Проект, который человек получил при регистрации (task-037).
+ *
+ * ⚠️ ЧАТУ БОЛЬШЕ НЕГДЕ ЖИТЬ, КРОМЕ ПРОЕКТА, поэтому у каждого теста
+ * должен быть дом. Регистрация его и заводит — брать его здесь честнее,
+ * чем заводить в каждом тесте свой: так проверка идёт по тому же пути,
+ * что и живой человек.
+ */
+async function дом(person: Person): Promise<string> {
+  const свой = (await projects(person)).find((one) => one.title === ДОМ);
+  if (!свой) throw new Error(`после регистрации нет проекта «${ДОМ}»`);
+  return свой.id;
+}
+
+/**
+ * Завести чат. `projectId` не указан — в домашнем проекте регистрации.
+ *
+ * ⚠️ ПРОЕКТ ОБЯЗАТЕЛЕН НА УРОВНЕ ЗАПРОСА, а не подставляется сервером:
+ * иначе «завести чат неизвестно куда» осталось бы возможным, и первая же
+ * забытая передача завела бы невидимку.
+ */
 async function newChannel(
   person: Person,
   title: string,
   visibility?: "workspace" | "private",
+  projectId?: string,
 ): Promise<Conversation> {
+  const где = projectId ?? (await дом(person));
   const response = await post(
     "/v1/conversations",
-    visibility ? { title, visibility } : { title },
+    visibility ? { title, visibility, projectId: где } : { title, projectId: где },
     person,
   );
   expect(response.status).toBe(201);
@@ -269,17 +295,23 @@ describe("проекты", () => {
       expect(prompt, "соседний чат проекта не прочитан").toContain("четверг");
     });
 
-    it("чат вне проекта читается один, как и раньше", async () => {
+    /**
+     * ⚠️ «ВНЕ ПРОЕКТА» БОЛЬШЕ НЕ БЫВАЕТ (task-037), и проверять надо
+     * соседнее свойство: область не перепрыгивает границу папки.
+     * Чат один в своём проекте — значит читается один, как до Р-032.
+     */
+    it("чат, один в своём проекте, читается один", async () => {
       const хозяин = await newPerson("Хозяин");
       const bridge = await connectBridge(хозяин);
 
-      const сам = await newChannel(хозяин, "Сам по себе");
+      const свой = await newProject(хозяин, "Отдельно");
+      const сам = await newChannel(хозяин, "Сам по себе", undefined, свой.id);
       const соседний = await newChannel(хозяин, "Соседний");
       await say(хозяин, соседний.id, "посторонняя тема");
       await say(хозяин, сам.id, `@${AGENT} итог?`);
 
       const { prompt } = await askAndCatchPrompt(хозяин, сам.id, bridge, "project");
-      expect(prompt, "чат без проекта притянул соседей").not.toContain("посторонняя");
+      expect(prompt, "область вышла за границу своего проекта").not.toContain("посторонняя");
     });
   });
 
@@ -345,16 +377,25 @@ describe("проекты", () => {
       expect(где?.projectId, "чат остался в прежнем проекте").toBe(второй.id);
     });
 
-    it("снятая принадлежность возвращает чат наружу", async () => {
+    /**
+     * ⚠️ ПРЕЖДЕ ЭТОТ ТЕСТ ТРЕБОВАЛ ОБРАТНОГО — «снятая принадлежность
+     * возвращает чат наружу». Наружу больше нет: раздел «Каналы» убран
+     * (task-037), и чат без проекта нельзя ни увидеть, ни открыть.
+     * Разрешить снятие значило бы завести способ потерять переписку
+     * одним запросом.
+     */
+    it("принадлежность нельзя снять — вне проекта чату негде жить", async () => {
       const хозяин = await newPerson("Хозяин");
       const проект = await newProject(хозяин, "Объект");
       const чат = await newChannel(хозяин, "Смета");
 
       await toProject(хозяин, чат.id, проект.id);
-      expect((await toProject(хозяин, чат.id, null)).status).toBe(200);
+      // 422 — тот же отказ, что и на канал без названия: наш разбор
+      // тела отвечает им на всякую негодную форму запроса.
+      expect((await toProject(хозяин, чат.id, null)).status, "чат выпустили из проектов").toBe(422);
 
       const где = (await conversations(хозяин)).find((one) => one.id === чат.id);
-      expect(где?.projectId, "чат не вышел из проекта").toBeNull();
+      expect(где?.projectId, "чат всё же вышел из проекта").toBe(проект.id);
     });
 
     it("чат заводится СРАЗУ в проекте, одним запросом", async () => {
@@ -379,11 +420,28 @@ describe("проекты", () => {
       expect(ответ.status, "канал завели в проект другого пространства").toBe(404);
     });
 
-    it("новый чат заводится вне проектов", async () => {
+    it("чат без проекта не заводится вовсе", async () => {
       const хозяин = await newPerson("Хозяин");
-      const чат = await newChannel(хозяин, "Просто чат");
-      const где = (await conversations(хозяин)).find((one) => one.id === чат.id);
-      expect(где?.projectId).toBeNull();
+      const ответ = await post("/v1/conversations", { title: "Ничей" }, хозяин);
+      expect(ответ.status, "завёлся чат, которого негде показать").toBe(422);
+    });
+
+    it("регистрация даёт проект и живой чат внутри него", async () => {
+      const новичок = await newPerson("Новичок");
+
+      const свои = await projects(новичок);
+      expect(
+        свои.map((one) => one.title),
+        "пустое пространство без проекта — экран, на котором нечего делать",
+      ).toContain(ДОМ);
+
+      const чаты = await conversations(новичок);
+      expect(чаты.length, "после регистрации не видно ни одного чата").toBeGreaterThan(0);
+      for (const чат of чаты) {
+        expect(чат.projectId, `чат «${чат.title}» лежит вне проекта — его негде показать`).not.toBe(
+          null,
+        );
+      }
     });
   });
 
@@ -399,13 +457,21 @@ describe("проекты", () => {
       expect(виден?.title).toBe("Второй объект");
     });
 
-    it("убрать проект — чаты живы и вне проектов", async () => {
+    /**
+     * ⚠️ ПРЕЖДЕ ЭТОТ ТЕСТ ТРЕБОВАЛ ОБРАТНОГО — «чаты живы и вне
+     * проектов». Пока домов было два, это была верная трактовка слова
+     * «убрать»: папка исчезала, переписка оставалась. Дом остался один
+     * (task-037), и та же трактовка теперь означает «чаты пропали
+     * из панели навсегда» — то есть худшее из двух.
+     *
+     * Владелец 10.09 выбрал явное: убираем вместе с чатами, число
+     * чатов называется в вопросе, удаление мягкое.
+     */
+    it("убрать проект — чаты уходят вместе с ним", async () => {
       const хозяин = await newPerson("Хозяин");
       const проект = await newProject(хозяин, "Объект");
-      const первый = await newChannel(хозяин, "Смета");
-      const второй = await newChannel(хозяин, "Кровля");
-      await toProject(хозяин, первый.id, проект.id);
-      await toProject(хозяин, второй.id, проект.id);
+      const первый = await newChannel(хозяин, "Смета", undefined, проект.id);
+      const второй = await newChannel(хозяин, "Кровля", undefined, проект.id);
       await say(хозяин, первый.id, "важные слова");
 
       expect((await removeProject(хозяин, проект.id)).status).toBe(204);
@@ -417,15 +483,27 @@ describe("проекты", () => {
 
       const список = await conversations(хозяин);
       for (const id of [первый.id, второй.id]) {
-        const чат = список.find((one) => one.id === id);
-        expect(чат, "чат исчез вместе с папкой — худшая трактовка слова «убрать»").toBeDefined();
-        expect(чат?.projectId, "чат остался привязан к убранному проекту").toBeNull();
+        expect(
+          список.find((one) => one.id === id),
+          "чат пережил свою папку и стал невидимкой: показать его негде",
+        ).toBeUndefined();
       }
+    });
 
-      const лента = await get(`/v1/conversations/${первый.id}/messages`, хозяин);
-      expect(лента.status, "переписка убранного проекта не читается").toBe(200);
-      const тело = (await лента.json()) as { items: { body: string }[] };
-      expect(тело.items.map((one) => one.body)).toContain("важные слова");
+    it("убранный проект не уносит чужие чаты", async () => {
+      const хозяин = await newPerson("Хозяин");
+      const убираемый = await newProject(хозяин, "Объект");
+      const свой = await newChannel(хозяин, "Смета", undefined, убираемый.id);
+      const чужой = await newChannel(хозяин, "Соседний");
+
+      expect((await removeProject(хозяин, убираемый.id)).status).toBe(204);
+
+      const список = await conversations(хозяин);
+      expect(список.find((one) => one.id === свой.id)).toBeUndefined();
+      expect(
+        список.find((one) => one.id === чужой.id),
+        "удаление папки унесло чат из ДРУГОГО проекта",
+      ).toBeDefined();
     });
 
     it("чужой проект не убрать и не переименовать", async () => {

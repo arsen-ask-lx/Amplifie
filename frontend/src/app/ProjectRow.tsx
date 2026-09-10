@@ -16,10 +16,10 @@ import {
  * состоит панель», `ChannelRow` — на «как устроена строка канала», а здесь
  * третий: «как выглядит папка и что она показывает, когда свёрнута».
  *
- * ⚠️ ЧАТЫ РИСУЮТСЯ ЧУЖОЙ ФУНКЦИЕЙ, А НЕ СВОЕЙ КОПИЕЙ СТРОКИ. Строка канала
- * внутри проекта и снаружи — одна и та же строка: те же значки, то же меню,
- * та же плотность. Заведи мы здесь вторую — они разъедутся на первой же
- * правке, и заметит это только человек.
+ * ⚠️ ЧАТЫ РИСУЮТСЯ ЧУЖОЙ ФУНКЦИЕЙ, А НЕ СВОЕЙ КОПИЕЙ СТРОКИ. Знание
+ * о том, как устроена строка чата — значки, меню, выбор, — живёт
+ * в одном месте (`ChannelRow`). Заведи мы здесь вторую строку, они
+ * разъехались бы на первой же правке, и заметил бы это только человек.
  */
 
 /**
@@ -104,6 +104,7 @@ export function ProjectRow({
   unreadOf,
   mentionsOf,
   renderChannel,
+  newChat,
 }: {
   project: Project;
   /** Чаты этого проекта — только те, что человеку видны. Отбирает сервер. */
@@ -112,6 +113,14 @@ export function ProjectRow({
   onToggle: () => void;
   /** Завести чат ВНУТРИ этого проекта (task-035). */
   onAddChat: () => void;
+  /**
+   * Поле нового чата, когда его заводят здесь. `null` — не заводят.
+   *
+   * ⚠️ ГОТОВЫМ УЗЛОМ, А НЕ ФЛАЖКОМ «СЕЙЧАС ЗАВОДИМ». Папка не знает
+   * ни как выглядит поле, ни куда уходит название, — а с флажком ей
+   * пришлось бы принимать и то и другое.
+   */
+  newChat?: React.ReactNode;
   onRename: () => void;
   onRemove: () => void;
   unreadOf: (conversationId: string) => number;
@@ -149,20 +158,25 @@ export function ProjectRow({
         <div className="flex flex-col gap-0.5 pl-3">
           {channels.map((channel) => renderChannel(channel))}
 
+          {newChat}
+
           {/* ⚠️ ЗАВОДКА ЧАТА ЖИВЁТ ВНУТРИ ПАПКИ, А НЕ СНАРУЖИ (task-035).
               Проект — это место, где чат РОЖДАЕТСЯ: человек сперва
               называет дело, потом говорит о нём. Кнопка стоит там, куда
               он уже смотрит, и заводит канал сразу с принадлежностью —
               одним запросом, а не «завести и переложить». */}
-          <button
-            type="button"
-            onClick={onAddChat}
-            aria-label={`Новый чат в проекте «${project.title}»`}
-            className="flex items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-aside text-muted transition-colors hover:bg-raised hover:text-ink"
-          >
-            <Plus className="size-3.5 shrink-0" weight="bold" />
-            Новый чат
-          </button>
+          {/* Пока поле открыто, кнопки нет: она превратилась в него. */}
+          {newChat ? null : (
+            <button
+              type="button"
+              onClick={onAddChat}
+              aria-label={`Новый чат в проекте «${project.title}»`}
+              className="flex items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-aside text-muted transition-colors hover:bg-raised hover:text-ink"
+            >
+              <Plus className="size-3.5 shrink-0" weight="bold" />
+              Новый чат
+            </button>
+          )}
         </div>
       )}
     </div>

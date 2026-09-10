@@ -16,6 +16,7 @@
  * Бьёт по живому стеку через настоящий порт. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { домой } from "./дом.js";
 
 const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 const PASSWORD = "правильный-конский-скотч-батарейка";
@@ -181,7 +182,8 @@ describe("упоминания", () => {
 
       const created = await post(
         "/v1/conversations",
-        { title: "Только для своих", visibility: "private" },
+        // Чат заводится внутри проекта — вне его жить негде (task-037).
+        { title: "Только для своих", visibility: "private", projectId: await домой(owner.cookie) },
         owner,
       );
       expect(created.status).toBe(201);
