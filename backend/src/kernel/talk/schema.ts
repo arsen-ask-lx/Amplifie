@@ -14,6 +14,33 @@ import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
 
 /**
+ * Проект — папка чатов и область чтения агента (Р-032).
+ *
+ * ⚠️ НЕ ВИД РАЗГОВОРА, ХОТЯ СОБЛАЗН БЫЛ. У разговора всегда есть лента;
+ * у проекта её нет и быть не должно. Слив их, мы завели бы место,
+ * куда нельзя писать, и объясняли бы это человеку словами.
+ *
+ * ⚠️ НИ СОСТАВА УЧАСТНИКОВ, НИ ВИДИМОСТИ. Проект отвечает на вопрос
+ * «про что это», а не «кому можно»: права остаются у разговора (Р-010).
+ * У Rocket.Chat команда носит свой состав поверх состава каналов —
+ * и на вопрос «почему он это видит» там два ответа вместо одного.
+ */
+export const project = pgTable(
+  "project",
+  {
+    id: uuid("id").primaryKey().default(sql`uuidv7()`),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Удаление мягкое — по той же причине, что у канала и реплики. */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("project_workspace_idx").on(t.workspaceId)],
+);
+
+/**
  * Разговор — ОДНА сущность на все виды: канал, ветка, встреча, обсуждение
  * документа, личка (Р-4).
  *
@@ -50,6 +77,19 @@ export const conversation = pgTable(
       onDelete: "cascade",
     }),
     title: text("title").notNull(),
+    /**
+     * К какому проекту относится. `null` — вне проектов, и это законно:
+     * «Общий», курилка и личка не про проект (Р-032).
+     *
+     * ⚠️ ОДНА ПРИНАДЛЕЖНОСТЬ, И НА НЕЙ СТОИТ ОБЛАСТЬ ЧТЕНИЯ АГЕНТА.
+     * Разреши мы вторую — вопрос «в каком проекте он на самом деле»
+     * останется без ответа, а вместе с ним и вопрос «что агенту читать».
+     * Порог, при котором это меняется, назван в миграции 0020.
+     *
+     * `ON DELETE SET NULL`: удаление проекта снимает ярлык, а не уносит
+     * переписку.
+     */
+    projectId: uuid("project_id").references(() => project.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /**
      * Когда удалён. ⚠️ МЯГКО, ПО ТОЙ ЖЕ ПРИЧИНЕ, ЧТО И У РЕПЛИКИ:
@@ -61,6 +101,8 @@ export const conversation = pgTable(
   (t) => [
     index("conversation_workspace_parent_idx").on(t.workspaceId, t.parentId),
     index("conversation_workspace_alive_idx").on(t.workspaceId).where(sql`${t.deletedAt} is null`),
+    // Чатов вне проектов много и будет много: частичный индекс.
+    index("conversation_project_idx").on(t.projectId).where(sql`${t.projectId} is not null`),
   ],
 );
 

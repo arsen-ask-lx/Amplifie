@@ -52,7 +52,7 @@ export async function nextSeq(tx: Executor, workspaceId: string): Promise<number
  * Членство при этом продолжает отвечать на свой отдельный вопрос —
  * «канал у меня в списке», см. listConversationsFor.
  */
-function visibleTo(participantId: string) {
+export function visibleTo(participantId: string) {
   const rootOf = sql`COALESCE(${conversation.parentId}, ${conversation.id})`;
 
   const openToMyWorkspace = sql`
@@ -101,6 +101,8 @@ export async function findVisibleConversation(
       parentId: conversation.parentId,
       title: conversation.title,
       visibility: conversation.visibility,
+      // Нужен области чтения агента: у чата вне проекта она — он сам.
+      projectId: conversation.projectId,
     })
     .from(conversation)
     .where(and(eq(conversation.id, conversationId), visibleTo(participantId)))
@@ -217,6 +219,7 @@ export async function listConversationsFor(tx: Executor, participantId: string) 
       title: conversation.title,
       parentId: conversation.parentId,
       lastAt,
+      projectId: conversation.projectId,
       unread: unreadOf(ЭТОТ_РАЗГОВОР, participantId),
       mentions: mentionsOf(ЭТОТ_РАЗГОВОР, participantId),
       /**

@@ -1,10 +1,14 @@
-import { DotsThree, Hash, Trash } from "@phosphor-icons/react";
+import { DotsThree, FolderSimple, Hash, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
-import type { Conversation } from "../data/api.js";
+import { api, type Conversation, type Project } from "../data/api.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../shared/ui/dropdown-menu.js";
 
@@ -100,21 +104,79 @@ function Значки({ unread, mentions }: { unread: number; mentions: number }
  * разметка: браузер её распрямляет, и нажатие на точки выбирало бы канал
  * заодно.
  */
+/**
+ * Подменю «В проект»: куда переложить этот чат (Р-032).
+ *
+ * ⚠️ ЗАВЕДЕНИЕ ПРОЕКТА ЖИВЁТ ЗДЕСЬ, А НЕ ПЛЮСОМ В ЗАГОЛОВКЕ ПАНЕЛИ.
+ * Папку заводят не «вообще», а когда есть что в неё положить: человек
+ * смотрит на чат и решает, что он про объект. Отдельная кнопка сверху
+ * предлагала бы завести пустую папку — и в панели появлялись бы пустые.
+ */
+function ToProject({
+  channel,
+  projects,
+  onMove,
+}: {
+  channel: Conversation;
+  projects: Project[];
+  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
+}) {
+  const завестиИПереложить = async () => {
+    const title = window.prompt("Название проекта");
+    if (!title?.trim()) return;
+    const created = await api.addProject(title.trim());
+    await onMove(channel.id, created.id);
+  };
+
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <FolderSimple />В проект
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-56">
+        {projects.map((project) => (
+          <DropdownMenuItem
+            key={project.id}
+            disabled={project.id === channel.projectId}
+            onSelect={() => void onMove(channel.id, project.id)}
+          >
+            {project.title}
+          </DropdownMenuItem>
+        ))}
+        {projects.length > 0 ? <DropdownMenuSeparator /> : null}
+        <DropdownMenuItem onSelect={() => void завестиИПереложить()}>
+          Новый проект…
+        </DropdownMenuItem>
+        {channel.projectId ? (
+          <DropdownMenuItem onSelect={() => void onMove(channel.id, null)}>
+            Убрать из проекта
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
 export function ChannelRow({
   channel,
+  projects,
   current,
   unread,
   mentions,
   onSelect,
+  onMove,
   onRemove,
 }: {
   channel: Conversation;
+  /** Куда можно переложить. Пустой список — только «Новый проект…». */
+  projects: Project[];
   current: boolean;
   /** Сколько чужих реплик человек тут не видел (Р-029). */
   unread: number;
   /** Сколько раз тут позвали его самого и он этого не видел (Р-031). */
   mentions: number;
   onSelect: (id: string) => void;
+  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -163,6 +225,8 @@ export function ChannelRow({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-52">
+          <ToProject channel={channel} projects={projects} onMove={onMove} />
+          <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={onRemove}>
             <Trash />
             Удалить канал

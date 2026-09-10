@@ -4,11 +4,13 @@ import {
   answerIfAddressed,
   ModelUnavailableError,
   NotAddressedError,
+  type Scope,
 } from "../../../app/answering.js";
 import { resolveActor } from "../../../kernel/identity/index.js";
 import {
   ConversationNotVisibleError,
   createChannel,
+  createProject,
   createThread,
   deleteConversation,
   deleteMessage,
@@ -21,6 +23,7 @@ import {
   peopleToMention,
   pinMessage,
   sendMessage,
+  setProject,
   sync,
   type Viewer,
   whereMentioned,
@@ -63,6 +66,31 @@ const channelSchema = z.object({
   // Приватный канал в интерфейсе пока не заводится, но чтение его уже
   // проверено тестом: поле не мёртвое, а опережающее (Р-010).
   visibility: z.enum(["workspace", "private"]).optional(),
+});
+
+const projectSchema = z.object({
+  title: z.string().trim().min(1, "у проекта нужно название").max(120),
+});
+
+/**
+ * Принадлежность чата проекту. `null` — снять и вернуть чат наружу.
+ *
+ * ⚠️ `nullable`, А НЕ `optional`, И РАЗНИЦА ЗДЕСЬ СМЫСЛОВАЯ. «Не указано»
+ * означало бы «не трогай», а нам нужно уметь сказать «убери из проекта».
+ * Слив их, снять принадлежность стало бы нечем.
+ */
+const moveSchema = z.object({
+  projectId: z.string().uuid().nullable(),
+});
+
+/**
+ * Насколько широко агент читает, отвечая (Р-032).
+ *
+ * По умолчанию — этот разговор: поведение до проектов сохраняется
+ * в точности, и молчащий клиент ничего не теряет.
+ */
+const askSchema = z.object({
+  scope: z.enum(["conversation", "project"]).optional(),
 });
 
 const threadSchema = z.object({
@@ -129,9 +157,10 @@ async function answerOrExplain(
   // человек. Витрина не решает этого, она лишь честно передаёт, кто пришёл.
   viewer: { participantId: string; workspaceId: string; kind: string },
   conversationId: string,
+  scope: Scope,
 ): Promise<FastifyReply> {
   try {
-    return reply.code(201).send(await answerIfAddressed(viewer, conversationId));
+    return reply.code(201).send(await answerIfAddressed(viewer, conversationId, scope));
   } catch (error) {
     // Обращения не было — это не ошибка, а обычный ход событий: клиент
     // зовёт после каждой отправки и не обязан сам разбирать текст.
@@ -169,7 +198,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
   app.get("/v1/conversations", async (request, reply) => {
     const viewer = await viewerOf(request, reply);
     if (!viewer) return reply;
-    return { items: await listConversations(viewer) };
+    return listConversations(viewer);
   });
 
   /**
@@ -229,6 +258,36 @@ export function registerChatRoutes(app: FastifyInstance): void {
     const viewer = await viewerOf(request, reply);
     if (!viewer) return reply;
     return orNotFound(reply, async () => whereMentioned(viewer, request.params.id));
+  });
+
+  /**
+   * Завести проект (Р-032). Прав проект не несёт, поэтому заводить его
+   * может любой участник — как и канал.
+   */
+  app.post("/v1/projects", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    const input = parse(projectSchema, request.body, reply);
+    if (!input) return reply;
+
+    return reply.code(201).send(await createProject(viewer, input.title));
+  });
+
+  /**
+   * Отнести чат к проекту либо снять принадлежность.
+   *
+   * PATCH, а не POST на отдельный путь: это правка свойства разговора,
+   * такого же, как название, — а не отдельное действие над ним.
+   */
+  app.patch<{ Params: { id: string } }>("/v1/conversations/:id", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    const input = parse(moveSchema, request.body, reply);
+    if (!input) return reply;
+
+    return orNotFound(reply, async () => setProject(viewer, request.params.id, input.projectId));
   });
 
   app.post("/v1/conversations", async (request, reply) => {
@@ -325,7 +384,12 @@ export function registerChatRoutes(app: FastifyInstance): void {
     const viewer = await viewerOf(request, reply);
     if (!viewer) return reply;
 
-    return orNotFound(reply, () => answerOrExplain(reply, viewer, request.params.id));
+    const input = parse(askSchema, request.body ?? {}, reply);
+    if (!input) return reply;
+
+    return orNotFound(reply, () =>
+      answerOrExplain(reply, viewer, request.params.id, input.scope ?? "conversation"),
+    );
   });
 
   /**

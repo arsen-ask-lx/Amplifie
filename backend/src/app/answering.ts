@@ -6,7 +6,7 @@ import { chooseProvider } from "../agent/model/choose.js";
 import { KNOWN_API, keyProvider } from "../agent/model/http.js";
 import { ensureAgent, keyFor, ИМЯ_АГЕНТА } from "../kernel/identity/index.js";
 import { appendEvent } from "../kernel/journal/index.js";
-import { listMessages, sendAsAgent, type Viewer } from "../kernel/talk/index.js";
+import { listMessages, readingScope, sendAsAgent, type Viewer } from "../kernel/talk/index.js";
 import { db } from "../platform/db.js";
 import { askOwnBridge } from "./bridging.js";
 import { doActions } from "./doing.js";
@@ -177,9 +177,66 @@ export async function answersVia(viewer: Viewer): Promise<AnswersVia> {
  * участника — это ложь про то, кто говорил; такому место в журнале,
  * а не в разговоре.
  */
+/** Насколько широко агент читает, отвечая (Р-032). */
+export type Scope = "conversation" | "project";
+
+/**
+ * Слить ленты области в одну, в порядке чтения.
+ *
+ * ⚠️ ПОРЯДОК ПО НОМЕРУ, А НЕ ПО ЧАТАМ ПОДРЯД. Номер общий на всё
+ * пространство, поэтому он и есть время: слитая по нему лента читается
+ * как разговор, шедший в трёх комнатах сразу. Склей мы чаты подряд —
+ * модель увидела бы, что в одной комнате всё случилось раньше, чем
+ * в другой началось.
+ *
+ * Название чата ставится у каждой строки: без него в слитой ленте
+ * не понять, где что сказано.
+ */
+async function соседи(
+  viewer: Viewer,
+  область: { ids: string[]; titles: string[] },
+): Promise<Turn[]> {
+  const ленты = await Promise.all(
+    область.ids.map(async (id, i) => {
+      const лента = await listMessages(viewer, id, WINDOW);
+      return лента.items.map((message) => ({
+        seq: message.seq,
+        turn: {
+          body: message.body,
+          authorName: message.author.name,
+          authorKind: message.author.kind,
+          where: область.titles[i] ?? "",
+        } satisfies Turn,
+      }));
+    }),
+  );
+
+  return ленты
+    .flat()
+    .sort((a, b) => a.seq - b.seq)
+    .map((one) => one.turn);
+}
+
+/**
+ * Сказать в ответе, по каким чатам агент смотрел.
+ *
+ * ⚠️ В САМОМ ОТВЕТЕ, А НЕ В СПРАВКЕ, И ЭТО СЛЕДСТВИЕ Р-032. Область
+ * пересекается с правами позвавшего — значит двое, спросившие одно
+ * и то же в одном канале, МОГУТ получить разные ответы. Неожиданность
+ * тут дороже лишней строки: человек должен видеть, из чего сложен ответ,
+ * а не гадать, почему у коллеги вышло иначе.
+ */
+function сОбластью(text: string, область: { titles: string[] } | null): string {
+  if (!область || область.titles.length < 2) return text;
+  return `${text}
+
+Смотрел: ${область.titles.join(", ")}.`;
+}
+
 export async function answerIfAddressed(
   viewer: Viewer & { kind: string },
   conversationId: string,
+  scope: Scope = "conversation",
 ): Promise<Answer> {
   // Видимость разговора проверяется здесь же: чужой разговор не читается,
   // и до модели дело не доходит.
@@ -206,7 +263,20 @@ export async function answerIfAddressed(
   );
   if (!asking || !called) throw new NotAddressedError();
 
-  const prompt = buildPrompt(turns);
+  /**
+   * ⚠️ ОБЛАСТЬ РАСШИРЯЕТСЯ ПОСЛЕ ПРОВЕРКИ ОБРАЩЕНИЯ, А НЕ ДО. Обращение
+   * ищется в ленте ТЕКУЩЕГО чата: расширив область раньше, мы стали бы
+   * отвечать на «@memo», сказанное в соседнем канале час назад.
+   *
+   * Сама область — пересечение чатов проекта с тем, что видит позвавший
+   * (Р-032). Пересечение считает ядро одним запросом; здесь его нельзя
+   * ни расширить, ни обойти.
+   */
+  const область = scope === "project" ? await readingScope(viewer, conversationId) : null;
+  const широкая = область !== null && область.ids.length > 1;
+  const кругозор = широкая && область ? await соседи(viewer, область) : turns;
+
+  const prompt = buildPrompt(кругозор);
 
   let answer: { text: string; ms: number; used: Source };
   try {
@@ -230,7 +300,7 @@ export async function answerIfAddressed(
   // Ключ идемпотентности — идентификатор сообщения-обращения. Двойной зов
   // (двойной клик, повтор после разрыва) даёт один ответ, а не два.
   const message = await sendAsAgent(viewer, agent.id, conversationId, {
-    body: withReport(envelope.text, done),
+    body: сОбластью(withReport(envelope.text, done), широкая ? область : null),
     clientMsgId: asking.id,
   });
 

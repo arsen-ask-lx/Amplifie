@@ -3,6 +3,7 @@ import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
 import { setMentions, зовущиеся } from "./mentions.js";
+import { listProjectsFor } from "./projects.js";
 import * as repo from "./repo.js";
 
 interface MessageView {
@@ -138,27 +139,43 @@ function isDuplicateClientMsgId(error: unknown): boolean {
   return code === "23505" && constraint === "message_conversation_client_msg_uq";
 }
 
+/**
+ * Панель целиком: разговоры и проекты ОДНИМ ответом.
+ *
+ * ⚠️ ОДНИМ, А НЕ ДВУМЯ ЗАПРОСАМИ. Панель перечитывается на каждый звонок
+ * потока (Р-006), и второй запрос за проектами удваивал бы самый частый
+ * обмен в продукте. Внутри — тоже один проход по проектам, а не по чату
+ * на проект: N+1 здесь не виден, пока проектов три.
+ */
 export async function listConversations(viewer: Viewer) {
-  const rows = await repo.listConversationsFor(db, viewer.participantId);
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    title: r.title,
-    parentId: r.parentId,
-    // Время последней активности отдаём наружу: по нему клиент показывает
-    // «когда тут в последний раз говорили», не запрашивая ленту.
-    lastAt: r.lastAt,
-    // Сколько чужих реплик человек ещё не видел (Р-029). Едет вместе
-    // со списком, а не отдельной дверью: панель каналов и так его
-    // перечитывает, и второй запрос был бы ровно тем же обходом.
-    unread: r.unread,
-    // Сколько раз в разговоре позвали именно этого человека и он этого
-    // ещё не видел (Р-031). Отдельное число, а не часть непрочитанного:
-    // у Телеграма рядом с `unread_count` по той же причине живёт
-    // `unread_mentions_count`.
-    mentions: r.mentions,
-    readSeq: Number(r.readSeq),
-  }));
+  const [rows, projects] = await Promise.all([
+    repo.listConversationsFor(db, viewer.participantId),
+    listProjectsFor(db, viewer.participantId, viewer.workspaceId),
+  ]);
+  return {
+    projects,
+    items: rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      title: r.title,
+      parentId: r.parentId,
+      // К какому проекту относится разговор. `null` — вне проектов (Р-032).
+      projectId: r.projectId,
+      // Время последней активности отдаём наружу: по нему клиент показывает
+      // «когда тут в последний раз говорили», не запрашивая ленту.
+      lastAt: r.lastAt,
+      // Сколько чужих реплик человек ещё не видел (Р-029). Едет вместе
+      // со списком, а не отдельной дверью: панель каналов и так его
+      // перечитывает, и второй запрос был бы ровно тем же обходом.
+      unread: r.unread,
+      // Сколько раз в разговоре позвали именно этого человека и он этого
+      // ещё не видел (Р-031). Отдельное число, а не часть непрочитанного:
+      // у Телеграма рядом с `unread_count` по той же причине живёт
+      // `unread_mentions_count`.
+      mentions: r.mentions,
+      readSeq: Number(r.readSeq),
+    })),
+  };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { api, type Conversation } from "./api.js";
+import { api, type Conversation, type Project } from "./api.js";
 import type { Address } from "./useAddress.js";
 
 /**
@@ -18,20 +18,28 @@ import type { Address } from "./useAddress.js";
 
 export interface Rooms {
   items: Conversation[];
+  /** Проекты, в которых человеку виден хоть один чат (Р-032). */
+  projects: Project[];
   /** Перечитать. Возвращает то же, что положил в состояние. */
   reload: () => Promise<Conversation[]>;
   addChannel: (title: string) => Promise<void>;
   removeChannel: (id: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
+  /** Завести проект. */
+  addProject: (title: string) => Promise<void>;
+  /** Отнести чат к проекту либо снять принадлежность (`null`). */
+  moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
 }
 
 export function useRooms(where: Address): Rooms {
   const [items, setItems] = useState<Conversation[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const { currentId, currentIdRef, navigate } = where;
 
   const reload = useCallback(async () => {
-    const { items: fresh } = await api.conversations();
+    const { items: fresh, projects: папки } = await api.conversations();
     setItems(fresh);
+    setProjects(папки ?? []);
     return fresh;
   }, []);
 
@@ -88,5 +96,37 @@ export function useRooms(where: Address): Rooms {
     [items, currentId, openNew],
   );
 
-  return { items, reload, addChannel, removeChannel, addThread };
+  /**
+   * Завести проект.
+   *
+   * ⚠️ ПРОЕКТ НЕ ОТКРЫВАЕТСЯ ПОСЛЕ ЗАВЕДЕНИЯ, в отличие от канала:
+   * открывать нечего — у проекта нет ленты. Панель просто перечитывается,
+   * и пустая папка появляется в ней.
+   */
+  const addProject = useCallback(
+    async (title: string) => {
+      await api.addProject(title);
+      await reload();
+    },
+    [reload],
+  );
+
+  const moveToProject = useCallback(
+    async (conversationId: string, projectId: string | null) => {
+      await api.moveConversation(conversationId, projectId);
+      await reload();
+    },
+    [reload],
+  );
+
+  return {
+    items,
+    projects,
+    reload,
+    addChannel,
+    removeChannel,
+    addThread,
+    addProject,
+    moveToProject,
+  };
 }

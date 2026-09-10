@@ -137,6 +137,8 @@ export function Rail({
             currentId={chat.current?.id ?? null}
             unreadOf={chat.unreadOf}
             mentionsOf={chat.mentionsOf}
+            projects={chat.projects}
+            onMove={chat.moveToProject}
             onSelect={(id) => chat.select(id)}
             onCreate={chat.addChannel}
             onRemove={chat.removeChannel}

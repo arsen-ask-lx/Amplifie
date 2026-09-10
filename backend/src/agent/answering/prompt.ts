@@ -22,6 +22,12 @@ export interface Turn {
   body: string;
   authorName: string;
   authorKind: string;
+  /**
+   * В каком чате сказано. Ставится, только когда область чтения шире
+   * одного чата (Р-032): иначе строка «Смета · Мария: …» повторяла бы
+   * название канала в каждой строке и съедала бюджет ни за чем.
+   */
+  where?: string;
 }
 
 /**
@@ -61,7 +67,8 @@ export const SYSTEM = [
 
 function sign(turn: Turn): string {
   const mark = turn.authorKind === "agent" ? " (агент)" : "";
-  return `${turn.authorName}${mark}: ${turn.body}`;
+  const где = turn.where ? `[${turn.where}] ` : "";
+  return `${где}${turn.authorName}${mark}: ${turn.body}`;
 }
 
 /**
@@ -69,6 +76,12 @@ function sign(turn: Turn): string {
  *
  * Возвращает то же самое, обрезанное по бюджету: старое сверху,
  * вопрос снизу — так читает и человек, и модель.
+ *
+ * ⚠️ БЮДЖЕТ ОБЩИЙ НА ВСЮ ОБЛАСТЬ, А НЕ НА КАЖДЫЙ ЧАТ. Когда агент
+ * читает весь проект (Р-032), сюда приезжает слитая лента нескольких
+ * чатов — и обрезка по знакам с конца работает ровно так же. Это
+ * и есть названный предел стоимости: десять чатов стоят столько же,
+ * сколько один, просто в подсказку попадёт меньше из каждого.
  */
 export function buildPrompt(feed: readonly Turn[], budget: number = BUDGET): string {
   const kept: string[] = [];

@@ -57,6 +57,12 @@ export interface ModelKey {
   createdAt: string;
 }
 
+/** Проект — папка чатов и область чтения агента (Р-032). */
+export interface Project {
+  id: string;
+  title: string;
+}
+
 /** Человек или агент — тот, кого можно позвать. */
 export interface Person {
   id: string;
@@ -70,6 +76,11 @@ export interface Conversation {
   kind: string;
   title: string;
   parentId: string | null;
+  /**
+   * К какому проекту относится. `null` — вне проектов, и это законно
+   * (Р-032): «Общий», курилка и личка не про проект.
+   */
+  projectId: string | null;
   /** Когда тут в последний раз говорили. По нему сервер и сортирует. */
   lastAt?: string;
   /**
@@ -202,7 +213,24 @@ export interface Bridge {
 
 export const api = {
   me: () => request<Me>("/v1/me"),
-  conversations: () => request<{ items: Conversation[] }>("/v1/conversations"),
+  /**
+   * Панель целиком: разговоры И проекты одним ответом (Р-032).
+   *
+   * Одним, а не двумя запросами: панель перечитывается на каждый звонок
+   * потока, и второй запрос удваивал бы самый частый обмен в продукте.
+   */
+  conversations: () => request<{ items: Conversation[]; projects: Project[] }>("/v1/conversations"),
+
+  /** Завести проект. Прав он не несёт, поэтому заводить может любой. */
+  addProject: (title: string) =>
+    request<Project>("/v1/projects", { method: "POST", body: JSON.stringify({ title }) }),
+
+  /** Отнести чат к проекту либо снять принадлежность (`null`). */
+  moveConversation: (id: string, projectId: string | null) =>
+    request<{ id: string; projectId: string | null }>(`/v1/conversations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ projectId }),
+    }),
 
   /** Лента разговора. `before` — номер, старше которого нужна страница. */
   messages: (id: string, options: { limit?: number; before?: number } = {}) => {
@@ -286,10 +314,14 @@ export const api = {
    * записаться мгновенно и не зависеть от модели. 204 — обращения
    * не было, это обычный ход, а не ошибка.
    */
-  ask: (id: string) =>
+  /**
+   * Позвать агента. `scope` — насколько широко он читает (Р-032):
+   * этот разговор либо весь проект.
+   */
+  ask: (id: string, scope: "conversation" | "project" = "conversation") =>
     request<{ messageId: string; body: string; ms: number } | null>(`/v1/conversations/${id}/ask`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ scope }),
     }),
 
   /** Новый канал. Виден всему пространству, если не сказано иначе (Р-010). */

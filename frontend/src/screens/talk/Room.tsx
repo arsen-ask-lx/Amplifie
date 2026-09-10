@@ -156,6 +156,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
 
       <Composer
         conversationId={chat.current?.id ?? null}
+        inProject={chat.current?.projectId != null}
         onSend={chat.send}
         replying={chat.replying}
         onCancelReply={() => chat.reply(null)}

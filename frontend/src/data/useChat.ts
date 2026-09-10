@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { troubleOf } from "../shared/trouble.js";
-import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
+import {
+  api,
+  type Conversation,
+  type Me,
+  type Message,
+  type Project,
+  type Quote,
+  type SyncLine,
+} from "./api.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
 import { useReading } from "./useReading.js";
@@ -69,7 +77,8 @@ export interface Chat {
    * старое сверху: у листающего назад — не вытесняется (Р-023).
    */
   follow: (yes: boolean) => void;
-  send: (body: string, clientMsgId: string) => Promise<void>;
+  /** `scope` — насколько широко агент читает, отвечая (Р-032). */
+  send: (body: string, clientMsgId: string, scope?: "conversation" | "project") => Promise<void>;
   /** Почему агент не ответил. Показывается один раз и не как его реплика. */
   agentFailure: string | null;
   /** На что отвечаем прямо сейчас. Строка над полем ввода. */
@@ -83,6 +92,9 @@ export interface Chat {
   unreadOf: (conversationId: string) => number;
   /** Сколько раз в разговоре позвали тебя и ты этого не видел (Р-031). */
   mentionsOf: (conversationId: string) => number;
+  /** Проекты панели и перекладывание чатов между ними (Р-032). */
+  projects: Project[];
+  moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
   /**
    * Перед какой репликой стоит черта «Непрочитанные сообщения»
    * в открытом разговоре. `null` — черты нет. Замирает при открытии.
@@ -388,7 +400,11 @@ export function useChat(me: Me): Chat {
   }, [currentId, messages]);
 
   const send = useCallback(
-    async (body: string, clientMsgId: string) => {
+    async (
+      body: string,
+      clientMsgId: string,
+      scope: "conversation" | "project" = "conversation",
+    ) => {
       if (!currentId) return;
 
       /**
@@ -479,7 +495,7 @@ export function useChat(me: Me): Chat {
           // Ответ агента НЕ вклеиваем руками: он приедет тем же путём, что
           // и чужие сообщения — звонком и догоном через /v1/sync. Второй
           // путь доставки разошёлся бы с первым, и разошёлся бы молча.
-          await api.ask(currentId);
+          await api.ask(currentId, scope);
         } catch (error) {
           setAgentFailure(agentTrouble(error));
         }
@@ -640,6 +656,8 @@ export function useChat(me: Me): Chat {
     reply,
     unreadOf: reading.unreadOf,
     mentionsOf: reading.mentionsOf,
+    projects: rooms.projects,
+    moveToProject: rooms.moveToProject,
     boundary: reading.boundary,
     pinned,
     pin,

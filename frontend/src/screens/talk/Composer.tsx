@@ -28,6 +28,7 @@ import { type FieldApi, RichField } from "./RichField.js";
  */
 export function Composer({
   conversationId,
+  inProject,
   onSend,
   replying,
   onCancelReply,
@@ -37,7 +38,9 @@ export function Composer({
 }: {
   /** Где пишем — нужно подсказке «кого позвать» (Р-031). */
   conversationId: string | null;
-  onSend: (body: string, clientMsgId: string) => Promise<void>;
+  /** Этот чат в проекте — значит агента можно позвать по всему проекту. */
+  inProject: boolean;
+  onSend: (body: string, clientMsgId: string, scope?: "conversation" | "project") => Promise<void>;
   replying: Цитата | null;
   onCancelReply: () => void;
   editing: Message | null;
@@ -57,6 +60,33 @@ export function Composer({
 
   /** Пустое поле — чтобы гасить кнопку отправки. Это единственное, что видно. */
   const [empty, setEmpty] = useState(true);
+
+  /**
+   * Читать ли агенту весь проект (Р-032).
+   *
+   * ⚠️ ПО УМОЛЧАНИЮ — НЕТ, И ЭТО НЕ ОСТОРОЖНОСТЬ. Широкая область стоит
+   * во столько раз дороже, сколько в проекте чатов, а нужна далеко
+   * не каждому вопросу. Молчаливое «читай всё» превратило бы каждый зов
+   * в самый дорогой из возможных.
+   *
+   * Держится до перезагрузки и сбрасывается при переходе в другой чат:
+   * область — свойство вопроса, а не человека.
+   */
+  const [поПроекту, setПоПроекту] = useState(false);
+
+  /**
+   * ⚠️ СБРОС ПРИ СМЕНЕ ЧАТА — ПРЯМО В ОТРИСОВКЕ, А НЕ ЭФФЕКТОМ.
+   * Эффект здесь читал бы `conversationId`, ничего с ним не делая, —
+   * и линтер справедливо ругался на лишнюю зависимость. Сравнение
+   * с прошлым значением — приём самой React для сброса состояния
+   * при смене входных данных, и он честнее: сброс виден там же, где
+   * причина.
+   */
+  const [прошлыйЧат, setПрошлыйЧат] = useState(conversationId);
+  if (прошлыйЧат !== conversationId) {
+    setПрошлыйЧат(conversationId);
+    setПоПроекту(false);
+  }
 
   /**
    * Начали править — в поле встаёт текущий текст реплики.
@@ -110,7 +140,7 @@ export function Composer({
     setEmpty(true);
     field.current?.clear();
     field.current?.focus();
-    void onSend(body, key);
+    void onSend(body, key, поПроекту ? "project" : "conversation");
   }
 
   return (
@@ -168,6 +198,26 @@ export function Composer({
             }}
           />
         </FieldMenu>
+
+        {/* ⚠️ ПЕРЕКЛЮЧАТЕЛЬ ВИДЕН ТОЛЬКО В ЧАТЕ ПРОЕКТА. В одиночном чате
+            выбирать нечего: область и так одна, и кнопка, которая ничего
+            не меняет, — это кнопка, о которой перестают думать. */}
+        {inProject ? (
+          <button
+            type="button"
+            aria-pressed={поПроекту}
+            title="Агент прочитает все чаты проекта, которые видны вам"
+            onClick={() => setПоПроекту((было) => !было)}
+            className={[
+              "shrink-0 rounded-pill border px-2.5 py-1 text-mark transition-colors",
+              поПроекту
+                ? "border-accent bg-accent text-on-accent"
+                : "border-edge bg-transparent text-muted hover:text-ink",
+            ].join(" ")}
+          >
+            по проекту
+          </button>
+        ) : null}
 
         <Button
           type="submit"
