@@ -1,8 +1,8 @@
-import { Check, Clock, WarningCircle } from "@phosphor-icons/react";
+import { Check } from "@phosphor-icons/react";
 import { RichText } from "../../shared/RichText.js";
 import { ContextMenu, ContextMenuTrigger } from "../../shared/ui/context-menu.js";
-import { часы } from "../../shared/when.js";
 import { Actions, type Deeds, type Picking } from "./Actions.js";
+import { Corner, Spacer } from "./Corner.js";
 import { Quote } from "./Quote.js";
 import { forDisplay, type Row } from "./rows.js";
 
@@ -20,27 +20,6 @@ import { forDisplay, type Row } from "./rows.js";
  * Разделено не ради красоты: гейт размера файла был прав, 514 строк
  * означали, что сюда дописывают всё, что рядом по смыслу.
  */
-
-/**
- * Что стало с моей репликой — значком рядом со временем.
- *
- * ⚠️ ОДНА ГАЛОЧКА, А НЕ ДВЕ. В Телеграме вторая означает «прочитано»,
- * а мы про прочтение не знаем ничего: отметок чтения у нас нет. Две
- * галочки были бы не украшением, а утверждением, которого мы не можем
- * проверить. Одна честно значит «дошло до сервера».
- *
- * У чужих реплик значка нет вовсе: их доставка — не наше дело.
- */
-function State({ row }: { row: Row }) {
-  if (!row.mine) return null;
-  if (row.message.state === "идёт") {
-    return <Clock aria-label="отправляется" className="size-3 opacity-70" />;
-  }
-  if (row.message.state === "не ушло") {
-    return <WarningCircle aria-label="не ушло" className="size-3 text-danger" />;
-  }
-  return <Check aria-label="доставлено" className="size-3 opacity-70" />;
-}
 
 /**
  * Щелчок по строке в режиме выделения.
@@ -114,22 +93,6 @@ function Head({ row }: { row: Row }) {
         </span>
       ) : null}
     </>
-  );
-}
-
-/** Подпись в углу: изменено, время, состояние доставки. */
-function Corner({ row }: { row: Row }) {
-  return (
-    <span
-      className={[
-        "absolute right-3 bottom-2 flex items-center gap-1 text-mark",
-        row.mine ? "text-muted-on-soft" : "text-muted",
-      ].join(" ")}
-    >
-      {row.message.editedAt ? <span title="изменено">изм.</span> : null}
-      <time dateTime={row.message.createdAt}>{часы.format(new Date(row.message.createdAt))}</time>
-      <State row={row} />
-    </span>
   );
 }
 
@@ -229,9 +192,8 @@ export function Bubble({
 
           <span className="block text-body leading-snug break-words whitespace-pre-wrap">
             <RichText body={forDisplay(row.message.body)} />
-            {/* Распорка под время. Шире самого времени на волосок, чтобы
-                между ними остался просвет. Для чтения вслух её нет. */}
-            <span aria-hidden="true" className="inline-block w-12 select-none" />
+            {/* Распорка под время. Для чтения вслух её нет. */}
+            <Spacer row={row} />
           </span>
 
           <Corner row={row} />
