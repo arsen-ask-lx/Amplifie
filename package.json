@@ -28,6 +28,7 @@
     "env:check": "node --test tools/ops/*.test.mjs",
     "openspec": "node tools/checks/check-openspec.mjs",
     "model": "node tools/checks/check-model.mjs",
+    "cost": "node tools/checks/check-cost.mjs",
     "duplicates": "node tools/checks/check-duplicates.mjs",
     "gates": "node tools/checks/run-gates.mjs",
     "arbiter:check": "node --test tools/arbiter/*.test.mjs",

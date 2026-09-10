@@ -216,7 +216,17 @@ function unreadOf(conversationId: PgColumn | SQL | string, participantId: string
   )`;
 }
 
-export async function listConversationsFor(tx: Executor, participantId: string) {
+/**
+ * Панель: разговоры со счётчиками.
+ *
+ * ⚠️ НЕ `async`, И ЭТО НАМЕРЕННО. Возвращается СТРОИТЕЛЬ запроса, а не
+ * его результат: строитель `await`-ится так же, как обещание, поэтому
+ * для всех вызывающих ничего не изменилось, — но у него есть `.toSQL()`.
+ * Этим пользуется гейт цены (`npm run cost`): он меряет НАСТОЯЩИЙ запрос
+ * панели, а не его копию. Копия рассохлась бы в первый же день, и гейт
+ * стерёг бы запрос, которого в продукте нет.
+ */
+export function listConversationsFor(tx: Executor, participantId: string) {
   /**
    * Когда в разговоре в последний раз говорили.
    *
