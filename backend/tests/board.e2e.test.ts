@@ -239,7 +239,7 @@ describe("доска задач", () => {
  * ⚠️ АГЕНТ ЗАВОДИТСЯ ТОЛЬКО ПОСЛЕ УДАЧНОГО ОТВЕТА МОДЕЛИ. Здесь стоял
  * вызов `/v1/conversations/:id/listen` — «разобрать разговор»; разбор
  * ушёл вместе с договорённостями, и агент теперь отвечает ТОЛЬКО
- * на явное обращение (Р-017). Поэтому поднимаем мост, зовём «@Сводка»
+ * на явное обращение (Р-017). Поэтому поднимаем мост, зовём «@memo»
  * и отвечаем за модель сами.
  *
  * Идти в базу и вставлять участника руками было бы короче и неправдой:
@@ -257,7 +257,7 @@ async function agentOf(person: Person): Promise<string> {
   const bridge = await connectBridge(person);
   await call(`/v1/conversations/${channel.id}/messages`, person, {
     method: "POST",
-    body: JSON.stringify({ body: "@Сводка привет", clientMsgId: crypto.randomUUID() }),
+    body: JSON.stringify({ body: "@memo привет", clientMsgId: crypto.randomUUID() }),
   });
 
   // Зов ждёт модели, а модель — это мы: поэтому оба хода идут разом.

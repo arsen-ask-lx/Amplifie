@@ -14,7 +14,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 const PASSWORD = "правильный-конский-скотч-батарейка";
-const AGENT = "Сводка";
+const AGENT = "memo";
 
 interface Person {
   cookie: string;

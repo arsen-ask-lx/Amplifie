@@ -115,7 +115,7 @@ async function connectBridge(person: Person, machine: string) {
  * нет. Раньше здесь стоял вызов `/listen` — «разобрать разговор»;
  * договорённости убраны целиком (владелец, 2026-09-07), и вместе с ними
  * ушёл разбор. Теперь агент отвечает ТОЛЬКО на явное обращение (Р-017),
- * поэтому помощник поднимает мост, зовёт «@Сводка» и отвечает за модель.
+ * поэтому помощник поднимает мост, зовёт «@memo» и отвечает за модель.
  *
  * ⚠️ МОСТ ПРИНИМАЕТСЯ СНАРУЖИ, А НЕ ПОДНИМАЕТСЯ СВОЙ. Второй мост
  * того же человека заданий не получает — они уходят первому, — и
@@ -137,7 +137,7 @@ async function agentOf(person: Person, bridge: ReturnType<typeof bridgeOf>): Pro
   await call(`/v1/conversations/${channel.id}/messages`, person, {
     method: "POST",
     body: JSON.stringify({
-      body: "@Сводка привет",
+      body: "@memo привет",
       clientMsgId: crypto.randomUUID(),
     }),
   });

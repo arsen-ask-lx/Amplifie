@@ -33,4 +33,5 @@ export {
   registrationOpen,
   resolveActor,
   setSessionTouchFailureReporter,
+  ИМЯ_АГЕНТА,
 } from "./service.js";

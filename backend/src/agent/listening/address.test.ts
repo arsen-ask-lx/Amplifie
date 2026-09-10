@@ -8,7 +8,19 @@
 import { describe, expect, it } from "vitest";
 import { addressedTo, awaitsAnswer } from "./address.js";
 
-const AGENT = "Сводка";
+/**
+ * Настоящее имя агента — латиницей.
+ *
+ * ⚠️ РЯДОМ ЖИВЁТ КИРИЛЛИЧЕСКОЕ ИМЯ, И ОНО ЗДЕСЬ НЕ ЗРЯ. Границу слова
+ * выражение считает вручную именно потому, что `\b` в JavaScript не знает
+ * кириллицы. Переименуй агента в латиницу и выброси кириллические
+ * случаи — правило перестанет проверяться, а сломается оно на первом же
+ * упоминании человека по русскому имени.
+ */
+const AGENT = "memo";
+
+/** Имя кириллицей: так зовут людей, и так звали агента до переименования. */
+const РУССКОЕ = "Сводка";
 
 describe("обращение к агенту", () => {
   it("простое обращение узнаётся", () => {
@@ -16,8 +28,8 @@ describe("обращение к агенту", () => {
   });
 
   it("регистр не важен", () => {
-    expect(addressedTo("@сводка подведи итог", AGENT)).toBe(true);
-    expect(addressedTo("@СВОДКА подведи итог", AGENT)).toBe(true);
+    expect(addressedTo("@memo подведи итог", AGENT)).toBe(true);
+    expect(addressedTo("@MEMO подведи итог", AGENT)).toBe(true);
   });
 
   it("обращение посреди фразы узнаётся", () => {
@@ -26,18 +38,19 @@ describe("обращение к агенту", () => {
 
   it("имя без собачки — не обращение", () => {
     // Иначе агент отвечал бы каждый раз, когда о нём просто говорят.
-    expect(addressedTo("сводка по неделе готова", AGENT)).toBe(false);
+    expect(addressedTo("memo по неделе готова", AGENT)).toBe(false);
   });
 
   it("падеж — не обращение", () => {
     // Узко намеренно: угадывание склонений даёт ложные вызовы, а каждый
     // ложный вызов — это деньги и секунды.
-    expect(addressedTo("@Сводкой займётся Петя", AGENT)).toBe(false);
-    expect(addressedTo("@Сводкам не доверяю", AGENT)).toBe(false);
+    expect(addressedTo("@Сводкой займётся Петя", РУССКОЕ)).toBe(false);
+    expect(addressedTo("@Сводкам не доверяю", РУССКОЕ)).toBe(false);
   });
 
   it("часть почтового адреса — не обращение", () => {
-    expect(addressedTo("пиши на почта@Сводка.рф", AGENT)).toBe(false);
+    expect(addressedTo("пиши на почта@memo.рф", AGENT)).toBe(false);
+    expect(addressedTo("пиши на почта@Сводка.рф", РУССКОЕ)).toBe(false);
   });
 
   it("пустое имя агента не совпадает ни с чем", () => {
@@ -45,10 +58,14 @@ describe("обращение к агенту", () => {
   });
 
   it("буква на границе не ломает разбор", () => {
+    // Латиница: `@memory` — другое слово, а не обращение к memo.
+    expect(addressedTo("@memory уже не та", AGENT)).toBe(false);
+    expect(addressedTo("@memo!", AGENT)).toBe(true);
+
     // Проверка той самой ловушки: `\b` в JavaScript не работает
     // с кириллицей, и без явных границ это выражение совпало бы.
-    expect(addressedTo("@Сводкаа", AGENT)).toBe(false);
-    expect(addressedTo("@Сводка!", AGENT)).toBe(true);
+    expect(addressedTo("@Сводкаа", РУССКОЕ)).toBe(false);
+    expect(addressedTo("@Сводка!", РУССКОЕ)).toBe(true);
   });
 });
 

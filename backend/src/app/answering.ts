@@ -4,7 +4,7 @@ import { awaitsAnswer } from "../agent/listening/address.js";
 import { NoBridgeError } from "../agent/model/bridge.js";
 import { chooseProvider } from "../agent/model/choose.js";
 import { KNOWN_API, keyProvider } from "../agent/model/http.js";
-import { ensureAgent, keyFor } from "../kernel/identity/index.js";
+import { ensureAgent, keyFor, ИМЯ_АГЕНТА } from "../kernel/identity/index.js";
 import { appendEvent } from "../kernel/journal/index.js";
 import { listMessages, sendAsAgent, type Viewer } from "../kernel/talk/index.js";
 import { db } from "../platform/db.js";
@@ -23,9 +23,6 @@ import { doActions } from "./doing.js";
  * Наоборот делать нельзя: вызов модели на каждое сообщение каждого канала
  * разоряет — к этому же выводу независимо пришёл Buzz.
  */
-
-/** Имя участника-агента. Совпадает с тем, под которым его заводит identity. */
-const AGENT_NAME = "Сводка";
 
 /** Сколько последних реплик читаем. Бюджет режет их дальше по объёму. */
 const WINDOW = 100;
@@ -197,7 +194,7 @@ export async function answerIfAddressed(
   const asking = feed.items.at(-1);
   const called = awaitsAnswer(
     turns.map((one) => ({ body: one.body, authorKind: one.authorKind })),
-    AGENT_NAME,
+    ИМЯ_АГЕНТА,
   );
   if (!asking || !called) throw new NotAddressedError();
 

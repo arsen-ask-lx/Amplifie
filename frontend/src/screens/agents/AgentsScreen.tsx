@@ -50,14 +50,14 @@ function State({ bridge }: { bridge: AgentsView["bridge"] }) {
   if (bridge.connected) {
     return (
       <p className="mt-3 text-body text-ink text-muted">
-        Мост «{bridge.name}» подключён, но сейчас не на связи. Пока окно терминала закрыто, Сводка
-        не ответит.
+        Мост «{bridge.name}» подключён, но сейчас не на связи. Пока окно терминала закрыто, memo не
+        ответит.
       </p>
     );
   }
   return (
     <p className="mt-3 text-body text-ink text-muted">
-      Своя нейросеть не подключена — Сводка не сможет ответить. Подключение ниже.
+      Своя нейросеть не подключена — memo не сможет ответить. Подключение ниже.
     </p>
   );
 }
@@ -92,8 +92,8 @@ export function AgentsScreen() {
           под ним — не структура, а эхо. */}
       {view && view.items.length === 0 ? (
         <p className="rounded-xl border border-line bg-card p-4 text-body text-muted">
-          Агентов пока нет. Сводка появится сама, как только её позовут впервые: напишите в любом
-          канале <code>@Сводка</code> и вопрос.
+          Агентов пока нет. memo появится сам, как только его позовут впервые: напишите в любом
+          канале <code>@memo</code> и вопрос.
         </p>
       ) : null}
 

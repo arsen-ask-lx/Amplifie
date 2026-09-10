@@ -22,7 +22,7 @@ const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 const PASSWORD = "правильный-конский-скотч-батарейка";
 
 /** Имя участника-агента. Заводится сервером, см. ensureAgent. */
-const AGENT = "Сводка";
+const AGENT = "memo";
 
 interface Person {
   cookie: string;

@@ -329,6 +329,17 @@ export async function listAgents(
   return found ? [{ id: found.id, name: found.displayName }] : [];
 }
 
+/**
+ * Имя участника-агента.
+ *
+ * ⚠️ ОДНО МЕСТО НА ВЕСЬ ПРОЕКТ. Имя нужно двоим: тому, кто заводит
+ * участника, и тому, кто ловит обращение `@memo` в тексте. Пока их было
+ * два, они держались рядом только комментарием «совпадает с identity» —
+ * а разойдись они, агент завёлся бы под одним именем, а откликался бы
+ * на другое, и это выглядело бы как «агент молчит».
+ */
+export const ИМЯ_АГЕНТА = "memo";
+
 export async function ensureAgent(workspaceId: string): Promise<{ id: string }> {
   const existing = await repo.findAgent(db, workspaceId);
   if (existing) return existing;
@@ -342,7 +353,7 @@ export async function ensureAgent(workspaceId: string): Promise<{ id: string }> 
     const created = await repo.insertParticipant(tx, {
       workspaceId,
       accountId: null,
-      displayName: "Сводка",
+      displayName: ИМЯ_АГЕНТА,
       role: "member",
       kind: "agent",
     });

@@ -127,6 +127,13 @@
       "when": 1788952383238,
       "tag": "0017_conversation_read",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788952384238,
+      "tag": "0018_agent_memo",
+      "breakpoints": true
     }
   ]
 }

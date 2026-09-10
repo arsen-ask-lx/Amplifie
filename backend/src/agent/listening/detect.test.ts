@@ -80,7 +80,7 @@ describe("границы, названные вслух", () => {
     const own: Said = {
       id: "a1",
       body: "Я пришлю сводку к четвергу.",
-      authorName: "Сводка",
+      authorName: "memo",
       kind: "agent",
     };
     expect(hear([own])).toHaveLength(0);
