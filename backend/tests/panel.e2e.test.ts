@@ -18,7 +18,6 @@
  * Бьёт по живому стеку. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { домой } from "./дом.js";
 
 const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 const PASSWORD = "правильный-конский-скотч-батарейка";
@@ -62,12 +61,7 @@ async function newPerson(): Promise<Person> {
 }
 
 async function newChannel(person: Person, title: string): Promise<string> {
-  // Чат заводится внутри проекта — вне его жить негде (task-037).
-  const response = await post(
-    "/v1/conversations",
-    { title, projectId: await домой(person.cookie) },
-    person,
-  );
+  const response = await post("/v1/conversations", { title }, person);
   expect(response.status).toBe(201);
   return ((await response.json()) as { id: string }).id;
 }

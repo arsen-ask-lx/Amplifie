@@ -15,7 +15,6 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { домой } from "./дом.js";
 
 const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 const PASSWORD = "правильный-конский-скотч-батарейка";
@@ -51,8 +50,6 @@ interface Room {
   kind: string;
   title: string;
   parentId: string | null;
-  /** В каком проекте живёт. У канала — всегда (task-037). */
-  projectId: string | null;
 }
 
 async function rooms(cookie: string): Promise<Room[]> {
@@ -64,7 +61,7 @@ async function createChannel(cookie: string, title: string, body: object = {}): 
   return fetch(`${BASE}/v1/conversations`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ title, projectId: await домой(cookie), ...body }),
+    body: JSON.stringify({ title, ...body }),
   });
 }
 

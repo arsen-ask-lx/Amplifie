@@ -65,7 +65,12 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
  */
 export async function createProject(viewer: Viewer, title: string): Promise<{ id: string }> {
   const created = await withTransaction(async (tx) => {
-    const created = await repo.insertProject(tx, { workspaceId: viewer.workspaceId, title });
+    const rows = await tx
+      .insert(project)
+      .values({ workspaceId: viewer.workspaceId, title })
+      .returning({ id: project.id, title: project.title });
+    const created = rows[0];
+    if (!created) throw new Error("проект не завёлся");
 
     await appendEvent(tx, {
       kind: "project.created",
@@ -82,6 +87,18 @@ export async function createProject(viewer: Viewer, title: string): Promise<{ id
   return created;
 }
 
+/**
+ * Отнести чат к проекту либо снять принадлежность (`null`).
+ *
+ * ⚠️ ОБЕ СТОРОНЫ ПРОВЕРЯЮТСЯ, И ПО-РАЗНОМУ. Чат — на видимость
+ * позвавшему (`requireVisible`): относить к папке чужую переписку
+ * нельзя. Проект — на принадлежность ТОМУ ЖЕ пространству: иначе
+ * по номеру проекта из соседней компании можно было бы утащить
+ * свой чат к ним в панель.
+ *
+ * Не найдено и не видно — снаружи одно и то же, 404: иначе по ответу
+ * перебираются существующие проекты.
+ */
 /**
  * Проект существует, жив и принадлежит ТОМУ ЖЕ пространству.
  *
@@ -138,78 +155,49 @@ export async function renameProject(
 }
 
 /**
- * Убрать проект вместе с чатами внутри.
+ * Убрать проект.
  *
- * ⚠️ ПРЕЖДЕ БЫЛО НАОБОРОТ: папка исчезала, чаты возвращались к чатам вне
- * проектов. Пока дома было два, это была самая мягкая трактовка слова
- * «убрать». Дом остался один (task-037), и та же мягкость превратилась
- * в потерю: чат без проекта не показать ни на одном экране. Владелец
- * 10.09 выбрал явное — уносим вместе, число чатов называем в вопросе.
+ * ⚠️ ПАПКА ИСЧЕЗАЕТ, ПЕРЕПИСКА ОСТАЁТСЯ, И ЭТО ЕДИНСТВЕННАЯ ТРАКТОВКА
+ * СЛОВА «УБРАТЬ», КОТОРАЯ НЕ ТЕРЯЕТ ЧУЖИЕ СЛОВА. Чаты возвращаются
+ * к чатам вне проектов.
  *
- * ⚠️ УДАЛЕНИЕ МЯГКОЕ И У ПАПКИ, И У ЧАТОВ. На реплики этих чатов
- * ссылаются ответы и пересылки из других проектов; каскад превратил бы
- * их в цитаты в пустоту. И вернуть мягко удалённое можно одним `UPDATE`,
- * а стёртое — ничем.
+ * ⚠️ ПРИНАДЛЕЖНОСТЬ СНИМАЕТСЯ ЯВНО, А НЕ ОСТАЁТСЯ НА МЁРТВОМ ПРОЕКТЕ.
+ * Удаление у нас мягкое, поэтому `ON DELETE SET NULL` не сработает —
+ * строка проекта остаётся жить. Не сними мы ссылку, чат оказался бы
+ * нигде: в списке проектов его папки уже нет, а к чатам вне проектов
+ * он не относится. В панели он просто пропал бы.
  */
 export async function removeProject(viewer: Viewer, projectId: string): Promise<void> {
   await withTransaction(async (tx) => {
     await требуетсяПроект(tx, viewer.workspaceId, projectId);
 
-    const унесённые = new Date();
-    const чаты = await tx
+    await tx
       .update(conversation)
-      .set({ deletedAt: унесённые })
-      .where(
-        and(
-          eq(conversation.projectId, projectId),
-          eq(conversation.workspaceId, viewer.workspaceId),
-          isNull(conversation.deletedAt),
-        ),
-      )
-      .returning({ id: conversation.id });
-    await tx.update(project).set({ deletedAt: унесённые }).where(eq(project.id, projectId));
+      .set({ projectId: null })
+      .where(eq(conversation.projectId, projectId));
+    await tx.update(project).set({ deletedAt: new Date() }).where(eq(project.id, projectId));
 
-    // ⚠️ В ЖУРНАЛ УХОДИТ ЧИСЛО УНЕСЁННЫХ ЧАТОВ. Это единственное место,
-    // где одно нажатие убирает несколько разговоров: не запиши мы число,
-    // на вопрос «куда делась переписка» пришлось бы отвечать догадками.
     await appendEvent(tx, {
       kind: "project.removed",
       workspaceId: viewer.workspaceId,
       actorParticipantId: viewer.participantId,
       subjectType: "project",
       subjectId: projectId,
-      payload: { conversations: чаты.length },
+      payload: {},
     });
   });
 
   publish(viewer.workspaceId);
 }
 
-/**
- * Перенести чат в другой проект.
- *
- * ⚠️ ТОЛЬКО ИЗ ПАПКИ В ПАПКУ: «снять принадлежность» больше нет
- * (task-037). Прежде здесь принимался `null` — чат выходил к каналам
- * вне проектов. Раздела «Каналы» не стало, и тот же `null` означал бы
- * «спрятать переписку от всех, не удаляя её».
- *
- * ⚠️ ОБЕ СТОРОНЫ ПРОВЕРЯЮТСЯ, И ПО-РАЗНОМУ. Чат — на видимость
- * позвавшему (`requireVisible`): относить к папке чужую переписку
- * нельзя. Проект — на принадлежность ТОМУ ЖЕ пространству: иначе
- * по номеру проекта из соседней компании можно было бы утащить
- * свой чат к ним в панель.
- *
- * Не найдено и не видно — снаружи одно и то же, 404: иначе по ответу
- * перебираются существующие проекты.
- */
 export async function setProject(
   viewer: Viewer,
   conversationId: string,
-  projectId: string,
-): Promise<{ id: string; projectId: string }> {
+  projectId: string | null,
+): Promise<{ id: string; projectId: string | null }> {
   const переложен = await withTransaction(async (tx) => {
     await requireVisible(tx, viewer, conversationId);
-    await требуетсяПроект(tx, viewer.workspaceId, projectId);
+    if (projectId !== null) await требуетсяПроект(tx, viewer.workspaceId, projectId);
 
     await tx
       .update(conversation)

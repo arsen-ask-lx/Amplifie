@@ -105,6 +105,7 @@ export interface Chat {
   edit: (messageId: string, body: string) => Promise<void>;
   remove: (messageId: string) => Promise<void>;
   forward: (message: Message, toConversationId: string) => Promise<void>;
+  addChannel: (title: string) => Promise<void>;
   removeChannel: (id: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
 }
@@ -671,6 +672,7 @@ export function useChat(me: Me): Chat {
     loadOlder,
     send,
     agentFailure,
+    addChannel: rooms.addChannel,
     removeChannel: rooms.removeChannel,
     addThread: rooms.addThread,
   };

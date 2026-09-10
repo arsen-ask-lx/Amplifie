@@ -22,7 +22,6 @@ import {
   conversationRead,
   message,
   messageMention,
-  project,
 } from "./schema.js";
 
 /** Слой хранилища модуля talk. Только запросы, никакой логики. */
@@ -124,20 +123,6 @@ export async function findVisibleConversation(
   return rows[0] ?? null;
 }
 
-/**
- * Завести проект.
- *
- * ⚠️ ОДНА ВСТАВКА НА ВСЕХ, ХОТЯ ЗОВУЩИХ ДВОЕ: человек заводит папку
- * руками, и регистрация заводит первую сама (task-037). Двумя копиями
- * они разъехались бы на первом же новом поле проекта.
- */
-export async function insertProject(tx: Executor, input: { workspaceId: string; title: string }) {
-  const rows = await tx.insert(project).values(input).returning();
-  const row = rows[0];
-  if (!row) throw new Error("не удалось создать проект");
-  return row;
-}
-
 export async function insertConversation(
   tx: Executor,
   input: {
@@ -146,8 +131,6 @@ export async function insertConversation(
     title: string;
     parentId?: string | null;
     visibility?: string;
-    /** У канала обязателен: жить вне проекта ему негде (task-037). */
-    projectId?: string;
   },
 ) {
   const rows = await tx

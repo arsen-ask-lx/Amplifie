@@ -1,3 +1,4 @@
+import { Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import type { Panel } from "../data/usePanel.js";
@@ -8,15 +9,20 @@ import { ProjectRow } from "./ProjectRow.js";
 import { SidebarSection } from "./SidebarSection.js";
 
 /**
- * Панель разговоров: проекты, а внутри них чаты.
+ * Панель разговоров: чаты сверху, проекты под ними.
  *
- * ⚠️ РАЗДЕЛА «КАНАЛЫ» НЕТ (task-037), И ЭТО НЕ ПЕРЕСТАНОВКА МЕСТАМИ.
- * У чата было два дома: «Проекты» и «Каналы». Разница между ними была
- * ровно одна — заполнено поле принадлежности или нет, — и человеку
- * приходилось решать вопрос, у которого нет смысла: «это канал или чат
- * проекта?». Владелец 10.09: «мне не нужны отдельные каналы». Дом стал
- * один, и теперь разделов здесь ровно столько, сколько СОРТОВ разговора:
- * проекты сейчас, Избранное и личные — когда появятся.
+ * ⚠️ РАЗДЕЛА «КАНАЛЫ» НЕТ, НО И В ПАПКУ ЧАТ НЕ ЗАГОНЯЕТСЯ (task-037,
+ * [Р-033](../../../dock/decisions/033-проект-необязателен.md)). Секция
+ * с вывеской «Каналы» делала вид, будто у чата есть второй СОРТ, —
+ * человеку приходилось решать несуществующий вопрос «это канал или чат
+ * проекта?». Вывески не стало; чаты без папки просто лежат сверху
+ * простым списком — так же устроены несортированные каналы в Дискорде
+ * и недавние чаты в Claude.
+ *
+ * ⚠️ ПАПКА ПРИ ЭТОМ ОСТАЛАСЬ НЕОБЯЗАТЕЛЬНОЙ НАРОЧНО. Проект скоро
+ * получит своего агента, свои указания и свою память. Обязательная
+ * папка «Общее» сложила бы в одну память смету, наём и курилку, и ответы
+ * стали бы хуже МОЛЧА. Чат без проекта честно значит «области нет».
  *
  * Список приходит уже отсортированным по свежести: это делает сервер,
  * и переупорядочивать его здесь нельзя — два порядка разойдутся.
@@ -82,10 +88,8 @@ function useСвёрнутые() {
 export function RoomList({ panel }: { panel: Panel }) {
   const { items, projects, currentId, unreadOf, mentionsOf } = panel;
   /**
-   * В каком проекте заводим чат. `null` — не заводим.
-   *
-   * ⚠️ ПУСТАЯ СТРОКА ЗДЕСЬ БОЛЬШЕ НЕ ЗНАЧИТ НИЧЕГО. Прежде она значила
-   * «вне проектов» — этого случая не стало вместе с разделом «Каналы».
+   * Где заводим чат: `null` — не заводим, `""` — без папки,
+   * иначе номер проекта. Одно состояние вместо флажка и номера рядом.
    */
   const [adding, setAdding] = useState<string | null>(null);
   const { свёрнуты, свернуть } = useСвёрнутые();
@@ -111,16 +115,18 @@ export function RoomList({ panel }: { panel: Panel }) {
    */
   const [removing, setRemoving] = useState<Conversation | null>(null);
 
-  const закрыть = () => setСпрашиваем(null);
+  // Что панель показывает, решено при её сборке (`usePanel`): сюда
+  // приезжают уже только корневые разговоры.
+  const безПапки = items.filter((one) => one.projectId === null);
 
   /**
-   * Строка чата — одной функцией, а не куском разметки внутри папки.
+   * Строка канала одна и та же внутри проекта и снаружи.
    *
-   * ⚠️ ОНА ПЕРЕЖИЛА ИСЧЕЗНОВЕНИЕ ВТОРОГО ДОМА. Заводилась она ради того,
-   * чтобы чат внутри проекта и снаружи выглядел одинаково; «снаружи»
-   * не стало, а функция осталась нужной: рисует её `ProjectRow`, знать
-   * же про меню, значки и выбор ему незачем.
+   * ⚠️ ФУНКЦИЕЙ, А НЕ ДВУМЯ КУСКАМИ РАЗМЕТКИ. Два куска разъедутся
+   * на первой же правке — у одного появится значок, у другого нет.
    */
+  const закрыть = () => setСпрашиваем(null);
+
   const строка = (channel: Conversation) => (
     <ChannelRow
       key={channel.id}
@@ -137,47 +143,75 @@ export function RoomList({ panel }: { panel: Panel }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <SidebarSection
-        title="Проекты"
-        addLabel="Новый проект"
-        onAdd={() => setСпрашиваем({ вид: "новый" })}
+      {/* ⚠️ «НОВЫЙ ЧАТ» ВИДЕН ВСЕГДА, А НЕ ПО НАВЕДЕНИЮ, И ЭТО ОТСТУПЛЕНИЕ
+          ОТ ПРАВИЛА СЕКЦИЙ. Там плюс прячется намеренно: канал заводят
+          раз в месяц, а список читают каждый день. Здесь наоборот —
+          завести разговор стало главным действием панели, как «New chat»
+          у Claude и ChatGPT. Спрятанное главное действие человек ищет. */}
+      <button
+        type="button"
+        onClick={() => setAdding("")}
+        className="flex shrink-0 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body text-muted transition-colors hover:bg-raised hover:text-ink"
       >
-        {/* Прокрутка живёт на списке проектов: он единственный, кто здесь
-            растёт, и теперь в нём же лежат все чаты. */}
-        <div className="hide-scroll flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
-          {projects.map((project) => (
-            <ProjectRow
-              key={project.id}
-              project={project}
-              channels={items.filter((one) => one.projectId === project.id)}
-              collapsed={свёрнуты.has(project.id)}
-              onToggle={() => свернуть(project.id)}
-              onAddChat={() => setAdding(project.id)}
-              onRename={() => setСпрашиваем({ вид: "имя", project })}
-              onRemove={() => setСпрашиваем({ вид: "убрать", project })}
-              unreadOf={unreadOf}
-              mentionsOf={mentionsOf}
-              renderChannel={строка}
-              // Поле нового чата встаёт на место кнопки «Новый чат» —
-              // внутри той папки, куда чат и заводится.
-              newChat={
-                adding === project.id ? (
-                  <NewChannel
-                    onCreate={(title) => panel.addChannel(title, project.id)}
-                    onDone={() => setAdding(null)}
-                  />
-                ) : null
-              }
-            />
-          ))}
+        <Plus className="size-4 shrink-0" weight="bold" />
+        Новый чат
+      </button>
 
-          {projects.length === 0 ? (
-            <p className="px-2.5 py-1.5 text-aside text-muted">
-              Проектов нет. Заведите первый — плюс в заголовке.
-            </p>
+      {/* Прокрутка одна на обе части: чаты и папки растут вместе,
+          и две полосы рядом читались бы как два разных списка. */}
+      <div className="hide-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+        <div className="flex shrink-0 flex-col gap-0.5">
+          {adding === "" ? (
+            <NewChannel
+              // Пустая строка — «без папки»: чат заводится сам по себе.
+              onCreate={(title) => panel.addChannel(title)}
+              onDone={() => setAdding(null)}
+            />
           ) : null}
+
+          {безПапки.map((channel) => строка(channel))}
         </div>
-      </SidebarSection>
+
+        <SidebarSection
+          title="Проекты"
+          addLabel="Новый проект"
+          onAdd={() => setСпрашиваем({ вид: "новый" })}
+        >
+          <div className="flex flex-col gap-0.5">
+            {projects.map((project) => (
+              <ProjectRow
+                key={project.id}
+                project={project}
+                channels={items.filter((one) => one.projectId === project.id)}
+                collapsed={свёрнуты.has(project.id)}
+                onToggle={() => свернуть(project.id)}
+                onAddChat={() => setAdding(project.id)}
+                onRename={() => setСпрашиваем({ вид: "имя", project })}
+                onRemove={() => setСпрашиваем({ вид: "убрать", project })}
+                unreadOf={unreadOf}
+                mentionsOf={mentionsOf}
+                renderChannel={строка}
+                // Поле нового чата встаёт на место кнопки «Новый чат» —
+                // внутри той папки, куда чат и заводится.
+                newChat={
+                  adding === project.id ? (
+                    <NewChannel
+                      onCreate={(title) => panel.addChannel(title, project.id)}
+                      onDone={() => setAdding(null)}
+                    />
+                  ) : null
+                }
+              />
+            ))}
+
+            {projects.length === 0 ? (
+              <p className="px-2.5 py-1.5 text-aside text-muted">
+                Проектов нет. Заведите первый — плюс в заголовке.
+              </p>
+            ) : null}
+          </div>
+        </SidebarSection>
+      </div>
 
       <ProjectDialog
         open={спрашиваем?.вид === "новый" || спрашиваем?.вид === "имя"}
@@ -196,13 +230,6 @@ export function RoomList({ panel }: { panel: Panel }) {
 
       <ConfirmProjectRemoval
         title={спрашиваем?.вид === "убрать" ? спрашиваем.project.title : null}
-        // Число чатов берётся из того же списка, который человек видит
-        // на экране: второго способа сосчитать здесь нет.
-        чатов={
-          спрашиваем?.вид === "убрать"
-            ? items.filter((one) => one.projectId === спрашиваем.project.id).length
-            : 0
-        }
         onCancel={закрыть}
         onConfirm={async () => {
           if (спрашиваем?.вид !== "убрать") return;

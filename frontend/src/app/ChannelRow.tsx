@@ -105,16 +105,12 @@ function Значки({ unread, mentions }: { unread: number; mentions: number }
  * заодно.
  */
 /**
- * Подменю «В проект»: в какую папку перенести этот чат (Р-032).
+ * Подменю «В проект»: куда переложить этот чат (Р-032).
  *
- * ⚠️ «УБРАТЬ ИЗ ПРОЕКТА» ОТСЮДА УБРАНО (task-037). Оно возвращало чат
- * в раздел «Каналы»; раздела не стало, и тот же пункт теперь прятал бы
- * переписку от всех, не удаляя её. Уносить чат насовсем умеет соседний
- * пункт, и он об этом честно спрашивает.
- *
- * ⚠️ «НОВЫЙ ПРОЕКТ…» ОТСЮДА УБРАН РАНЬШЕ (task-035): он открывал
- * браузерное окно `window.prompt`. Проекты заводятся плюсом в своём
- * разделе, а здесь осталось только перекладывание.
+ * ⚠️ ЗАВЕДЕНИЕ ПРОЕКТА ЖИВЁТ ЗДЕСЬ, А НЕ ПЛЮСОМ В ЗАГОЛОВКЕ ПАНЕЛИ.
+ * Папку заводят не «вообще», а когда есть что в неё положить: человек
+ * смотрит на чат и решает, что он про объект. Отдельная кнопка сверху
+ * предлагала бы завести пустую папку — и в панели появлялись бы пустые.
  */
 function ToProject({
   channel,
@@ -123,7 +119,7 @@ function ToProject({
 }: {
   channel: Conversation;
   projects: Project[];
-  onMove: (conversationId: string, projectId: string) => Promise<void>;
+  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
 }) {
   return (
     <DropdownMenuSub>
@@ -140,8 +136,21 @@ function ToProject({
             {project.title}
           </DropdownMenuItem>
         ))}
-        {projects.length < 2 ? (
-          <DropdownMenuItem disabled>Другой папки пока нет</DropdownMenuItem>
+        {/* ⚠️ «НОВЫЙ ПРОЕКТ…» ОТСЮДА УБРАН (task-035). Он открывал
+            браузерное окно `window.prompt` — чужое по виду и не знающее
+            наших тем, — и был единственным путём завести папку. Теперь
+            проекты заводятся плюсом в своём разделе, а здесь осталось
+            только перекладывание. */}
+        {projects.length === 0 ? (
+          <DropdownMenuItem disabled>Проектов пока нет</DropdownMenuItem>
+        ) : null}
+        {channel.projectId ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void onMove(channel.id, null)}>
+              Убрать из проекта
+            </DropdownMenuItem>
+          </>
         ) : null}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
@@ -159,7 +168,7 @@ export function ChannelRow({
   onRemove,
 }: {
   channel: Conversation;
-  /** Куда можно перенести. Один проект — переносить некуда. */
+  /** Куда можно переложить. Пустой список — только «Новый проект…». */
   projects: Project[];
   current: boolean;
   /** Сколько чужих реплик человек тут не видел (Р-029). */
@@ -167,7 +176,7 @@ export function ChannelRow({
   /** Сколько раз тут позвали его самого и он этого не видел (Р-031). */
   mentions: number;
   onSelect: (id: string) => void;
-  onMove: (conversationId: string, projectId: string) => Promise<void>;
+  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);

@@ -21,12 +21,7 @@ import type { Rooms } from "./useRooms.js";
  * станет вторым ответом на вопрос, у которого уже есть первый.
  */
 export interface Panel {
-  /**
-   * Корневые разговоры. Ветки в панели не живут — они внутри канала.
-   *
-   * ⚠️ ВСЕ ОНИ ЛЕЖАТ В ПРОЕКТАХ (task-037). Раздела «Каналы» больше нет,
-   * и чат без проекта показать негде — это стережёт база, а не панель.
-   */
+  /** Корневые разговоры. Ветки в панели не живут — они внутри канала. */
   items: Conversation[];
   /** Проекты, в которых человеку виден хоть один чат (Р-032). */
   projects: Project[];
@@ -36,14 +31,14 @@ export interface Panel {
   /** Сколько раз тут позвали его самого и он этого не видел (Р-031). */
   mentionsOf: (conversationId: string) => number;
   select: (conversationId: string) => void;
-  /** Завести чат внутри проекта — другого дома у него нет (task-037). */
-  addChannel: (title: string, projectId: string) => Promise<void>;
+  /** Завести канал. `projectId` — сразу внутрь проекта. */
+  addChannel: (title: string, projectId?: string) => Promise<void>;
   addProject: (title: string) => Promise<void>;
   renameProject: (id: string, title: string) => Promise<void>;
-  /** Убрать проект вместе с чатами внутри (task-037). */
+  /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
   removeProject: (id: string) => Promise<void>;
-  /** Перенести чат в другой проект. */
-  moveToProject: (conversationId: string, projectId: string) => Promise<void>;
+  /** Отнести чат к проекту либо снять принадлежность (`null`). */
+  moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
   removeChannel: (id: string) => Promise<void>;
 }
 

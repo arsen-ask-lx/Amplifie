@@ -77,10 +77,8 @@ export interface Conversation {
   title: string;
   parentId: string | null;
   /**
-   * К какому проекту относится.
-   *
-   * ⚠️ У КАНАЛА — ВСЕГДА (task-037). `null` бывает только у ветки:
-   * она живёт внутри своего канала, а не в панели.
+   * К какому проекту относится. `null` — вне проектов, и это законно
+   * (Р-032): «Общий», курилка и личка не про проект.
    */
   projectId: string | null;
   /** Когда тут в последний раз говорили. По нему сервер и сортирует. */
@@ -231,12 +229,12 @@ export const api = {
   renameProject: (id: string, title: string) =>
     request<Project>(`/v1/projects/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
 
-  /** Убрать проект вместе с чатами внутри (task-037). */
+  /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
   removeProject: (id: string) => request<void>(`/v1/projects/${id}`, { method: "DELETE" }),
 
-  /** Перенести чат в другой проект. Вне проектов чату жить негде. */
-  moveConversation: (id: string, projectId: string) =>
-    request<{ id: string; projectId: string }>(`/v1/conversations/${id}`, {
+  /** Отнести чат к проекту либо снять принадлежность (`null`). */
+  moveConversation: (id: string, projectId: string | null) =>
+    request<{ id: string; projectId: string | null }>(`/v1/conversations/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ projectId }),
     }),
@@ -368,16 +366,13 @@ export const api = {
     request<{ seq: number | null }>(`/v1/conversations/${conversationId}/mention`),
 
   /**
-   * Завести чат внутри проекта.
-   *
-   * ⚠️ ПРОЕКТ ОБЯЗАТЕЛЕН (task-037). Прежде он был необязательным, и чат
-   * без него заводился «вне проектов». Раздела «Каналы» больше нет:
-   * такой чат стал бы виден только серверу.
+   * Завести канал. `projectId` — сразу внутрь проекта (task-035): одним
+   * запросом, а не «завести и переложить».
    */
-  createChannel: (title: string, projectId: string) =>
+  createChannel: (title: string, projectId?: string) =>
     request<Conversation>("/v1/conversations", {
       method: "POST",
-      body: JSON.stringify({ title, projectId }),
+      body: JSON.stringify(projectId ? { title, projectId } : { title }),
     }),
 
   /** Ветка внутри канала. Своих участников не имеет — наследует канал. */

@@ -155,6 +155,13 @@
       "when": 1788952387238,
       "tag": "0021_chat_lives_in_project",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788952388238,
+      "tag": "0022_chat_may_live_outside_project",
+      "breakpoints": true
     }
   ]
 }

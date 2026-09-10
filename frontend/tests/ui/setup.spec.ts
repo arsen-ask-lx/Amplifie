@@ -84,7 +84,7 @@ test("после установки открывается подключени�
   await expect(page.getByRole("heading", { name: "Подключение модели" })).toBeVisible();
 
   // Продукта под мастером нет вовсе — иначе это подсказка, а не установка.
-  await expect(page.getByRole("button", { name: "Новый проект" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Новый чат", exact: true })).toBeHidden();
 });
 
 test("предлагаются оба способа, и у каждого названо условие", async ({ page }) => {
@@ -105,7 +105,7 @@ test("пропустивший подключение оказывается в 
 
   // Не «нет ошибки», а работающий продукт: канал на месте и в него
   // можно говорить.
-  await expect(page.getByRole("button", { name: "Новый проект" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Новый чат", exact: true })).toBeVisible();
   await expect(field(page)).toBeVisible();
 });
 

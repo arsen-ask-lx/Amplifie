@@ -132,17 +132,10 @@ async function main() {
       [wid, записи[0].id],
     );
     const pid = люди[0].id;
-    // Чат живёт только в проекте (task-037), и это стережёт CHECK: без
-    // папки замер не завёлся бы вовсе.
-    const { rows: папки } = await клиент.query(
-      `INSERT INTO project (workspace_id, title) VALUES ($1, 'Замер') RETURNING id`,
-      [wid],
-    );
     const { rows: разговоры } = await клиент.query(
-      `INSERT INTO conversation (workspace_id, kind, title, project_id)
-       VALUES ($1, 'channel', 'Замер', $2)
+      `INSERT INTO conversation (workspace_id, kind, title) VALUES ($1, 'channel', 'Замер')
        RETURNING id`,
-      [wid, папки[0].id],
+      [wid],
     );
     const cid = разговоры[0].id;
     await клиент.query(

@@ -22,17 +22,24 @@ export interface Rooms {
   projects: Project[];
   /** Перечитать. Возвращает то же, что положил в состояние. */
   reload: () => Promise<Conversation[]>;
-  /** Завести чат внутри проекта. Вне проекта чату жить негде (task-037). */
-  addChannel: (title: string, projectId: string) => Promise<void>;
+  /**
+   * Завести канал. `projectId` — сразу внутрь проекта (task-035).
+   *
+   * ⚠️ ОДНА ФУНКЦИЯ С НЕОБЯЗАТЕЛЬНЫМ ДОВОДОМ, А НЕ ДВЕ. «Завести канал»
+   * и «завести канал в проекте» — одно знание с разной подробностью;
+   * двумя функциями они разъехались бы на первой правке, и одна из них
+   * перестала бы, скажем, открывать заведённое.
+   */
+  addChannel: (title: string, projectId?: string) => Promise<void>;
   removeChannel: (id: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
   /** Завести проект. */
   addProject: (title: string) => Promise<void>;
   renameProject: (id: string, title: string) => Promise<void>;
-  /** Убрать проект вместе с чатами внутри (task-037). */
+  /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
   removeProject: (id: string) => Promise<void>;
-  /** Перенести чат в другой проект. */
-  moveToProject: (conversationId: string, projectId: string) => Promise<void>;
+  /** Отнести чат к проекту либо снять принадлежность (`null`). */
+  moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
 }
 
 export function useRooms(where: Address): Rooms {
@@ -64,7 +71,7 @@ export function useRooms(where: Address): Rooms {
   );
 
   const addChannel = useCallback(
-    async (title: string, projectId: string) => {
+    async (title: string, projectId?: string) => {
       await openNew(() => api.createChannel(title, projectId));
     },
     [openNew],
@@ -124,28 +131,22 @@ export function useRooms(where: Address): Rooms {
   );
 
   /**
-   * Убрать проект вместе с чатами внутри (task-037).
+   * Убрать проект.
    *
-   * ⚠️ ЕСЛИ ОТКРЫТ БЫЛ ЧАТ ИЗ НЕГО — уводим на первый оставшийся, ровно
-   * как при удалении канала. Иначе человек остаётся на адресе чата,
-   * которого сервер больше не отдаёт, и видит «Загружаем…» навсегда.
-   * Пока папка уносила только себя, этого случиться не могло.
+   * ⚠️ ЧАТЫ НИКУДА НЕ ДЕВАЮТСЯ — их возвращает наружу сервер, и панель
+   * просто перечитывается. Убирать их здесь руками значило бы завести
+   * второй ответ на вопрос «где теперь этот чат».
    */
   const removeProject = useCallback(
     async (id: string) => {
-      const унесённые = new Set(items.filter((one) => one.projectId === id).map((one) => one.id));
       await api.removeProject(id);
-      const fresh = await reload();
-      const открыт = currentIdRef.current;
-      if (открыт === null || !унесённые.has(открыт)) return;
-      const next = fresh.find((room) => room.parentId === null);
-      navigate(next ? `/c/${next.id}` : "/", { replace: true });
+      await reload();
     },
-    [items, reload, navigate, currentIdRef],
+    [reload],
   );
 
   const moveToProject = useCallback(
-    async (conversationId: string, projectId: string) => {
+    async (conversationId: string, projectId: string | null) => {
       await api.moveConversation(conversationId, projectId);
       await reload();
     },
