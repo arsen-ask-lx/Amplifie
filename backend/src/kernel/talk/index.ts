@@ -1,6 +1,13 @@
 export { ConversationNotVisibleError, type Viewer } from "./access.js";
 export { MentionNotAllowedError, peopleToMention, whereMentioned } from "./mentions.js";
-export { createProject, type ScopeFeed, scopeFeed, setProject } from "./projects.js";
+export {
+  createProject,
+  removeProject,
+  renameProject,
+  type ScopeFeed,
+  scopeFeed,
+  setProject,
+} from "./projects.js";
 export {
   createChannel,
   createDefaultChannel,

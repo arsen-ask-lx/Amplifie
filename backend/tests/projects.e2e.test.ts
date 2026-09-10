@@ -139,6 +139,22 @@ async function newChannel(
   return (await response.json()) as Conversation;
 }
 
+/** Завести канал СРАЗУ внутри проекта — одним запросом (task-035). */
+async function newChannelIn(person: Person, title: string, projectId: string): Promise<Response> {
+  return post("/v1/conversations", { title, projectId }, person);
+}
+
+async function renameProject(person: Person, id: string, title: string): Promise<Response> {
+  return patch(`/v1/projects/${id}`, { title }, person);
+}
+
+async function removeProject(person: Person, id: string): Promise<Response> {
+  return fetch(`${BASE}/v1/projects/${id}`, {
+    method: "DELETE",
+    headers: { cookie: person.cookie },
+  });
+}
+
 /** Отнести чат к проекту либо снять (`null`). */
 async function toProject(
   person: Person,
@@ -341,11 +357,84 @@ describe("проекты", () => {
       expect(где?.projectId, "чат не вышел из проекта").toBeNull();
     });
 
+    it("чат заводится СРАЗУ в проекте, одним запросом", async () => {
+      const хозяин = await newPerson("Хозяин");
+      const проект = await newProject(хозяин, "Объект");
+
+      const ответ = await newChannelIn(хозяин, "Смета", проект.id);
+      expect(ответ.status).toBe(201);
+      const создан = (await ответ.json()) as Conversation;
+      expect(создан.projectId, "заводка в проект вернула чат без принадлежности").toBe(проект.id);
+
+      const где = (await conversations(хозяин)).find((one) => one.id === создан.id);
+      expect(где?.projectId).toBe(проект.id);
+    });
+
+    it("чат в чужой проект не заводится", async () => {
+      const хозяин = await newPerson("Хозяин");
+      const чужой = await newPerson("Чужой");
+      const проект = await newProject(хозяин, "Объект");
+
+      const ответ = await newChannelIn(чужой, "Свой", проект.id);
+      expect(ответ.status, "канал завели в проект другого пространства").toBe(404);
+    });
+
     it("новый чат заводится вне проектов", async () => {
       const хозяин = await newPerson("Хозяин");
       const чат = await newChannel(хозяин, "Просто чат");
       const где = (await conversations(хозяин)).find((one) => one.id === чат.id);
       expect(где?.projectId).toBeNull();
+    });
+  });
+
+  describe("переименование и удаление", () => {
+    it("проект переименовывается", async () => {
+      const хозяин = await newPerson("Хозяин");
+      const проект = await newProject(хозяин, "Объект");
+      const чат = await newChannel(хозяин, "Смета");
+      await toProject(хозяин, чат.id, проект.id);
+
+      expect((await renameProject(хозяин, проект.id, "Второй объект")).status).toBe(200);
+      const виден = (await projects(хозяин)).find((one) => one.id === проект.id);
+      expect(виден?.title).toBe("Второй объект");
+    });
+
+    it("убрать проект — чаты живы и вне проектов", async () => {
+      const хозяин = await newPerson("Хозяин");
+      const проект = await newProject(хозяин, "Объект");
+      const первый = await newChannel(хозяин, "Смета");
+      const второй = await newChannel(хозяин, "Кровля");
+      await toProject(хозяин, первый.id, проект.id);
+      await toProject(хозяин, второй.id, проект.id);
+      await say(хозяин, первый.id, "важные слова");
+
+      expect((await removeProject(хозяин, проект.id)).status).toBe(204);
+
+      expect(
+        (await projects(хозяин)).map((one) => one.id),
+        "убранный проект остался в панели",
+      ).not.toContain(проект.id);
+
+      const список = await conversations(хозяин);
+      for (const id of [первый.id, второй.id]) {
+        const чат = список.find((one) => one.id === id);
+        expect(чат, "чат исчез вместе с папкой — худшая трактовка слова «убрать»").toBeDefined();
+        expect(чат?.projectId, "чат остался привязан к убранному проекту").toBeNull();
+      }
+
+      const лента = await get(`/v1/conversations/${первый.id}/messages`, хозяин);
+      expect(лента.status, "переписка убранного проекта не читается").toBe(200);
+      const тело = (await лента.json()) as { items: { body: string }[] };
+      expect(тело.items.map((one) => one.body)).toContain("важные слова");
+    });
+
+    it("чужой проект не убрать и не переименовать", async () => {
+      const хозяин = await newPerson("Хозяин");
+      const чужой = await newPerson("Чужой");
+      const проект = await newProject(хозяин, "Объект");
+
+      expect((await removeProject(чужой, проект.id)).status).toBe(404);
+      expect((await renameProject(чужой, проект.id, "моё")).status).toBe(404);
     });
   });
 });

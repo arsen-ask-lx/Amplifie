@@ -2,14 +2,16 @@ import { expect, type Page, test } from "@playwright/test";
 import { createChannel, invited, openChannel, register, say } from "./fixtures.js";
 
 /**
- * СЦЕНАРИИ ПРОЕКТОВ (Р-032, task-034).
+ * СЦЕНАРИИ ПРОЕКТОВ (Р-032, task-035).
  *
- * Проверяют то, чего приёмочная по протоколу не видит:
- *   ① чат действительно переезжает в папку и обратно — глазами человека,
- *      через меню, а не через ручку;
- *   ② СВЁРНУТАЯ папка говорит числами. Это главное в её пользе: свернул
- *      и ослеп — значит сворачивать никто не станет, и второй уровень
- *      панели окажется мёртвым.
+ * ⚠️ ПРОЕКТ — ЭТО МЕСТО, ГДЕ ЧАТ РОЖДАЕТСЯ, а не папка, куда его потом
+ * перекладывают. Разница не косметическая: «завести канал, потом
+ * отнести» заставляет человека решать, о чём был разговор, ПОСЛЕ
+ * разговора. Владелец показал устройство Codex и назвал верный порядок —
+ * сперва называют дело, потом говорят о нём.
+ *
+ * Перекладывание при этом остаётся: чат может переехать. Оно просто
+ * перестало быть единственным путём.
  *
  * Бьёт по собранному образу. Перед запуском: make up
  */
@@ -18,30 +20,112 @@ function канал(page: Page, title: string) {
   return page.getByRole("button", { name: new RegExp(`^${title}`) });
 }
 
-/** Переложить чат через меню трёх точек. */
-async function вПроект(page: Page, channel: string, куда: string): Promise<void> {
-  await page.getByRole("button", { name: `Что сделать с каналом «${channel}»` }).click();
-  await page.getByRole("menuitem", { name: "В проект" }).click();
-  await page.getByRole("menuitem", { name: куда, exact: true }).click();
+function папка(page: Page, title: string) {
+  return page.getByRole("button", { name: new RegExp(`^${title}`) });
 }
 
-test("чат переезжает в проект и возвращается обратно", async ({ page }) => {
+/** Завести проект плюсом в разделе «Проекты» — нашим окном, не браузерным. */
+async function завестиПроект(page: Page, title: string): Promise<void> {
+  await page.getByRole("button", { name: "Новый проект" }).click();
+  await page.getByLabel("Название проекта").fill(title);
+  await page.getByLabel("Название проекта").press("Enter");
+  await expect(папка(page, title)).toBeVisible();
+}
+
+/** Действие из меню проекта. */
+async function вМенюПроекта(page: Page, project: string, пункт: string): Promise<void> {
+  await page.getByRole("button", { name: `Что сделать с проектом «${project}»` }).click();
+  await page.getByRole("menuitem", { name: пункт }).click();
+}
+
+test("панель делится на проекты и каналы, а у проектов свой плюс", async ({ page }) => {
   await register(page, "Хозяин");
-  await createChannel(page, "Смета");
 
-  // Заводим проект прямо из меню чата: папку заводят, когда есть что
-  // в неё положить.
-  page.once("dialog", (диалог) => void диалог.accept("Объект"));
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
-  await page.getByRole("menuitem", { name: "В проект" }).click();
-  await page.getByRole("menuitem", { name: "Новый проект…" }).click();
+  /**
+   * ⚠️ РАЗДЕЛ «ПРОЕКТЫ» ВИДЕН ВСЕГДА, ДАЖЕ ПУСТОЙ, И ЭТО ОТСТУПЛЕНИЕ
+   * ОТ ПЛАНА. План обещал: у кого проектов нет — панель как прежде.
+   * При сборке выяснилось, что тогда первый проект нечем завести:
+   * плюс живёт в заголовке раздела, а раздела нет. Прятать вход
+   * от того, у кого ещё ничего нет, — значит прятать саму возможность.
+   * Цена отступления — одна строка заголовка; у Codex этот раздел
+   * тоже стоит всегда.
+   */
+  const пусто = page.getByText("Проектов нет. Заведите первый — плюс в заголовке.");
+  await expect(пусто, "пустой раздел проектов не объясняет себя").toBeVisible();
 
-  const папка = page.getByRole("button", { name: /^Объект/ });
-  await expect(папка, "проект не появился в панели").toBeVisible();
-  await expect(канал(page, "Смета"), "чат пропал из панели вместе с переездом").toBeVisible();
+  await завестиПроект(page, "Объект");
 
-  await вПроект(page, "Смета", "Убрать из проекта");
+  await expect(пусто, "подсказка осталась при заведённом проекте").toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Каналы" })).toBeVisible();
+});
+
+test("чат заводится ВНУТРИ проекта, а не снаружи", async ({ page }) => {
+  await register(page, "Хозяин");
+  await завестиПроект(page, "Объект");
+
+  // Кнопка живёт внутри развёрнутой папки — там, где человек уже смотрит.
+  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
+  await page.getByLabel("Название нового канала").fill("Смета");
+  await page.getByLabel("Название нового канала").press("Enter");
+
   await expect(канал(page, "Смета")).toBeVisible();
+
+  /**
+   * ⚠️ ПРОВЕРЯЕМ ПРИНАДЛЕЖНОСТЬ, А НЕ КАРТИНКУ. «Виден в панели» — слабое
+   * утверждение: он виден и снаружи проекта. Настоящее свойство одно —
+   * чат отнесён к проекту, и его говорит сервер.
+   */
+  const принадлежность = await page.evaluate(async () => {
+    const ответ = await fetch("/v1/conversations", { credentials: "include" }).then((r) =>
+      r.json(),
+    );
+    const чат = ответ.items.find((one: { title: string }) => one.title === "Смета");
+    const проект = ответ.projects.find((one: { title: string }) => one.title === "Объект");
+    return { чат: чат?.projectId ?? null, проект: проект?.id ?? null };
+  });
+  expect(принадлежность.чат, "чат завели внутри проекта, а он оказался снаружи").toBe(
+    принадлежность.проект,
+  );
+});
+
+test("проект переименовывается, и это видно во второй вкладке", async ({ page, browser }) => {
+  await register(page, "Хозяин");
+  await завестиПроект(page, "Объект");
+
+  const другой = await browser.newPage();
+  await invited(другой, page, "Коллега");
+  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
+  await page.getByLabel("Название нового канала").fill("Смета");
+  await page.getByLabel("Название нового канала").press("Enter");
+  await expect(папка(другой, "Объект")).toBeVisible();
+
+  await вМенюПроекта(page, "Объект", "Переименовать");
+  await page.getByLabel("Название проекта").fill("Второй объект");
+  await page.getByLabel("Название проекта").press("Enter");
+
+  await expect(папка(page, "Второй объект")).toBeVisible();
+  await expect(папка(другой, "Второй объект"), "переименование не доехало").toBeVisible();
+});
+
+test("убрать проект — переписка цела и лежит снаружи", async ({ page }) => {
+  await register(page, "Хозяин");
+  await завестиПроект(page, "Объект");
+  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
+  await page.getByLabel("Название нового канала").fill("Смета");
+  await page.getByLabel("Название нового канала").press("Enter");
+  await openChannel(page, "Смета");
+  await say(page, "важные слова");
+
+  await вМенюПроекта(page, "Объект", "Убрать проект");
+  // ⚠️ СПРАШИВАЕМ, И В ВОПРОСЕ СКАЗАНО, ЧТО ЧАТЫ ОСТАНУТСЯ. Иначе слово
+  // «убрать» человек прочтёт как «удалить переписку».
+  await expect(page.getByText(/чаты останутся/u)).toBeVisible();
+  await page.getByRole("button", { name: "Убрать" }).click();
+
+  await expect(папка(page, "Объект"), "проект остался в панели").toHaveCount(0);
+  await expect(канал(page, "Смета"), "чат исчез вместе с папкой").toBeVisible();
+  await openChannel(page, "Смета");
+  await expect(page.getByText("важные слова"), "переписка пропала").toBeVisible();
 });
 
 test("свёрнутый проект показывает, что внутри новое", async ({ page, browser }) => {
@@ -52,13 +136,11 @@ test("свёрнутый проект показывает, что внутри 
   await invited(другой, page, "Коллега");
   await openChannel(другой, "Общий");
 
-  page.once("dialog", (диалог) => void диалог.accept("Объект"));
+  await завестиПроект(page, "Объект");
   await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
   await page.getByRole("menuitem", { name: "В проект" }).click();
-  await page.getByRole("menuitem", { name: "Новый проект…" }).click();
-  await expect(page.getByRole("button", { name: /^Объект/ })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
-  // Хозяин говорит в «Смете», коллега этого не видел.
   await openChannel(page, "Смета");
   await say(page, "первая реплика");
   await say(page, "вторая реплика");
@@ -68,17 +150,14 @@ test("свёрнутый проект показывает, что внутри 
    * «Смету» — сработали бы три условия отметки (Р-029), всё погасло бы,
    * и проверять стало бы нечего.
    */
-  const папка = другой.getByRole("button", { name: /^Объект/ });
-  await expect(папка).toBeVisible();
+  const свёрток = папка(другой, "Объект");
+  await expect(свёрток).toBeVisible();
   await expect(канал(другой, "Смета"), "чат проекта не виден развёрнутым").toBeVisible();
 
-  await папка.click();
+  await свёрток.click();
   await expect(канал(другой, "Смета"), "проект свернулся, а чат остался на виду").toBeHidden();
   await expect(
-    папка,
+    свёрток,
     "свёрнутая папка молчит о новом — сворачивать её никто не станет",
   ).toHaveAccessibleName(/непрочитанных: 2/u);
-
-  await папка.click();
-  await expect(канал(другой, "Смета"), "проект не развернулся обратно").toBeVisible();
 });

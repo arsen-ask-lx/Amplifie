@@ -225,6 +225,13 @@ export const api = {
   addProject: (title: string) =>
     request<Project>("/v1/projects", { method: "POST", body: JSON.stringify({ title }) }),
 
+  /** Переименовать проект. */
+  renameProject: (id: string, title: string) =>
+    request<Project>(`/v1/projects/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+
+  /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
+  removeProject: (id: string) => request<void>(`/v1/projects/${id}`, { method: "DELETE" }),
+
   /** Отнести чат к проекту либо снять принадлежность (`null`). */
   moveConversation: (id: string, projectId: string | null) =>
     request<{ id: string; projectId: string | null }>(`/v1/conversations/${id}`, {

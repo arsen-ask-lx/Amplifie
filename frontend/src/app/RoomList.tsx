@@ -1,18 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import type { Conversation } from "../data/api.js";
+import { useState } from "react";
+import type { Conversation, Project } from "../data/api.js";
 import type { Panel } from "../data/usePanel.js";
-import { Button } from "../shared/ui/button.js";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../shared/ui/dialog.js";
-import { Input } from "../shared/ui/input.js";
+import { ConfirmRemoval, NewChannel } from "./ChannelAsks.js";
 import { ChannelRow } from "./ChannelRow.js";
+import { ConfirmProjectRemoval, ProjectDialog } from "./ProjectDialog.js";
 import { ProjectRow } from "./ProjectRow.js";
 import { SidebarSection } from "./SidebarSection.js";
 
@@ -32,53 +23,6 @@ import { SidebarSection } from "./SidebarSection.js";
  * но владелец сказал «точно не в боковой панели», и это его решение,
  * а не недосмотр.
  */
-
-/** Поле нового канала: заводится на месте, в самой секции. */
-function NewChannel({
-  onCreate,
-  onDone,
-}: {
-  onCreate: (title: string) => Promise<void>;
-  onDone: () => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
-  const field = useRef<HTMLInputElement>(null);
-
-  useEffect(() => field.current?.focus(), []);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const name = title.trim();
-    if (!name || busy) return;
-    setBusy(true);
-    try {
-      await onCreate(name);
-      onDone();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form onSubmit={(event) => void submit(event)} className="px-1 py-0.5">
-      <Input
-        ref={field}
-        value={title}
-        disabled={busy}
-        placeholder="название канала"
-        aria-label="Название нового канала"
-        maxLength={120}
-        onChange={(event) => setTitle(event.target.value)}
-        onKeyDown={(event) => event.key === "Escape" && onDone()}
-        // Пустое поле, потерявшее фокус, закрывается само: держать
-        // на экране то, что человек уже мысленно закрыл, — мусор.
-        onBlur={() => !title.trim() && onDone()}
-        className="h-7 border-accent bg-card px-2"
-      />
-    </form>
-  );
-}
 
 /**
  * Какие проекты свёрнуты. Переживает перезагрузку страницы.
@@ -129,8 +73,24 @@ function useСвёрнутые() {
  */
 export function RoomList({ panel }: { panel: Panel }) {
   const { items, projects, currentId, unreadOf, mentionsOf } = panel;
-  const [adding, setAdding] = useState(false);
+  /**
+   * Где заводим канал: `null` — не заводим, `""` — вне проектов,
+   * иначе номер проекта. Одно состояние вместо флажка и номера рядом.
+   */
+  const [adding, setAdding] = useState<string | null>(null);
   const { свёрнуты, свернуть } = useСвёрнутые();
+
+  /**
+   * Что спрашиваем про проекты прямо сейчас.
+   *
+   * ⚠️ ОДНО СОСТОЯНИЕ НА ТРИ ОКНА, А НЕ ТРИ ФЛАЖКА. Заводим, переименовываем
+   * и убираем — вещи взаимоисключающие: два таких окна не бывают открыты
+   * разом. Тремя флажками это состояние однажды оказалось бы в двух
+   * значениях сразу.
+   */
+  const [спрашиваем, setСпрашиваем] = useState<
+    { вид: "новый" } | { вид: "имя"; project: Project } | { вид: "убрать"; project: Project } | null
+  >(null);
   /**
    * Какой канал спрашиваем «точно удалить?».
    *
@@ -151,6 +111,8 @@ export function RoomList({ panel }: { panel: Panel }) {
    * ⚠️ ФУНКЦИЕЙ, А НЕ ДВУМЯ КУСКАМИ РАЗМЕТКИ. Два куска разъедутся
    * на первой же правке — у одного появится значок, у другого нет.
    */
+  const закрыть = () => setСпрашиваем(null);
+
   const строка = (channel: Conversation) => (
     <ChannelRow
       key={channel.id}
@@ -167,16 +129,15 @@ export function RoomList({ panel }: { panel: Panel }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <SidebarSection title="Каналы" addLabel="Новый канал" onAdd={() => setAdding(true)}>
-        <div className="hide-scroll flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
-          {adding ? (
-            <NewChannel onCreate={panel.addChannel} onDone={() => setAdding(false)} />
-          ) : null}
-
-          {/* ⚠️ ПРОЕКТЫ СВЕРХУ, ОДИНОЧКИ СНИЗУ. Папка — это про предмет,
-              и предметное идёт первым; «Общий» и курилка живут под ними,
-              как и было до проектов. У кого проектов нет, панель прежняя
-              знак в знак. */}
+      {/* ⚠️ ДВА РАЗДЕЛА, А НЕ ОДИН С ПАПКАМИ ВНУТРИ (task-035). Секция
+          называлась «Каналы» и первым делом показывала проекты — вывеска
+          врала. Проект — это про предмет, и предметное идёт первым. */}
+      <SidebarSection
+        title="Проекты"
+        addLabel="Новый проект"
+        onAdd={() => setСпрашиваем({ вид: "новый" })}
+      >
+        <div className="flex flex-col gap-0.5">
           {projects.map((project) => (
             <ProjectRow
               key={project.id}
@@ -184,21 +145,67 @@ export function RoomList({ panel }: { panel: Panel }) {
               channels={items.filter((one) => one.projectId === project.id)}
               collapsed={свёрнуты.has(project.id)}
               onToggle={() => свернуть(project.id)}
+              onAddChat={() => setAdding(project.id)}
+              onRename={() => setСпрашиваем({ вид: "имя", project })}
+              onRemove={() => setСпрашиваем({ вид: "убрать", project })}
               unreadOf={unreadOf}
               mentionsOf={mentionsOf}
               renderChannel={строка}
             />
           ))}
 
-          {внеПроектов.map((channel) => строка(channel))}
-
-          {items.length === 0 && projects.length === 0 && !adding ? (
-            <p className="px-2.5 py-2 text-aside text-muted">
-              Каналов нет. Заведите первый — плюс в заголовке.
+          {projects.length === 0 ? (
+            <p className="px-2.5 py-1.5 text-aside text-muted">
+              Проектов нет. Заведите первый — плюс в заголовке.
             </p>
           ) : null}
         </div>
       </SidebarSection>
+
+      <SidebarSection title="Каналы" addLabel="Новый канал" onAdd={() => setAdding("")}>
+        <div className="hide-scroll flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+          {adding !== null ? (
+            <NewChannel
+              // Пустая строка — «вне проектов»: канал заводится там же,
+              // где и раньше. Иначе — сразу внутрь названной папки.
+              onCreate={(title) => panel.addChannel(title, adding || undefined)}
+              onDone={() => setAdding(null)}
+            />
+          ) : null}
+
+          {внеПроектов.map((channel) => строка(channel))}
+
+          {внеПроектов.length === 0 && adding === null ? (
+            <p className="px-2.5 py-2 text-aside text-muted">Каналов вне проектов нет.</p>
+          ) : null}
+        </div>
+      </SidebarSection>
+
+      <ProjectDialog
+        open={спрашиваем?.вид === "новый" || спрашиваем?.вид === "имя"}
+        title={спрашиваем?.вид === "имя" ? "Переименовать проект" : "Новый проект"}
+        было={спрашиваем?.вид === "имя" ? спрашиваем.project.title : ""}
+        кнопка={спрашиваем?.вид === "имя" ? "Переименовать" : "Завести"}
+        // ⚠️ КЛЮЧ ПО СЛУЧАЮ: без него поле помнит прежнее имя, когда окно
+        // открывают второй раз с другим проектом.
+        key={спрашиваем?.вид === "имя" ? спрашиваем.project.id : "новый"}
+        onSubmit={async (title) => {
+          if (спрашиваем?.вид === "имя") await panel.renameProject(спрашиваем.project.id, title);
+          else await panel.addProject(title);
+        }}
+        onClose={закрыть}
+      />
+
+      <ConfirmProjectRemoval
+        title={спрашиваем?.вид === "убрать" ? спрашиваем.project.title : null}
+        onCancel={закрыть}
+        onConfirm={async () => {
+          if (спрашиваем?.вид !== "убрать") return;
+          const id = спрашиваем.project.id;
+          закрыть();
+          await panel.removeProject(id);
+        }}
+      />
 
       <ConfirmRemoval
         channel={removing}
@@ -209,77 +216,5 @@ export function RoomList({ panel }: { panel: Panel }) {
         }}
       />
     </div>
-  );
-}
-
-/**
- * Строка канала: название и три точки справа.
- *
- * ⚠️ ТРИ ТОЧКИ, А НЕ ПРАВАЯ КНОПКА. Сначала действия висели на правой
- * кнопке — как у реплики в ленте. Владелец сказал прямо: неудобно, и он
- * прав. Правая кнопка не видна: о ней надо ЗНАТЬ. В ленте это терпимо —
- * там так у Телеграма, и человек приходит с этой привычкой; в боковой
- * панели привычка другая, её задали ChatGPT и Claude, и там действия
- * живут на трёх точках.
- *
- * ⚠️ ТОЧКИ ПОЯВЛЯЮТСЯ ПО НАВЕДЕНИЮ, но остаются видимыми, пока меню
- * открыто или на них фокус. Иначе меню открывалось бы и тут же теряло
- * свою кнопку, а с клавиатуры до неё было бы не добраться вовсе.
- *
- * ⚠️ ДВЕ КНОПКИ РЯДОМ, А НЕ КНОПКА В КНОПКЕ. Вложенная кнопка — неверная
- * разметка: браузер её распрямляет, и нажатие на точки выбирало бы канал
- * заодно.
- */
-
-/**
- * «Точно удалить канал?» — своим окном, а не `window.confirm`.
- *
- * Родное окно браузера рисуется поверх страницы чужим видом, не знает
- * наших тем и на Windows выглядит как ошибка системы, а не как вопрос
- * приложения. Здесь тот же вид, что и у остального.
- */
-function ConfirmRemoval({
-  channel,
-  onCancel,
-  onConfirm,
-}: {
-  channel: Conversation | null;
-  onCancel: () => void;
-  onConfirm: (id: string) => Promise<void>;
-}) {
-  if (!channel) return null;
-  return (
-    // Общее окно, а не свой `div role="dialog"`: ловушка фокуса, Escape
-    // и блокировка прокрутки фона живут в одном месте (`ui/dialog.tsx`).
-    <Dialog open onOpenChange={(открыто) => !открыто && onCancel()}>
-      <DialogContent className="sm:max-w-96">
-        <DialogHeader>
-          <DialogTitle>Удалить «{channel.title}»?</DialogTitle>
-          <DialogDescription>
-            Канал исчезнет у всех, кто его видит, вместе со всей перепиской. Вернуть его из
-            приложения будет нельзя.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="button" variant="ghost">
-              Отмена
-            </Button>
-          </DialogClose>
-          {/* ⚠️ ФОКУС НА «УДАЛИТЬ», И ЭТО НЕ ОПЕЧАТКА. Окно открывается
-              из меню, где человек уже выбрал «удалить канал»: он пришёл
-              сюда подтвердить, а не передумать. Отмена рядом и достижима
-              и мышью, и Escape. */}
-          <Button
-            type="button"
-            variant="destructive"
-            autoFocus
-            onClick={() => void onConfirm(channel.id)}
-          >
-            Удалить
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

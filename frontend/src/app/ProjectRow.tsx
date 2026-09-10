@@ -1,5 +1,13 @@
-import { CaretDown, CaretRight, FolderSimple } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, DotsThree, FolderSimple, Plus } from "@phosphor-icons/react";
+import { useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../shared/ui/dropdown-menu.js";
 
 /**
  * Проект в боковой панели: заголовок и его чаты (Р-032).
@@ -42,11 +50,57 @@ function Сводка({ unread, mentions }: { unread: number; mentions: number }
   );
 }
 
+/**
+ * Меню проекта: переименовать и убрать.
+ *
+ * ⚠️ ТРИ ТОЧКИ, КАК У КАНАЛА, И НЕ СЛУЧАЙНО. Действия над строкой панели
+ * живут в одном и том же месте — иначе человеку приходится помнить,
+ * у чего они справа, а у чего по правой кнопке.
+ */
+function МенюПроекта({
+  project,
+  onRename,
+  onRemove,
+}: {
+  project: Project;
+  onRename: () => void;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Что сделать с проектом «${project.title}»`}
+          className={[
+            "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
+            "hover:bg-selected hover:text-ink focus-visible:opacity-100",
+            open ? "opacity-100" : "opacity-0 group-hover/project:opacity-100",
+          ].join(" ")}
+        >
+          <DotsThree className="size-4" weight="bold" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuItem onSelect={onRename}>Переименовать</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+          Убрать проект
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ProjectRow({
   project,
   channels,
   collapsed,
   onToggle,
+  onAddChat,
+  onRename,
+  onRemove,
   unreadOf,
   mentionsOf,
   renderChannel,
@@ -56,6 +110,10 @@ export function ProjectRow({
   channels: Conversation[];
   collapsed: boolean;
   onToggle: () => void;
+  /** Завести чат ВНУТРИ этого проекта (task-035). */
+  onAddChat: () => void;
+  onRename: () => void;
+  onRemove: () => void;
   unreadOf: (conversationId: string) => number;
   mentionsOf: (conversationId: string) => number;
   renderChannel: (channel: Conversation) => React.ReactNode;
@@ -64,31 +122,47 @@ export function ProjectRow({
     channels.reduce((всего, one) => всего + счёт(one.id), 0);
 
   return (
-    <div className="flex flex-col gap-0.5">
-      <button
-        type="button"
-        aria-expanded={!collapsed}
-        onClick={onToggle}
-        className="flex items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-aside text-muted transition-colors hover:bg-raised hover:text-ink"
-      >
-        {collapsed ? (
-          <CaretRight className="size-3 shrink-0" weight="bold" />
-        ) : (
-          <CaretDown className="size-3 shrink-0" weight="bold" />
-        )}
-        <FolderSimple className="size-4 shrink-0 opacity-60" />
-        <span className="truncate font-medium">{project.title}</span>
-        {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
+    <div className="group/project flex flex-col gap-0.5">
+      <div className="flex items-center rounded pr-1 transition-colors hover:bg-raised">
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-aside text-muted transition-colors hover:text-ink"
+        >
+          {collapsed ? (
+            <CaretRight className="size-3 shrink-0" weight="bold" />
+          ) : (
+            <CaretDown className="size-3 shrink-0" weight="bold" />
+          )}
+          <FolderSimple className="size-4 shrink-0 opacity-60" />
+          <span className="truncate font-medium">{project.title}</span>
+          {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
             на самих чатах, и повторять их сверху значит сказать дважды. */}
-        {collapsed ? <Сводка unread={сумма(unreadOf)} mentions={сумма(mentionsOf)} /> : null}
-      </button>
+          {collapsed ? <Сводка unread={сумма(unreadOf)} mentions={сумма(mentionsOf)} /> : null}
+        </button>
+
+        <МенюПроекта project={project} onRename={onRename} onRemove={onRemove} />
+      </div>
 
       {collapsed ? null : (
         <div className="flex flex-col gap-0.5 pl-3">
           {channels.map((channel) => renderChannel(channel))}
-          {channels.length === 0 ? (
-            <p className="px-2.5 py-1.5 text-aside text-muted">Пусто. Перенесите сюда чат.</p>
-          ) : null}
+
+          {/* ⚠️ ЗАВОДКА ЧАТА ЖИВЁТ ВНУТРИ ПАПКИ, А НЕ СНАРУЖИ (task-035).
+              Проект — это место, где чат РОЖДАЕТСЯ: человек сперва
+              называет дело, потом говорит о нём. Кнопка стоит там, куда
+              он уже смотрит, и заводит канал сразу с принадлежностью —
+              одним запросом, а не «завести и переложить». */}
+          <button
+            type="button"
+            onClick={onAddChat}
+            aria-label={`Новый чат в проекте «${project.title}»`}
+            className="flex items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-aside text-muted transition-colors hover:bg-raised hover:text-ink"
+          >
+            <Plus className="size-3.5 shrink-0" weight="bold" />
+            Новый чат
+          </button>
         </div>
       )}
     </div>

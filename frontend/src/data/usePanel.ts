@@ -34,6 +34,9 @@ export interface Panel {
   /** Завести канал. `projectId` — сразу внутрь проекта. */
   addChannel: (title: string, projectId?: string) => Promise<void>;
   addProject: (title: string) => Promise<void>;
+  renameProject: (id: string, title: string) => Promise<void>;
+  /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
+  removeProject: (id: string) => Promise<void>;
   /** Отнести чат к проекту либо снять принадлежность (`null`). */
   moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
   removeChannel: (id: string) => Promise<void>;
@@ -62,6 +65,8 @@ export function usePanel(input: {
       select,
       addChannel: rooms.addChannel,
       addProject: rooms.addProject,
+      renameProject: rooms.renameProject,
+      removeProject: rooms.removeProject,
       moveToProject: rooms.moveToProject,
       removeChannel: rooms.removeChannel,
     }),

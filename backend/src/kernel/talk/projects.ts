@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { publish } from "../../platform/bus.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
@@ -54,9 +55,16 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
     .orderBy(asc(project.title));
 }
 
-/** Завести проект. Прав он не несёт, поэтому и заводить его может любой. */
+/**
+ * Завести проект. Прав он не несёт, поэтому и заводить его может любой.
+ *
+ * ⚠️ ЗВОНОК ПОСЛЕ ФИКСАЦИИ — КАК У КАНАЛА. Панель у всех, кто видит
+ * пространство, обязана обновиться без перезагрузки страницы. Без звонка
+ * заведённый проект появлялся бы у соседа только назавтра; поймано
+ * сценарием «переименование доезжает до второй вкладки».
+ */
 export async function createProject(viewer: Viewer, title: string): Promise<{ id: string }> {
-  return withTransaction(async (tx) => {
+  const created = await withTransaction(async (tx) => {
     const rows = await tx
       .insert(project)
       .values({ workspaceId: viewer.workspaceId, title })
@@ -74,6 +82,9 @@ export async function createProject(viewer: Viewer, title: string): Promise<{ id
     });
     return created;
   });
+
+  publish(viewer.workspaceId);
+  return created;
 }
 
 /**
@@ -88,28 +99,105 @@ export async function createProject(viewer: Viewer, title: string): Promise<{ id
  * Не найдено и не видно — снаружи одно и то же, 404: иначе по ответу
  * перебираются существующие проекты.
  */
+/**
+ * Проект существует, жив и принадлежит ТОМУ ЖЕ пространству.
+ *
+ * ⚠️ ОДНО МЕСТО НА ВСЕ ТРИ СЛУЧАЯ: перенести чат, завести чат сразу
+ * внутри, переименовать. Разъехавшись копиями, они однажды ответили бы
+ * по-разному на вопрос «чей это проект» — и по номеру из соседней
+ * компании можно было бы утащить свой чат к ним в панель.
+ *
+ * Нет и не виден — снаружи одно и то же, 404: иначе по ответу
+ * перебираются существующие проекты.
+ */
+export async function требуетсяПроект(
+  tx: Executor,
+  workspaceId: string,
+  projectId: string,
+): Promise<void> {
+  const найден = await tx
+    .select({ id: project.id })
+    .from(project)
+    .where(
+      and(
+        eq(project.id, projectId),
+        eq(project.workspaceId, workspaceId),
+        isNull(project.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!найден[0]) throw new ConversationNotVisibleError();
+}
+
+/** Переименовать проект. */
+export async function renameProject(
+  viewer: Viewer,
+  projectId: string,
+  title: string,
+): Promise<{ id: string; title: string }> {
+  const переименован = await withTransaction(async (tx) => {
+    await требуетсяПроект(tx, viewer.workspaceId, projectId);
+    await tx.update(project).set({ title }).where(eq(project.id, projectId));
+
+    await appendEvent(tx, {
+      kind: "project.renamed",
+      workspaceId: viewer.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "project",
+      subjectId: projectId,
+      payload: { title },
+    });
+    return { id: projectId, title };
+  });
+
+  publish(viewer.workspaceId);
+  return переименован;
+}
+
+/**
+ * Убрать проект.
+ *
+ * ⚠️ ПАПКА ИСЧЕЗАЕТ, ПЕРЕПИСКА ОСТАЁТСЯ, И ЭТО ЕДИНСТВЕННАЯ ТРАКТОВКА
+ * СЛОВА «УБРАТЬ», КОТОРАЯ НЕ ТЕРЯЕТ ЧУЖИЕ СЛОВА. Чаты возвращаются
+ * к чатам вне проектов.
+ *
+ * ⚠️ ПРИНАДЛЕЖНОСТЬ СНИМАЕТСЯ ЯВНО, А НЕ ОСТАЁТСЯ НА МЁРТВОМ ПРОЕКТЕ.
+ * Удаление у нас мягкое, поэтому `ON DELETE SET NULL` не сработает —
+ * строка проекта остаётся жить. Не сними мы ссылку, чат оказался бы
+ * нигде: в списке проектов его папки уже нет, а к чатам вне проектов
+ * он не относится. В панели он просто пропал бы.
+ */
+export async function removeProject(viewer: Viewer, projectId: string): Promise<void> {
+  await withTransaction(async (tx) => {
+    await требуетсяПроект(tx, viewer.workspaceId, projectId);
+
+    await tx
+      .update(conversation)
+      .set({ projectId: null })
+      .where(eq(conversation.projectId, projectId));
+    await tx.update(project).set({ deletedAt: new Date() }).where(eq(project.id, projectId));
+
+    await appendEvent(tx, {
+      kind: "project.removed",
+      workspaceId: viewer.workspaceId,
+      actorParticipantId: viewer.participantId,
+      subjectType: "project",
+      subjectId: projectId,
+      payload: {},
+    });
+  });
+
+  publish(viewer.workspaceId);
+}
+
 export async function setProject(
   viewer: Viewer,
   conversationId: string,
   projectId: string | null,
 ): Promise<{ id: string; projectId: string | null }> {
-  return withTransaction(async (tx) => {
+  const переложен = await withTransaction(async (tx) => {
     await requireVisible(tx, viewer, conversationId);
-
-    if (projectId !== null) {
-      const найден = await tx
-        .select({ id: project.id })
-        .from(project)
-        .where(
-          and(
-            eq(project.id, projectId),
-            eq(project.workspaceId, viewer.workspaceId),
-            isNull(project.deletedAt),
-          ),
-        )
-        .limit(1);
-      if (!найден[0]) throw new ConversationNotVisibleError();
-    }
+    if (projectId !== null) await требуетсяПроект(tx, viewer.workspaceId, projectId);
 
     await tx
       .update(conversation)
@@ -129,6 +217,9 @@ export async function setProject(
 
     return { id: conversationId, projectId };
   });
+
+  publish(viewer.workspaceId);
+  return переложен;
 }
 
 /**

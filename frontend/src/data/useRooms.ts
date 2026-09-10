@@ -35,6 +35,9 @@ export interface Rooms {
   addThread: (title: string) => Promise<void>;
   /** Завести проект. */
   addProject: (title: string) => Promise<void>;
+  renameProject: (id: string, title: string) => Promise<void>;
+  /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
+  removeProject: (id: string) => Promise<void>;
   /** Отнести чат к проекту либо снять принадлежность (`null`). */
   moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
 }
@@ -119,6 +122,29 @@ export function useRooms(where: Address): Rooms {
     [reload],
   );
 
+  const renameProject = useCallback(
+    async (id: string, title: string) => {
+      await api.renameProject(id, title);
+      await reload();
+    },
+    [reload],
+  );
+
+  /**
+   * Убрать проект.
+   *
+   * ⚠️ ЧАТЫ НИКУДА НЕ ДЕВАЮТСЯ — их возвращает наружу сервер, и панель
+   * просто перечитывается. Убирать их здесь руками значило бы завести
+   * второй ответ на вопрос «где теперь этот чат».
+   */
+  const removeProject = useCallback(
+    async (id: string) => {
+      await api.removeProject(id);
+      await reload();
+    },
+    [reload],
+  );
+
   const moveToProject = useCallback(
     async (conversationId: string, projectId: string | null) => {
       await api.moveConversation(conversationId, projectId);
@@ -135,6 +161,8 @@ export function useRooms(where: Address): Rooms {
     removeChannel,
     addThread,
     addProject,
+    renameProject,
+    removeProject,
     moveToProject,
   };
 }

@@ -1,6 +1,6 @@
 import { DotsThree, FolderSimple, Hash, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
-import { api, type Conversation, type Project } from "../data/api.js";
+import type { Conversation, Project } from "../data/api.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -121,13 +121,6 @@ function ToProject({
   projects: Project[];
   onMove: (conversationId: string, projectId: string | null) => Promise<void>;
 }) {
-  const завестиИПереложить = async () => {
-    const title = window.prompt("Название проекта");
-    if (!title?.trim()) return;
-    const created = await api.addProject(title.trim());
-    await onMove(channel.id, created.id);
-  };
-
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -143,14 +136,21 @@ function ToProject({
             {project.title}
           </DropdownMenuItem>
         ))}
-        {projects.length > 0 ? <DropdownMenuSeparator /> : null}
-        <DropdownMenuItem onSelect={() => void завестиИПереложить()}>
-          Новый проект…
-        </DropdownMenuItem>
+        {/* ⚠️ «НОВЫЙ ПРОЕКТ…» ОТСЮДА УБРАН (task-035). Он открывал
+            браузерное окно `window.prompt` — чужое по виду и не знающее
+            наших тем, — и был единственным путём завести папку. Теперь
+            проекты заводятся плюсом в своём разделе, а здесь осталось
+            только перекладывание. */}
+        {projects.length === 0 ? (
+          <DropdownMenuItem disabled>Проектов пока нет</DropdownMenuItem>
+        ) : null}
         {channel.projectId ? (
-          <DropdownMenuItem onSelect={() => void onMove(channel.id, null)}>
-            Убрать из проекта
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void onMove(channel.id, null)}>
+              Убрать из проекта
+            </DropdownMenuItem>
+          </>
         ) : null}
       </DropdownMenuSubContent>
     </DropdownMenuSub>

@@ -22,6 +22,8 @@ import {
   markRead,
   peopleToMention,
   pinMessage,
+  removeProject,
+  renameProject,
   sendMessage,
   setProject,
   sync,
@@ -63,6 +65,8 @@ const readSchema = z.object({
 
 const channelSchema = z.object({
   title: z.string().trim().min(1, "у канала нужно название").max(120),
+  /** Завести сразу внутри проекта (task-035): одним запросом. */
+  projectId: z.string().uuid().optional(),
   // Приватный канал в интерфейсе пока не заводится, но чтение его уже
   // проверено тестом: поле не мёртвое, а опережающее (Р-010).
   visibility: z.enum(["workspace", "private"]).optional(),
@@ -274,6 +278,31 @@ export function registerChatRoutes(app: FastifyInstance): void {
     return reply.code(201).send(await createProject(viewer, input.title));
   });
 
+  /** Переименовать проект. */
+  app.patch<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    const input = parse(projectSchema, request.body, reply);
+    if (!input) return reply;
+
+    return orNotFound(reply, async () => renameProject(viewer, request.params.id, input.title));
+  });
+
+  /**
+   * Убрать проект. Папка исчезает, переписка остаётся и возвращается
+   * к чатам вне проектов (Р-032).
+   */
+  app.delete<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+
+    return orNotFound(reply, async () => {
+      await removeProject(viewer, request.params.id);
+      return reply.code(204).send();
+    });
+  });
+
   /**
    * Отнести чат к проекту либо снять принадлежность.
    *
@@ -297,12 +326,15 @@ export function registerChatRoutes(app: FastifyInstance): void {
     const input = parse(channelSchema, request.body, reply);
     if (!input) return reply;
 
-    const created = await createChannel(viewer, input);
-    return reply.code(201).send({
-      id: created.id,
-      kind: created.kind,
-      title: created.title,
-      parentId: created.parentId,
+    return orNotFound(reply, async () => {
+      const created = await createChannel(viewer, input);
+      return reply.code(201).send({
+        id: created.id,
+        kind: created.kind,
+        title: created.title,
+        parentId: created.parentId,
+        projectId: created.projectId,
+      });
     });
   });
 

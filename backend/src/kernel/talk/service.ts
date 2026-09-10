@@ -3,7 +3,7 @@ import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
 import { setMentions, зовущиеся } from "./mentions.js";
-import { listProjectsFor } from "./projects.js";
+import { listProjectsFor, требуетсяПроект } from "./projects.js";
 import * as repo from "./repo.js";
 
 interface MessageView {
@@ -509,14 +509,20 @@ export type Visibility = "workspace" | "private";
  */
 async function openConversation(
   viewer: Viewer,
-  input: { kind: string; title: string; visibility: Visibility },
+  input: { kind: string; title: string; visibility: Visibility; projectId?: string | undefined },
 ) {
   return withTransaction(async (tx) => {
+    // ⚠️ ПРОЕКТ ПРОВЕРЯЕТСЯ ДО ВСТАВКИ И ТОЙ ЖЕ ПРОВЕРКОЙ, ЧТО И ПЕРЕНОС.
+    // Иначе по номеру проекта из соседней компании можно было бы завести
+    // канал прямо к ним в панель.
+    if (input.projectId) await требуетсяПроект(tx, viewer.workspaceId, input.projectId);
+
     const made = await repo.insertConversation(tx, {
       workspaceId: viewer.workspaceId,
       kind: input.kind,
       title: input.title,
       visibility: input.visibility,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
     });
     await repo.insertMember(tx, {
       conversationId: made.id,
@@ -548,12 +554,13 @@ async function openConversation(
  */
 export async function createChannel(
   viewer: Viewer,
-  input: { title: string; visibility?: Visibility | undefined },
+  input: { title: string; visibility?: Visibility | undefined; projectId?: string | undefined },
 ) {
   const created = await openConversation(viewer, {
     kind: "channel",
     title: input.title,
     visibility: input.visibility ?? "workspace",
+    projectId: input.projectId,
   });
 
   // Звонок ТОЛЬКО после фиксации: новый канал обязан появиться у всех,
