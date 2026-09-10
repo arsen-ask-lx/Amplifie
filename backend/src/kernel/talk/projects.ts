@@ -132,7 +132,7 @@ export async function setProject(
 }
 
 /**
- * Область чтения агента: чаты проекта, ВИДИМЫЕ позвавшему.
+ * Область чтения агента: лента чатов проекта, ВИДИМЫХ позвавшему.
  *
  * ⚠️ ПЕРЕСЕЧЕНИЕ СЧИТАЕТСЯ ОДНИМ ЗАПРОСОМ, А НЕ ПРОВЕРКОЙ ПОСЛЕ ОТБОРА.
  * «Взять чаты проекта, потом отсеять невидимые» — то же самое ровно
@@ -140,22 +140,56 @@ export async function setProject(
  * Здесь забыть нечего: условие видимости стоит в самом отборе.
  *
  * Это и есть защита от того, что OWASP зовёт `LLM06: Excessive Agency`:
- * агент действует в правах позвавшего, а не в правах системы. Разговор,
- * не принадлежащий никакому проекту, даёт область из самого себя —
- * поведение до Р-032 сохраняется в точности.
+ * агент действует в правах позвавшего, а не в правах системы.
+ *
+ * ⚠️ ЛЕНТА ЧИТАЕТСЯ ЗДЕСЬ ЖЕ И ОДНИМ ЗАПРОСОМ (Д-31). Раньше область
+ * возвращала список номеров, а звавший читал каждый чат отдельно —
+ * три запроса на чат, шестьдесят на проект из двадцати. Отдавать
+ * «список чатов» наружу и значило приглашать читать их по одному:
+ * граница знания проходит не по номерам, а по ГОТОВОЙ ленте области.
+ *
+ * `null` — область равна одному разговору: он вне проектов либо
+ * в проекте, где виден только он сам. Тогда звавший читает его тем же
+ * путём, что и до Р-032, и лишнего запроса не делает вовсе.
  */
-export async function readingScope(
+export interface ScopeFeed {
+  /** Названия прочитанных чатов — их агент называет в ответе. */
+  titles: string[];
+  /** Слитая лента области, старое первым. */
+  lines: { body: string; authorName: string; authorKind: string; where: string }[];
+}
+
+export async function scopeFeed(
   viewer: Viewer,
   conversationId: string,
-): Promise<{ ids: string[]; titles: string[] }> {
+  limit: number,
+): Promise<ScopeFeed | null> {
   const текущий = await requireVisible(db, viewer, conversationId);
-  if (!текущий.projectId) return { ids: [conversationId], titles: [текущий.title] };
+  if (!текущий.projectId) return null;
 
-  const rows = await db
+  const чаты = await db
     .select({ id: conversation.id, title: conversation.title })
     .from(conversation)
     .where(and(eq(conversation.projectId, текущий.projectId), repo.visibleTo(viewer.participantId)))
     .orderBy(asc(conversation.createdAt));
 
-  return { ids: rows.map((one) => one.id), titles: rows.map((one) => one.title) };
+  // Один видимый чат — это не область, а тот же разговор.
+  if (чаты.length < 2) return null;
+
+  const имя = new Map(чаты.map((one) => [one.id, one.title]));
+  const лента = await repo.listMessagesIn(
+    db,
+    чаты.map((one) => one.id),
+    limit,
+  );
+
+  return {
+    titles: чаты.map((one) => one.title),
+    lines: лента.map((one) => ({
+      body: one.body,
+      authorName: one.authorName,
+      authorKind: one.authorKind,
+      where: имя.get(one.conversationId) ?? "",
+    })),
+  };
 }

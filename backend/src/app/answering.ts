@@ -6,7 +6,13 @@ import { chooseProvider } from "../agent/model/choose.js";
 import { KNOWN_API, keyProvider } from "../agent/model/http.js";
 import { ensureAgent, keyFor, ИМЯ_АГЕНТА } from "../kernel/identity/index.js";
 import { appendEvent } from "../kernel/journal/index.js";
-import { listMessages, readingScope, sendAsAgent, type Viewer } from "../kernel/talk/index.js";
+import {
+  listMessages,
+  type ScopeFeed,
+  scopeFeed,
+  sendAsAgent,
+  type Viewer,
+} from "../kernel/talk/index.js";
 import { db } from "../platform/db.js";
 import { askOwnBridge } from "./bridging.js";
 import { doActions } from "./doing.js";
@@ -181,41 +187,14 @@ export async function answersVia(viewer: Viewer): Promise<AnswersVia> {
 export type Scope = "conversation" | "project";
 
 /**
- * Слить ленты области в одну, в порядке чтения.
+ * Сколько строк области берём из базы.
  *
- * ⚠️ ПОРЯДОК ПО НОМЕРУ, А НЕ ПО ЧАТАМ ПОДРЯД. Номер общий на всё
- * пространство, поэтому он и есть время: слитая по нему лента читается
- * как разговор, шедший в трёх комнатах сразу. Склей мы чаты подряд —
- * модель увидела бы, что в одной комнате всё случилось раньше, чем
- * в другой началось.
- *
- * Название чата ставится у каждой строки: без него в слитой ленте
- * не понять, где что сказано.
+ * ⚠️ ЭТО ПОТОЛОК, А НЕ ПРЕДЕЛ. Настоящий предел — бюджет приглашения
+ * в знаках (`prompt.ts`), и он общий на всю область: десять чатов стоят
+ * столько же, сколько один. Число здесь нужно затем, чтобы ОДИН запрос
+ * не вычитал проект целиком, если в нём миллион реплик.
  */
-async function соседи(
-  viewer: Viewer,
-  область: { ids: string[]; titles: string[] },
-): Promise<Turn[]> {
-  const ленты = await Promise.all(
-    область.ids.map(async (id, i) => {
-      const лента = await listMessages(viewer, id, WINDOW);
-      return лента.items.map((message) => ({
-        seq: message.seq,
-        turn: {
-          body: message.body,
-          authorName: message.author.name,
-          authorKind: message.author.kind,
-          where: область.titles[i] ?? "",
-        } satisfies Turn,
-      }));
-    }),
-  );
-
-  return ленты
-    .flat()
-    .sort((a, b) => a.seq - b.seq)
-    .map((one) => one.turn);
-}
+const ОБЗОР = 300;
 
 /**
  * Сказать в ответе, по каким чатам агент смотрел.
@@ -226,8 +205,8 @@ async function соседи(
  * тут дороже лишней строки: человек должен видеть, из чего сложен ответ,
  * а не гадать, почему у коллеги вышло иначе.
  */
-function сОбластью(text: string, область: { titles: string[] } | null): string {
-  if (!область || область.titles.length < 2) return text;
+function сОбластью(text: string, область: ScopeFeed | null): string {
+  if (!область) return text;
   return `${text}
 
 Смотрел: ${область.titles.join(", ")}.`;
@@ -272,9 +251,9 @@ export async function answerIfAddressed(
    * (Р-032). Пересечение считает ядро одним запросом; здесь его нельзя
    * ни расширить, ни обойти.
    */
-  const область = scope === "project" ? await readingScope(viewer, conversationId) : null;
-  const широкая = область !== null && область.ids.length > 1;
-  const кругозор = широкая && область ? await соседи(viewer, область) : turns;
+  const область: ScopeFeed | null =
+    scope === "project" ? await scopeFeed(viewer, conversationId, ОБЗОР) : null;
+  const кругозор = область ? область.lines : turns;
 
   const prompt = buildPrompt(кругозор);
 
@@ -300,7 +279,7 @@ export async function answerIfAddressed(
   // Ключ идемпотентности — идентификатор сообщения-обращения. Двойной зов
   // (двойной клик, повтор после разрыва) даёт один ответ, а не два.
   const message = await sendAsAgent(viewer, agent.id, conversationId, {
-    body: сОбластью(withReport(envelope.text, done), широкая ? область : null),
+    body: сОбластью(withReport(envelope.text, done), область),
     clientMsgId: asking.id,
   });
 

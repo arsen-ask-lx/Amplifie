@@ -1,4 +1,17 @@
-import { and, asc, desc, eq, gt, isNotNull, isNull, lt, lte, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
@@ -204,11 +217,37 @@ function unreadOf(conversationId: PgColumn | SQL | string, participantId: string
 }
 
 export async function listConversationsFor(tx: Executor, participantId: string) {
+  /**
+   * Когда в разговоре в последний раз говорили.
+   *
+   * ⚠️ БЕРЁТСЯ ПО НАИБОЛЬШЕМУ НОМЕРУ, А НЕ ЧЕРЕЗ `MAX(created_at)`,
+   * И ЭТО НЕ ПРИДИРКА, А ЗАМЕРЕННЫЕ 147 РАЗ (Д-30). Индекса
+   * `(conversation_id, created_at)` нет и заводить его незачем: `seq`
+   * монотонен внутри пространства (`nextSeq` под блокировкой строки
+   * пространства), поэтому «самая свежая реплика» и «реплика
+   * с наибольшим номером» — одно и то же. По номеру уже есть индекс
+   * `message_conversation_seq_desc_idx`, и он отдаёт ОДНУ строку.
+   *
+   * Замер на канале в 50 023 реплики:
+   *   MAX(created_at)          — 50 023 строки, 1572 буфера, 14,2 мс
+   *   ORDER BY seq DESC LIMIT 1 —      1 строка,    5 буферов, 0,096 мс
+   *
+   * Панель перечитывается на каждый звонок потока у каждого клиента,
+   * то есть на каждое сообщение в пространстве. Разница множится
+   * на число каналов и на число открытых вкладок.
+   *
+   * ⚠️ УДАЛЁННЫЕ РЕПЛИКИ СЧИТАЮТСЯ ЗА АКТИВНОСТЬ — так было и раньше,
+   * и менять это здесь нельзя: `MAX(created_at)` их тоже видел. Тихо
+   * изменить смысл заодно с ускорением — верный способ получить
+   * поломку, которую никто не свяжет с этой правкой.
+   */
   const lastAt = sql<Date>`GREATEST(
     ${conversation.createdAt},
     COALESCE((
-      SELECT MAX(${message.createdAt}) FROM ${message}
+      SELECT ${message.createdAt} FROM ${message}
       WHERE ${message.conversationId} = ${ЭТОТ_РАЗГОВОР}
+      ORDER BY ${message.seq} DESC
+      LIMIT 1
     ), ${conversation.createdAt})
   )`;
 
@@ -493,6 +532,30 @@ const MESSAGE_VIEW = {
 } as const;
 
 /**
+ * Начало любого запроса за ВИДОМ сообщения: поля и все связки разом.
+ *
+ * ⚠️ ОДНО МЕСТО, ПОТОМУ ЧТО ЭТО ОДНО ЗНАНИЕ — «из чего собирается
+ * реплика на экране»: автор, цитата с её автором, источник пересылки
+ * с его автором. Цепочка стояла пятью копиями подряд, и гейт повторов
+ * поймал шестую в тот же день, когда она появилась. Разъехавшись,
+ * копии дали бы ленту, где у пересланного сообщения есть автор
+ * источника, а у закреплённого — нет.
+ *
+ * Условия и порядок дописывает вызывающий: они у всех разные, и это
+ * как раз то, что отличает эти запросы друг от друга.
+ */
+function видСообщения(tx: Executor) {
+  return tx
+    .select(MESSAGE_VIEW)
+    .from(message)
+    .innerJoin(participant, eq(participant.id, message.authorParticipantId))
+    .leftJoin(quoted, eq(quoted.id, message.replyToId))
+    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
+    .leftJoin(source, eq(source.id, message.forwardedFromId))
+    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId));
+}
+
+/**
  * Вид одного сообщения по идентификатору.
  *
  * Нужен там, где сообщение уже записано или уже существовало: строить вид,
@@ -500,16 +563,7 @@ const MESSAGE_VIEW = {
  * которой у повтора терялся автор (найдено 2026-09-06).
  */
 export async function findMessageViewById(tx: Executor, messageId: string) {
-  const rows = await tx
-    .select(MESSAGE_VIEW)
-    .from(message)
-    .innerJoin(participant, eq(participant.id, message.authorParticipantId))
-    .leftJoin(quoted, eq(quoted.id, message.replyToId))
-    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
-    .leftJoin(source, eq(source.id, message.forwardedFromId))
-    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
-    .where(eq(message.id, messageId))
-    .limit(1);
+  const rows = await видСообщения(tx).where(eq(message.id, messageId)).limit(1);
   return rows[0] ?? null;
 }
 
@@ -596,14 +650,7 @@ export async function setPinned(
 
 /** Закреплённые разговора, свежие сверху. Их единицы — предел не нужен. */
 export async function listPinned(tx: Executor, conversationId: string) {
-  return tx
-    .select(MESSAGE_VIEW)
-    .from(message)
-    .innerJoin(participant, eq(participant.id, message.authorParticipantId))
-    .leftJoin(quoted, eq(quoted.id, message.replyToId))
-    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
-    .leftJoin(source, eq(source.id, message.forwardedFromId))
-    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
+  return видСообщения(tx)
     .where(
       and(
         eq(message.conversationId, conversationId),
@@ -627,14 +674,7 @@ export async function listMessages(
   limit: number,
   before?: number,
 ) {
-  const rows = await tx
-    .select(MESSAGE_VIEW)
-    .from(message)
-    .innerJoin(participant, eq(participant.id, message.authorParticipantId))
-    .leftJoin(quoted, eq(quoted.id, message.replyToId))
-    .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
-    .leftJoin(source, eq(source.id, message.forwardedFromId))
-    .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
+  const rows = await видСообщения(tx)
     // ⚠️ Удалённые не отдаются НИ ЗДЕСЬ, НИ В ДОГОНЕ. Забыть одно из двух
     // мест — главный способ провалить мягкое удаление: реплика исчезает
     // из ленты и возвращается первым же обновлением.
@@ -645,6 +685,33 @@ export async function listMessages(
         before === undefined ? undefined : lt(message.seq, before),
       ),
     )
+    .orderBy(desc(message.seq))
+    .limit(limit);
+  return rows.reverse();
+}
+
+/**
+ * Лента НЕСКОЛЬКИХ разговоров разом, свежее первым.
+ *
+ * ⚠️ ОДИН ЗАПРОС НА ВСЮ ОБЛАСТЬ, А НЕ ПО ЗАПРОСУ НА ЧАТ (Д-31). Агент,
+ * зовомый с областью «весь проект» (Р-032), читает десяток чатов сразу;
+ * вызов `listMessages` по каждому давал три запроса на чат — проверку
+ * видимости, ленту и голову пространства, — то есть шестьдесят запросов
+ * на один ответ.
+ *
+ * ⚠️ ВИДИМОСТЬ ЗДЕСЬ НЕ ПРОВЕРЯЕТСЯ, И ЭТО НЕ ДЫРА. Список разговоров
+ * приходит из `readingScope`, который считает пересечение «чаты проекта
+ * ∩ видимые позвавшему» ОДНИМ запросом. Проверять во второй раз здесь
+ * значило бы иметь два ответа на вопрос о правах; правило проекта прямо
+ * требует обратного. Функция закрыта пакетом: снаружи `talk` её нет.
+ *
+ * Предел общий на всю область: бюджет приглашения модели считается
+ * по знакам и делится между чатами, а не умножается на их число.
+ */
+export async function listMessagesIn(tx: Executor, conversationIds: string[], limit: number) {
+  if (conversationIds.length === 0) return [];
+  const rows = await видСообщения(tx)
+    .where(and(inArray(message.conversationId, conversationIds), isNull(message.deletedAt)))
     .orderBy(desc(message.seq))
     .limit(limit);
   return rows.reverse();
@@ -669,15 +736,9 @@ export async function listMessagesAfter(
   limit: number,
 ) {
   return (
-    tx
-      .select(MESSAGE_VIEW)
-      .from(message)
-      .innerJoin(participant, eq(participant.id, message.authorParticipantId))
+    видСообщения(tx)
+      // Догону нужен ещё и сам разговор: по нему проверяется видимость.
       .innerJoin(conversation, eq(conversation.id, message.conversationId))
-      .leftJoin(quoted, eq(quoted.id, message.replyToId))
-      .leftJoin(quotedAuthor, eq(quotedAuthor.id, quoted.authorParticipantId))
-      .leftJoin(source, eq(source.id, message.forwardedFromId))
-      .leftJoin(sourceAuthor, eq(sourceAuthor.id, source.authorParticipantId))
       .where(
         and(
           eq(message.workspaceId, workspaceId),
