@@ -134,6 +134,13 @@
       "when": 1788952384238,
       "tag": "0018_agent_memo",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788952385238,
+      "tag": "0019_message_mention",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,5 @@
+import { MENTION_SOURCE } from "@amplifie/contract";
+
 /**
  * Разбор разметки сообщения (Р-002).
  *
@@ -38,6 +40,16 @@ export type Token =
    */
   | { kind: "pre"; text: string; lang?: string }
   | { kind: "link"; text: string; href: string }
+  /**
+   * Упоминание человека (Р-031). `text` — то, что выбрал автор и что
+   * видно в ленте; `id` — номер участника, по которому идёт переход.
+   *
+   * ⚠️ ИМЯ И НОМЕР ВРОЗЬ НАРОЧНО. Переименовался человек — в старых
+   * сообщениях остаётся прежнее написание, а указывает оно по-прежнему
+   * на него. Так же ведёт себя Телеграм: показывает набранное автором,
+   * переходит по `user_id`.
+   */
+  | { kind: "mention"; text: string; id: string }
   /**
    * Обёртка. Держит ДЕТЕЙ, а не строку: `**жирный *курсив***` — это
    * жирный, внутри которого курсив. Скрытый («спойлер» у Телеграма) —
@@ -104,6 +116,12 @@ export function safeHref(raw: string): string | null {
  * `_`/`__` советует вставлять между ними пустую сущность — приём,
  * который в глазах человека выглядит мусором в тексте. Мы вместо этого
  * читаем тройку целиком: жирный, внутри курсив (Р-028).
+ *
+ * ⚠️ УПОМИНАНИЕ СТОИТ ПЕРЕД ССЫЛКОЙ, И ЭТО НЕ ВКУСОВЩИНА. Записаны они
+ * одинаково — `[подпись](адрес)`, — и ветка ссылки съела бы упоминание
+ * первой. Съеденное при этом не пропало бы с глаз: адрес `@<номер>`
+ * схему не проходит, и в ленте появилась бы скобочная запись буквами.
+ * Ровно так упоминания и выглядели до Р-031.
  */
 const PATTERN = new RegExp(
   [
@@ -115,6 +133,7 @@ const PATTERN = new RegExp(
     "~~([^\\n]+?)~~", // зачёркнутый
     "\\|\\|([^\\n]+?)\\|\\|", // скрытый
     "\\*([^\\n]+?)\\*", // курсив
+    MENTION_SOURCE, // упоминание человека — обязано стоять ПЕРЕД ссылкой
     "\\[([^\\]\\n]+)\\]\\(([^)\\s]+)\\)", // ссылка с подписью
     "(https?://[^\\s<>()]+)", // голый адрес
   ].join("|"),
@@ -229,14 +248,28 @@ function tokenOf(match: RegExpExecArray, depth: number): { token: Token; tail: s
     return { token: wrapToken(kind, text, depth), tail: "" };
   }
 
-  // Ветки ссылки и голого адреса идут сразу за восемью видами обёрток.
-  const linkText = match[KINDS.length + 1];
-  const linkHref = match[KINDS.length + 2];
+  // ⚠️ ДАЛЬШЕ ИДЁТ СЧЁТ СКОБОК, И ОН ЖЁСТКО СВЯЗАН С ПОРЯДКОМ ВЕТОК
+  // В РЕГУЛЯРКЕ. Восемь обёрток — восемь скобок; у упоминания их две
+  // (подпись и номер), у ссылки две, у голого адреса одна. Вставишь
+  // ветку в середину, не тронув эти числа, — и жирный молча станет
+  // курсивом, а упоминание ссылкой.
+  const УПОМИНАНИЕ = KINDS.length + 1;
+  const ССЫЛКА = УПОМИНАНИЕ + 2;
+  const ГОЛЫЙ_АДРЕС = ССЫЛКА + 2;
+
+  const mentionText = match[УПОМИНАНИЕ];
+  const mentionId = match[УПОМИНАНИЕ + 1];
+  if (mentionText !== undefined && mentionId !== undefined) {
+    return { token: { kind: "mention", text: mentionText, id: mentionId }, tail: "" };
+  }
+
+  const linkText = match[ССЫЛКА];
+  const linkHref = match[ССЫЛКА + 1];
   if (linkText !== undefined && linkHref !== undefined) {
     return { token: linkToken(match[0], linkText, linkHref), tail: "" };
   }
 
-  const bare = match[KINDS.length + 3];
+  const bare = match[ГОЛЫЙ_АДРЕС];
   if (bare !== undefined) return bareToken(bare);
   return { token: { kind: "text", text: match[0] }, tail: "" };
 }

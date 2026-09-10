@@ -192,9 +192,17 @@ export async function answerIfAddressed(
   }));
 
   const asking = feed.items.at(-1);
+  /**
+   * ⚠️ АГЕНТ ЗАВОДИТСЯ ДО ПРОВЕРКИ ОБРАЩЕНИЯ, А НЕ ПОСЛЕ. Позвать его
+   * можно и упоминанием — узлом с его номером (Р-031), — а номер надо
+   * знать, чтобы узнать себя. Строка участника заводится один раз
+   * на пространство и повторным вызовом не создаётся.
+   */
+  const agent = await ensureAgent(viewer.workspaceId);
   const called = awaitsAnswer(
     turns.map((one) => ({ body: one.body, authorKind: one.authorKind })),
     ИМЯ_АГЕНТА,
+    agent.id,
   );
   if (!asking || !called) throw new NotAddressedError();
 
@@ -209,8 +217,6 @@ export async function answerIfAddressed(
     });
     throw error;
   }
-
-  const agent = await ensureAgent(viewer.workspaceId);
 
   // Конверт разбирается ЗДЕСЬ, после ответа модели и до записи в ленту.
   // Не разобрался — весь вывод считается простым ответом (Р-017).

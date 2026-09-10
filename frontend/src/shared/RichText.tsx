@@ -75,6 +75,21 @@ function Link({ text, href }: { text: string; href: string }) {
   );
 }
 
+/**
+ * Упоминание человека (Р-031).
+ *
+ * ⚠️ ЦВЕТОМ, НО НЕ ССЫЛКОЙ. Подчёркивание и переход означают «уйдёшь
+ * отсюда»; уходить некуда — экрана человека у нас нет. Нарисовать
+ * ссылку, которая никуда не ведёт, значит соврать нажатием.
+ *
+ * Номер участника в разметку не попадает: он нужен серверу для счёта
+ * и прав, а на экране от него ничего не зависит. Класс без него —
+ * на один способ утечь номер в чужие глаза меньше.
+ */
+function Mention({ text }: { text: string }) {
+  return <span className="font-medium text-accent-ink">@{text}</span>;
+}
+
 /** Оформление моноширинного куска — одно на ленту и на блок кода. */
 const MONO = "rounded-sm bg-current/12 px-1 py-0.5 font-mono text-[0.92em]";
 
@@ -148,6 +163,7 @@ const LEAVES = {
   // Многострочный кусок кода — блоком: он не течёт по строке, он ею не является.
   pre: (t: { text: string; lang?: string }) => <CodeBlock text={t.text} lang={t.lang} />,
   link: (t: { text: string; href: string }) => <Link text={t.text} href={t.href} />,
+  mention: (t: { text: string }) => <Mention text={t.text} />,
 };
 
 /**

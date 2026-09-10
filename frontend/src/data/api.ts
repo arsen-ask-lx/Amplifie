@@ -57,6 +57,14 @@ export interface ModelKey {
   createdAt: string;
 }
 
+/** Человек или агент — тот, кого можно позвать. */
+export interface Person {
+  id: string;
+  name: string;
+  /** `human` или `agent`. Агента в списке видно подписью. */
+  kind: string;
+}
+
 export interface Conversation {
   id: string;
   kind: string;
@@ -71,6 +79,16 @@ export interface Conversation {
    * остальное не знает.
    */
   unread: number;
+  /**
+   * Сколько раз в разговоре позвали ИМЕННО ЭТОГО человека и он этого
+   * ещё не видел (Р-031).
+   *
+   * ⚠️ ОТДЕЛЬНОЕ ЧИСЛО, А НЕ ЧАСТЬ НЕПРОЧИТАННОГО. «Тебя звали» и «тут
+   * что-то написали» — разные новости, и вторая не заменяет первую:
+   * в канале с сотней непрочитанных зов иначе не найти. Так же устроен
+   * Телеграм — `unread_mentions_count` рядом с `unread_count`.
+   */
+  mentions: number;
   /**
    * Докуда человек дочитал. Отвечает на «откуда черта», а `unread` —
    * на «сколько». Одно из другого не выводится: у клиента только окно
@@ -289,6 +307,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ seq }),
     }),
+
+  /**
+   * Кого можно позвать в этом разговоре (Р-031).
+   *
+   * Вопрос задан РАЗГОВОРУ, а не пространству: в приватном канале звать
+   * можно только тех, кто его видит.
+   */
+  people: (conversationId: string) =>
+    request<{ items: Person[] }>(`/v1/conversations/${conversationId}/people`),
+
+  /**
+   * Номер самого раннего неувиденного упоминания либо `null`.
+   *
+   * Клиент сам ответить не может: он держит окно в 300 реплик, а зов
+   * может лежать за его краем.
+   */
+  nearestMention: (conversationId: string) =>
+    request<{ seq: number | null }>(`/v1/conversations/${conversationId}/mention`),
 
   createChannel: (title: string) =>
     request<Conversation>("/v1/conversations", {

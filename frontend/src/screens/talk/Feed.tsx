@@ -1,4 +1,4 @@
-import { CaretDown } from "@phosphor-icons/react";
+import { At, CaretDown } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
 import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
@@ -84,6 +84,66 @@ function Groups({
   ));
 }
 
+/**
+ * Угловые кнопки ленты: «к упоминанию» и «в конец».
+ *
+ * ⚠️ ВЫНЕСЕНЫ ИЗ ЛЕНТЫ ЦЕЛИКОМ, А НЕ ПОРОЗНЬ. Их две, и главное про них —
+ * не что делает каждая, а как они стоят ДРУГ НАД ДРУГОМ: кнопка зова
+ * съезжает на место нижней, когда та скрыта. Это одно знание, и жить
+ * оно должно в одном месте — иначе разъедется на первой же правке
+ * отступов.
+ */
+function Углы({
+  atBottom,
+  toBottom,
+  mentions,
+  onGoToMention,
+}: {
+  atBottom: boolean;
+  toBottom: () => void;
+  mentions: number;
+  onGoToMention: () => void;
+}) {
+  return (
+    <>
+      {/* ⚠️ КНОПКА УПОМИНАНИЙ ВЫШЕ КНОПКИ «ВНИЗ», И ЭТО ПОРЯДОК ТЕЛЕГРАМА:
+          у них угловые кнопки складываются стопкой, а зов важнее конца
+          ленты — к нему идут осознанно, а вниз просто возвращаются. */}
+      {mentions > 0 ? (
+        <button
+          type="button"
+          onClick={onGoToMention}
+          aria-label={`Перейти к упоминанию, их ${mentions}`}
+          title="Перейти к упоминанию"
+          className={[
+            "absolute right-4 grid size-10 place-items-center rounded-pill border border-line",
+            "bg-card text-accent-ink shadow-float transition-colors hover:text-ink",
+            // Над кнопкой «вниз», когда та видна, и на её месте, когда нет.
+            atBottom ? "bottom-4" : "bottom-16",
+          ].join(" ")}
+        >
+          <At className="size-5" />
+        </button>
+      ) : null}
+
+      {/* ⚠️ ПОЯВЛЯЕТСЯ, ТОЛЬКО КОГДА ЛЕНТА НЕ В КОНЦЕ. Кнопка «вниз», видная
+          всегда, — это кнопка, которая в девяти случаях из десяти ничего
+          не делает; такие перестают замечать. Так же у Телеграма. */}
+      {atBottom ? null : (
+        <button
+          type="button"
+          onClick={toBottom}
+          aria-label="В конец ленты"
+          title="В конец ленты"
+          className="absolute right-4 bottom-4 grid size-10 place-items-center rounded-pill border border-line bg-card text-muted shadow-float transition-colors hover:text-ink"
+        >
+          <CaretDown className="size-5" />
+        </button>
+      )}
+    </>
+  );
+}
+
 export function Feed({
   messages,
   hasOlder,
@@ -95,6 +155,8 @@ export function Feed({
   onGo,
   picking,
   boundary,
+  mentions,
+  onGoToMention,
   onFollow,
 }: {
   messages: Message[];
@@ -115,6 +177,10 @@ export function Feed({
    * `null` — черты нет. Замирает при открытии разговора (Р-029).
    */
   boundary: number | null;
+  /** Сколько раз тут позвали тебя и ты этого не видел (Р-031). */
+  mentions: number;
+  /** Увести к самому раннему неувиденному зову. */
+  onGoToMention: () => void;
   /**
    * Сказать наружу, внизу ли человек. По этому ответу лента решает,
    * можно ли вытеснять старое сверху (Р-023): у листающего назад —
@@ -202,20 +268,12 @@ export function Feed({
         </div>
       </div>
 
-      {/* ⚠️ ПОЯВЛЯЕТСЯ, ТОЛЬКО КОГДА ЛЕНТА НЕ В КОНЦЕ. Кнопка «вниз», видная
-          всегда, — это кнопка, которая в девяти случаях из десяти ничего
-          не делает; такие перестают замечать. Так же у Телеграма. */}
-      {atBottom ? null : (
-        <button
-          type="button"
-          onClick={toBottom}
-          aria-label="В конец ленты"
-          title="В конец ленты"
-          className="absolute right-4 bottom-4 grid size-10 place-items-center rounded-pill border border-line bg-card text-muted shadow-float transition-colors hover:text-ink"
-        >
-          <CaretDown className="size-5" />
-        </button>
-      )}
+      <Углы
+        atBottom={atBottom}
+        toBottom={toBottom}
+        mentions={mentions}
+        onGoToMention={onGoToMention}
+      />
     </div>
   );
 }

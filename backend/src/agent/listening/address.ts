@@ -1,3 +1,5 @@
+import { mentionedIds } from "@amplifie/contract";
+
 /**
  * Обращение к агенту: `@memo` в тексте сообщения.
  *
@@ -31,6 +33,11 @@ function quoted(text: string): string {
  * Звали ли агента в этом тексте.
  *
  * Регистр не важен: `@memo` и `@MEMO` — одно и то же обращение.
+ *
+ * ⚠️ ЭТО ОДНО ИЗ ДВУХ НАПИСАНИЙ ОБРАЩЕНИЯ. Второе — узел упоминания
+ * с номером участника (Р-031), и его читает `addressedById`. Два
+ * написания, а обращение одно: человек не должен догадываться, каким
+ * способом позвать, чтобы его услышали.
  */
 export function addressedTo(body: string, agentName: string): boolean {
   const name = agentName.trim();
@@ -40,6 +47,20 @@ export function addressedTo(body: string, agentName: string): boolean {
   // (?!…) справа: `@memory` — другое слово.
   const rule = new RegExp(`(?<!${NAME_CHAR})@${quoted(name)}(?!${NAME_CHAR})`, "iu");
   return rule.test(body);
+}
+
+/**
+ * Позвали ли агента упоминанием — узлом с его номером (Р-031).
+ *
+ * ⚠️ БЕЗ ЭТОГО АГЕНТ ЗАМОЛКАЕТ, И ЗАМОЛКАЕТ МОЛЧА. Как только поле ввода
+ * начинает превращать выбранное из списка в узел упоминания, текст
+ * перестаёт содержать простое `@memo` — и поиск по тексту перестаёт
+ * находить обращение. Человек видит в своей реплике имя агента и ждёт
+ * ответа, которого не будет.
+ */
+export function addressedById(body: string, agentParticipantId: string): boolean {
+  if (!agentParticipantId) return false;
+  return mentionedIds(body).includes(agentParticipantId.toLowerCase());
 }
 
 /** Реплика в том виде, в каком её видит распознавание. */
@@ -62,9 +83,13 @@ export interface Line {
  * наоборот и молчала на любом разговоре длиннее одной реплики; быстрые
  * тесты этого не поймали, потому что кодировали то же неверное допущение.
  */
-export function awaitsAnswer(feed: readonly Line[], agentName: string): boolean {
+export function awaitsAnswer(
+  feed: readonly Line[],
+  agentName: string,
+  agentParticipantId = "",
+): boolean {
   const last = feed.at(-1);
   if (!last) return false;
   if (last.authorKind === "agent") return false;
-  return addressedTo(last.body, agentName);
+  return addressedTo(last.body, agentName) || addressedById(last.body, agentParticipantId);
 }

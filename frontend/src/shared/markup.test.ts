@@ -211,3 +211,40 @@ describe("вложенность", () => {
     expect(() => parseMarkup(кривая)).not.toThrow();
   });
 });
+
+describe("упоминание человека", () => {
+  const НОМЕР = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6b";
+
+  it("разбирается своим куском, а не ссылкой", () => {
+    const tokens = parseMarkup(`привет, [Мария Петрова](@${НОМЕР})`);
+    expect(kinds(tokens)).toEqual(["text", "mention"]);
+    const позвали = tokens[1];
+    if (позвали === undefined || позвали.kind !== "mention") throw new Error("не упоминание");
+    expect(позвали.text).toBe("Мария Петрова");
+    expect(позвали.id).toBe(НОМЕР);
+  });
+
+  it("обычная ссылка упоминанием не становится", () => {
+    const tokens = parseMarkup("[сайт](https://example.com)");
+    expect(kinds(tokens)).toEqual(["link"]);
+  });
+
+  it("скобка с собачкой, но без номера, остаётся как была", () => {
+    // Так пишут годами. Стань это упоминанием — сервер начал бы
+    // отклонять давно привычные сообщения.
+    const tokens = parseMarkup("[почта](@example.com)");
+    expect(kinds(tokens)).toEqual(["text"]);
+  });
+
+  it("набранное руками имя — просто текст", () => {
+    expect(kinds(parseMarkup("@Мария Петрова, глянь"))).toEqual(["text"]);
+  });
+
+  it("внутри жирного упоминание читается", () => {
+    const tokens = parseMarkup(`**зову [Мария](@${НОМЕР})**`);
+    expect(kinds(tokens)).toEqual(["bold"]);
+    const bold = tokens[0];
+    if (bold === undefined || !("children" in bold)) throw new Error("жирный без детей");
+    expect(kinds(bold.children)).toEqual(["text", "mention"]);
+  });
+});

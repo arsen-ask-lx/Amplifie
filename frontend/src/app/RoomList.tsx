@@ -82,6 +82,7 @@ export function RoomList({
   rooms,
   currentId,
   unreadOf,
+  mentionsOf,
   onSelect,
   onCreate,
   onRemove,
@@ -90,6 +91,7 @@ export function RoomList({
   currentId: string | null;
   /** Сколько чужих реплик человек не видел в этом канале (Р-029). */
   unreadOf: (conversationId: string) => number;
+  mentionsOf: (conversationId: string) => number;
   onSelect: (id: string) => void;
   onCreate: (title: string) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
@@ -120,6 +122,7 @@ export function RoomList({
               channel={channel}
               current={channel.id === currentId}
               unread={unreadOf(channel.id)}
+              mentions={mentionsOf(channel.id)}
               onSelect={onSelect}
               onRemove={() => setRemoving(channel)}
             />

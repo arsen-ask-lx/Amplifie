@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Message } from "../../data/api.js";
+import { api, type Message } from "../../data/api.js";
 import type { Chat } from "../../data/useChat.js";
 import { copyAndTell } from "../../shared/clipboard.js";
 import { СКОПИРОВАНО } from "../../shared/toast.js";
@@ -58,6 +58,20 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
     if (chat.current) chat.openAt(chat.current.id, seq);
   };
 
+  /**
+   * К самому раннему неувиденному зову.
+   *
+   * ⚠️ НОМЕР СПРАШИВАЕМ У СЕРВЕРА, А НЕ ИЩЕМ В ЛЕНТЕ. Клиент держит окно
+   * в 300 реплик (Р-023), и зов может лежать за его краем — тогда поиск
+   * по загруженному нашёл бы не первый пропущенный, а первый попавшийся.
+   */
+  const кЗову = async () => {
+    const где = chat.current;
+    if (!где) return;
+    const { seq } = await api.nearestMention(где.id);
+    if (seq !== null) go(seq);
+  };
+
   const deeds = {
     onReply: (message: Message) => chat.reply(message),
     onForward: (message: Message) => setForwarding(message),
@@ -95,6 +109,8 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
         // до отрисовки» работает как «при открытии», без лишнего состояния.
         key={chat.current?.id ?? "пусто"}
         messages={chat.messages}
+        mentions={chat.current ? chat.mentionsOf(chat.current.id) : 0}
+        onGoToMention={() => void кЗову()}
         hasOlder={chat.hasOlder}
         onLoadOlder={() => chat.loadOlder()}
         title={chat.current?.title}
@@ -139,6 +155,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
       ) : null}
 
       <Composer
+        conversationId={chat.current?.id ?? null}
         onSend={chat.send}
         replying={chat.replying}
         onCancelReply={() => chat.reply(null)}

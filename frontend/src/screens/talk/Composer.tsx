@@ -27,6 +27,7 @@ import { type FieldApi, RichField } from "./RichField.js";
  * полотно, что и переписка.
  */
 export function Composer({
+  conversationId,
   onSend,
   replying,
   onCancelReply,
@@ -34,6 +35,8 @@ export function Composer({
   onCancelEdit,
   onSaveEdit,
 }: {
+  /** Где пишем — нужно подсказке «кого позвать» (Р-031). */
+  conversationId: string | null;
   onSend: (body: string, clientMsgId: string) => Promise<void>;
   replying: Цитата | null;
   onCancelReply: () => void;
@@ -134,6 +137,7 @@ export function Composer({
       <div className="flex items-end gap-2">
         <FieldMenu field={field}>
           <RichField
+            conversationId={conversationId}
             placeholder={editing ? "Изменить сообщение" : "Написать в канал"}
             onChange={(markup) => {
               text.current = markup;

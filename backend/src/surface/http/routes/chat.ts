@@ -16,11 +16,14 @@ import {
   listConversations,
   listMessages,
   listPinned,
+  MentionNotAllowedError,
   markRead,
+  peopleToMention,
   pinMessage,
   sendMessage,
   sync,
   type Viewer,
+  whereMentioned,
 } from "../../../kernel/talk/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
 import { READ, SEND, SYNC } from "../limits.js";
@@ -149,6 +152,15 @@ async function orNotFound<T>(
     if (error instanceof ConversationNotVisibleError) {
       return reply.code(404).send({ error: "not_found" });
     }
+    /**
+     * ⚠️ 422, А НЕ 404 И НЕ 403. Разговор человек видит — иначе он бы
+     * сюда не дошёл; неверен не доступ, а само сообщение: в нём позван
+     * тот, кому его нельзя показывать. 403 сказал бы «такой участник
+     * существует», и по нему можно было бы перебирать чужие номера.
+     */
+    if (error instanceof MentionNotAllowedError) {
+      return reply.code(422).send({ error: "mention_not_allowed", detail: error.message });
+    }
     throw error;
   }
 }
@@ -188,6 +200,36 @@ export function registerChatRoutes(app: FastifyInstance): void {
       return orNotFound(reply, async () => markRead(viewer, request.params.id, input.seq));
     },
   );
+
+  /**
+   * Кого можно позвать в этом разговоре (Р-031).
+   *
+   * ⚠️ ВОПРОС ЗАДАН РАЗГОВОРУ, А НЕ ПРОСТРАНСТВУ. Список зависит от того,
+   * кто ВИДИТ именно этот канал: в приватном звать некого, кроме его
+   * участников. Общая дверь «кто есть в пространстве» отдала бы имена
+   * тех, кого в приватном канале звать нельзя, — и подсказка предлагала
+   * бы действие, которое сервер обязан отклонить.
+   */
+  app.get<{ Params: { id: string } }>("/v1/conversations/:id/people", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, async () => ({
+      items: await peopleToMention(viewer, request.params.id),
+    }));
+  });
+
+  /**
+   * Где ближайшее неувиденное упоминание — куда ведёт кнопка перехода.
+   *
+   * Клиент сам ответить не может: он держит только окно ленты, а зов
+   * может лежать за его краем. У Телеграма ровно по этой причине есть
+   * `messages.getUnreadMentions`.
+   */
+  app.get<{ Params: { id: string } }>("/v1/conversations/:id/mention", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, async () => whereMentioned(viewer, request.params.id));
+  });
 
   app.post("/v1/conversations", async (request, reply) => {
     const viewer = await viewerOf(request, reply);

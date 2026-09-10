@@ -81,6 +81,8 @@ export interface Chat {
    * ответа сервера.
    */
   unreadOf: (conversationId: string) => number;
+  /** Сколько раз в разговоре позвали тебя и ты этого не видел (Р-031). */
+  mentionsOf: (conversationId: string) => number;
   /**
    * Перед какой репликой стоит черта «Непрочитанные сообщения»
    * в открытом разговоре. `null` — черты нет. Замирает при открытии.
@@ -637,6 +639,7 @@ export function useChat(me: Me): Chat {
     replying,
     reply,
     unreadOf: reading.unreadOf,
+    mentionsOf: reading.mentionsOf,
     boundary: reading.boundary,
     pinned,
     pin,

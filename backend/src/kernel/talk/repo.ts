@@ -3,7 +3,13 @@ import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
-import { conversation, conversationMember, conversationRead, message } from "./schema.js";
+import {
+  conversation,
+  conversationMember,
+  conversationRead,
+  message,
+  messageMention,
+} from "./schema.js";
 
 /** Слой хранилища модуля talk. Только запросы, никакой логики. */
 
@@ -212,6 +218,7 @@ export async function listConversationsFor(tx: Executor, participantId: string) 
       parentId: conversation.parentId,
       lastAt,
       unread: unreadOf(ЭТОТ_РАЗГОВОР, participantId),
+      mentions: mentionsOf(ЭТОТ_РАЗГОВОР, participantId),
       /**
        * Докуда человек дочитал. Едет наружу вместе со счётчиком, потому
        * что число отвечает на «сколько», а черта «Непрочитанные
@@ -256,6 +263,36 @@ export async function countUnread(
     .where(eq(conversation.id, conversationId))
     .limit(1);
   return Number(rows[0]?.n ?? 0);
+}
+
+/**
+ * Сколько раз в разговоре позвали этого человека и он этого не видел.
+ *
+ * ⚠️ СВОИ ЗОВЫ НЕ СЧИТАЮТСЯ — по той же причине, что и свои реплики
+ * в непрочитанном: человек уже видел то, что написал сам.
+ *
+ * ⚠️ ВТОРОГО СОСТОЯНИЯ ПРОЧТЕНИЯ НЕТ. Упоминание неувидено ровно до тех
+ * пор, пока номер прочтения не прошёл дальше номера сообщения (Р-029).
+ * Заведи мы отдельную отметку — у человека появилось бы два разных
+ * «прочитано», и они разошлись бы молча.
+ */
+function mentionsOf(conversationId: PgColumn | SQL | string, participantId: string) {
+  return sql<number>`(
+    SELECT count(*)::int FROM (
+      SELECT 1 FROM ${message}
+      JOIN ${messageMention} ON ${messageMention.messageId} = ${message.id}
+      WHERE ${message.conversationId} = ${conversationId}
+        AND ${messageMention.participantId} = ${participantId}
+        AND ${message.authorParticipantId} <> ${participantId}
+        AND ${message.deletedAt} IS NULL
+        AND ${message.seq} > COALESCE((
+          SELECT ${conversationRead.readSeq} FROM ${conversationRead}
+          WHERE ${conversationRead.conversationId} = ${conversationId}
+            AND ${conversationRead.participantId} = ${participantId}
+        ), 0)
+      LIMIT ${UNREAD_CAP}
+    ) AS незамеченные
+  )`;
 }
 
 /**

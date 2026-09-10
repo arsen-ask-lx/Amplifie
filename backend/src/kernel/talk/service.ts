@@ -1,15 +1,9 @@
 import { publish } from "../../platform/bus.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
+import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
+import { setMentions, зовущиеся } from "./mentions.js";
 import * as repo from "./repo.js";
-
-/** Разговора нет ЛИБО он тебе не виден — снаружи это одно и то же. */
-export class ConversationNotVisibleError extends Error {}
-
-export interface Viewer {
-  participantId: string;
-  workspaceId: string;
-}
 
 interface MessageView {
   id: string;
@@ -144,24 +138,6 @@ function isDuplicateClientMsgId(error: unknown): boolean {
   return code === "23505" && constraint === "message_conversation_client_msg_uq";
 }
 
-/**
- * Проверка доступа. Единственная точка, где решается «видно или нет».
- *
- * Право читается у КОРНЯ дерева разговоров: у ветки своих участников нет
- * (dock/06-разбор-мессенджеров.md). Не найдено и не видно — одна и та же
- * ошибка, чтобы по ответу нельзя было перебрать существующие разговоры.
- */
-async function requireVisible(tx: Executor, viewer: Viewer, conversationId: string) {
-  const found = await repo.findVisibleConversation(tx, conversationId, viewer.participantId);
-  // Проверка арендатора остаётся, хотя членство её почти всегда покрывает:
-  // это последний рубеж на случай, если участник когда-нибудь окажется
-  // в разговоре чужого пространства.
-  if (!found || found.workspaceId !== viewer.workspaceId) {
-    throw new ConversationNotVisibleError();
-  }
-  return found;
-}
-
 export async function listConversations(viewer: Viewer) {
   const rows = await repo.listConversationsFor(db, viewer.participantId);
   return rows.map((r) => ({
@@ -176,6 +152,11 @@ export async function listConversations(viewer: Viewer) {
     // со списком, а не отдельной дверью: панель каналов и так его
     // перечитывает, и второй запрос был бы ровно тем же обходом.
     unread: r.unread,
+    // Сколько раз в разговоре позвали именно этого человека и он этого
+    // ещё не видел (Р-031). Отдельное число, а не часть непрочитанного:
+    // у Телеграма рядом с `unread_count` по той же причине живёт
+    // `unread_mentions_count`.
+    mentions: r.mentions,
     readSeq: Number(r.readSeq),
   }));
 }
@@ -267,6 +248,8 @@ async function writeMessage(
     seq,
     ...input,
   });
+
+  await setMentions(tx, created.id, await зовущиеся(tx, input.conversationId, input.body));
 
   // Состояние и событие — в одной транзакции. Всегда (Р-2).
   await appendEvent(tx, {
@@ -671,6 +654,10 @@ export async function editMessage(
     const found = await requireMine(tx, viewer, messageId);
     const changed = await repo.updateMessageBody(tx, viewer.workspaceId, messageId, body);
     if (!changed) throw new ConversationNotVisibleError();
+
+    // Правка меняет и то, кого зовут: убрал упоминание — значка
+    // у человека остаться не должно.
+    await setMentions(tx, messageId, await зовущиеся(tx, found.conversationId, body));
 
     await appendEvent(tx, {
       kind: "message.edited",

@@ -27,7 +27,7 @@ import {
  */
 function Unread({ count }: { count: number }) {
   return (
-    <span className="ml-auto shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
+    <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
       {/* ⚠️ СЛОВО ДЛЯ ЧТЕНИЯ С ЭКРАНА, А НЕ `aria-label` НА `span`.
           Голая «7» вслух не говорит ничего, а `aria-label` на узле без
           роли браузеры и читалки имеют право не заметить — линтер прав.
@@ -38,6 +38,44 @@ function Unread({ count }: { count: number }) {
           имени, а не целиком (fixtures.ts). */}
       <span className="sr-only">непрочитанных: </span>
       {count > 999 ? "999+" : count}
+    </span>
+  );
+}
+
+/**
+ * Значок «тебя звали» (Р-031).
+ *
+ * ⚠️ РЯДОМ С ЧИСЛОМ НЕПРОЧИТАННОГО, А НЕ ВМЕСТО НЕГО. Это разные новости:
+ * «тут что-то написали» и «обратились к тебе». В канале с сотней
+ * непрочитанных вторая иначе не находится. Так у Телеграма: значок
+ * с собачкой живёт своим кружком.
+ *
+ * Число показываем только со второго зова: один — это просто «позвали»,
+ * и цифра «1» рядом с собачкой ничего не добавляет. Так же у них.
+ */
+function Mentions({ count }: { count: number }) {
+  return (
+    <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
+      <span className="sr-only">упоминаний: </span>
+      {count > 1 ? `@${count > 999 ? "999+" : count}` : "@"}
+    </span>
+  );
+}
+
+/**
+ * Два значка справа от названия: «тебя звали» и «сколько нового».
+ *
+ * ⚠️ ОДНИМ КУСКОМ, А НЕ ДВУМЯ УСЛОВИЯМИ В РАЗМЕТКЕ СТРОКИ. Порядок
+ * значков и отступ между ними — знание про эту пару, а не про строку
+ * канала; вписанное в строку, оно добавляло ей два ветвления, и линтер
+ * сложности был прав.
+ */
+function Значки({ unread, mentions }: { unread: number; mentions: number }) {
+  if (mentions <= 0 && unread <= 0) return null;
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-1">
+      {mentions > 0 ? <Mentions count={mentions} /> : null}
+      {unread > 0 ? <Unread count={unread} /> : null}
     </span>
   );
 }
@@ -64,6 +102,7 @@ export function ChannelRow({
   channel,
   current,
   unread,
+  mentions,
   onSelect,
   onRemove,
 }: {
@@ -71,6 +110,8 @@ export function ChannelRow({
   current: boolean;
   /** Сколько чужих реплик человек тут не видел (Р-029). */
   unread: number;
+  /** Сколько раз тут позвали его самого и он этого не видел (Р-031). */
+  mentions: number;
   onSelect: (id: string) => void;
   onRemove: () => void;
 }) {
@@ -102,7 +143,7 @@ export function ChannelRow({
             канал, и нажатие по нему обязано открывать его же — как
             и нажатие по названию. Отдельный узел снаружи означал бы
             мёртвую зону в строке. */}
-        {unread > 0 ? <Unread count={unread} /> : null}
+        <Значки unread={unread} mentions={mentions} />
       </button>
 
       <DropdownMenu open={open} onOpenChange={setOpen}>

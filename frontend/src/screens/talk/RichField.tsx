@@ -15,6 +15,7 @@ import {
   UNDO_COMMAND,
 } from "lexical";
 import { Handle, Keys, markSelection } from "./fieldKeys.js";
+import { Mentions } from "./Mentions.js";
 import { $fillFromMarkup, toMarkup } from "./markupNodes.js";
 
 /**
@@ -115,11 +116,14 @@ export interface FieldApi {
 
 export function RichField({
   placeholder,
+  conversationId,
   onChange,
   onSend,
   onReady,
 }: {
   placeholder: string;
+  /** В каком разговоре пишем — от этого зависит, кого можно позвать. */
+  conversationId: string | null;
   /** Наружу уходит наша строка с разметкой, а не дерево редактора. */
   onChange: (markup: string) => void;
   onSend: () => void;
@@ -167,6 +171,7 @@ export function RichField({
           ignoreSelectionChange={true}
           onChange={(_, editor) => onChange(toMarkup(editor))}
         />
+        <Mentions conversationId={conversationId} />
         <Keys onSend={onSend} />
         <Handle
           onReady={(editor) =>

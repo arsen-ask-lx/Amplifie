@@ -1,5 +1,6 @@
+export { ConversationNotVisibleError, type Viewer } from "./access.js";
+export { MentionNotAllowedError, peopleToMention, whereMentioned } from "./mentions.js";
 export {
-  ConversationNotVisibleError,
   createChannel,
   createDefaultChannel,
   createTaskDiscussion,
@@ -15,5 +16,4 @@ export {
   sendAsAgent,
   sendMessage,
   sync,
-  type Viewer,
 } from "./service.js";

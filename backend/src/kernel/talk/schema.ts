@@ -238,3 +238,33 @@ export const message = pgTable(
       .where(sql`${t.pinnedAt} is not null`),
   ],
 );
+
+/**
+ * Кого позвали в сообщении (Р-031).
+ *
+ * ⚠️ ЭТО НЕ ВТОРАЯ РАЗМЕТКА. Само упоминание живёт в теле сообщения,
+ * как жирный и ссылка (Р-020); здесь нет ни смещений, ни текста —
+ * только «этого позвали здесь». Заведи мы тут смещения, они разошлись
+ * бы с телом на первой же правке, и разошлись бы молча.
+ *
+ * ⚠️ БЕЗ ЭТОЙ ТАБЛИЦЫ СЧЁТЧИК СЧИТАЛСЯ БЫ ПОИСКОМ ПОДСТРОКИ по всей
+ * переписке — и считался бы на каждом открытии списка каналов. Ровно
+ * та цена, из-за которой Телеграм держит `unread_mentions_count`
+ * отдельным числом, а не выводит его из текста.
+ */
+export const messageMention = pgTable(
+  "message_mention",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => message.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => participant.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.participantId] }),
+    // Счёт идёт всегда от человека: «сколько раз позвали МЕНЯ».
+    index("message_mention_participant_idx").on(t.participantId, t.messageId),
+  ],
+);

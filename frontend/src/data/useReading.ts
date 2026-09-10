@@ -1,3 +1,4 @@
+import { mentionedIds } from "@amplifie/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Conversation, type Message } from "./api.js";
 
@@ -23,6 +24,8 @@ const ЗАДЕРЖКА = 3000;
 export interface Reading {
   /** Сколько непрочитанного у разговора — с поправкой на нашу отметку. */
   unreadOf: (conversationId: string) => number;
+  /** Сколько раз тут позвали тебя и ты этого не видел — с той же поправкой. */
+  mentionsOf: (conversationId: string) => number;
   /**
    * Где рисовать черту «Непрочитанные сообщения» в ОТКРЫТОМ разговоре.
    * `null` — черты нет. Черта стоит перед первой репликой с номером
@@ -145,26 +148,78 @@ export function useReading({
     };
   }, [currentId, последний, планировать]);
 
-  const unreadOf = useCallback(
-    (conversationId: string) => {
+  /**
+   * Сколько из посчитанного сервером мы успели прочесть сами.
+   *
+   * ⚠️ ОДНА ПОПРАВКА НА ОБА ЧИСЛА. Сервер мог посчитать до того, как наша
+   * отметка до него доехала, — и тогда значок горит на уже прочитанном.
+   * Правило вычитания одно и то же для непрочитанного и для упоминаний;
+   * разъедься эти два места, одно из чисел однажды перестало бы гаснуть,
+   * и заметили бы это глазами, а не проверкой.
+   *
+   * `годится` отличает вопросы: «любая чужая реплика» или «та, в которой
+   * позвали меня».
+   */
+  const съеденоНами = useCallback(
+    (room: Conversation, наш: number, годится: (one: Message) => boolean) =>
+      messages.filter(
+        (one) =>
+          one.conversationId === room.id &&
+          one.seq > room.readSeq &&
+          one.seq <= наш &&
+          one.author.id !== meId &&
+          годится(one),
+      ).length,
+    [messages, meId],
+  );
+
+  /**
+   * Число у разговора с поправкой на нашу отметку.
+   *
+   * Ниже нуля не опускаемся: число не бывает отрицательным, а гонка
+   * между нашей отметкой и счётом сервера — возможна.
+   */
+  const считать = useCallback(
+    (
+      conversationId: string,
+      сколько: (room: Conversation) => number,
+      годится: (one: Message) => boolean,
+    ) => {
       const room = roomsRef.current.find((one) => one.id === conversationId);
       if (!room) return 0;
       const наш = прочитано[conversationId];
-      if (наш === undefined) return room.unread;
-      // Сервер мог посчитать до нашей отметки — вычитаем то, что успели
-      // прочесть сами. Ниже нуля не опускаемся: число не бывает
-      // отрицательным, а гонка возможна.
-      const съедено = messages.filter(
-        (one) =>
-          one.conversationId === conversationId &&
-          one.seq > room.readSeq &&
-          one.seq <= наш &&
-          one.author.id !== meId,
-      ).length;
-      return Math.max(0, room.unread - съедено);
+      if (наш === undefined) return сколько(room);
+      return Math.max(0, сколько(room) - съеденоНами(room, наш, годится));
     },
-    [прочитано, messages, meId],
+    [прочитано, съеденоНами],
   );
 
-  return { unreadOf, boundary };
+  const unreadOf = useCallback(
+    (conversationId: string) =>
+      считать(
+        conversationId,
+        (room) => room.unread,
+        () => true,
+      ),
+    [считать],
+  );
+
+  /**
+   * ⚠️ КОГО ПОЗВАЛИ — ЧИТАЕТСЯ ИЗ ТЕЛА, И ЭТО НЕ ВТОРОЙ ИСТОЧНИК ПРАВДЫ.
+   * Число считает сервер; здесь только поправка на реплики, которые мы
+   * держим в окне ленты и уже отметили прочитанными. Запись упоминания
+   * общая с сервером (`@amplifie/contract`), поэтому «позвали меня»
+   * обе стороны понимают одинаково.
+   */
+  const mentionsOf = useCallback(
+    (conversationId: string) =>
+      считать(
+        conversationId,
+        (room) => room.mentions,
+        (one) => (meId ? mentionedIds(one.body).includes(meId) : false),
+      ),
+    [считать, meId],
+  );
+
+  return { unreadOf, mentionsOf, boundary };
 }
