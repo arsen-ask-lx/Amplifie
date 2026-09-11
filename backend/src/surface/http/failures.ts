@@ -16,18 +16,9 @@ import { NotHumanError, TaskNotVisibleError } from "../../kernel/work/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../platform/rendezvous.js";
 
 /**
- * Отказ ядра → код ответа. ОДНА таблица на все двери (task-039, шаг 2).
- *
- * Прежде у каждого файла дверей был свой перевод, и они разошлись:
- * молчание моста в чате отвечало `model_silent` с подробностью, на доске —
- * без неё, в проверке связи — `bridge_silent`. Код HTTP везде совпадал,
- * расходились слова.
- *
- * `detail` — показывать ли текст ошибки. Только там, где он человеку
- * понятен и не несёт ничего секретного.
- *
- * Не найдено и не видно — всегда 404: 403 подтвердил бы, что предмет
- * существует, и по нему перебирали бы чужое.
+ * Отказ ядра → код ответа: одна таблица на все двери, чтобы слова ответа
+ * не разъезжались. `detail` — показывать текст ошибки, только где он
+ * понятен и не секретен. «Не видно» — всегда 404: 403 выдал бы существование.
  */
 const KNOWN: ReadonlyArray<{
   kind: abstract new (...args: never[]) => Error;
@@ -82,12 +73,8 @@ function answerOf(error: unknown): { code: number; body: unknown } | null {
       body: known.detail ? { error: known.error, detail: message } : { error: known.error },
     };
   }
-  /**
-   * ⚠️ ГОТОВЫЙ ОТВЕТ СТОРОННЕГО ПЛАГИНА — С ЕГО КОДОМ. Порог частоты
-   * бросает не `Error`, а объект ответа `{ statusCode: 429, … }`.
-   * Проброшенный дальше, он уезжал к человеку с кодом 200: порог
-   * срабатывал, а запрос выглядел прошедшим. Поймано приёмочными порогов.
-   */
+  // Порог частоты бросает не `Error`, а готовый ответ `{ statusCode: 429 }`:
+  // отдаём его с его кодом, иначе он уезжал бы с кодом 200.
   if (!(error instanceof Error)) {
     const status = (error as { statusCode?: unknown }).statusCode;
     return { code: typeof status === "number" ? status : 500, body: error };

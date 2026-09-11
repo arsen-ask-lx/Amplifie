@@ -15,28 +15,16 @@ import * as repo from "./repo.js";
  */
 type MessageView = Message;
 
-/**
- * Сколько текста цитаты уезжает в ленту.
- *
- * Цитата — это напоминание, а не второе сообщение. Длинная превращает
- * ленту в удвоенную саму себя; у Телеграма примерно столько же.
- */
+/** Цитата — напоминание, а не второе сообщение: столько же, сколько у Телеграма. */
 const EXCERPT = 120;
 
 function excerptOf(body: string): string {
-  // Переводы строк схлопываются: цитата живёт в одну строку, и настоящий
-  // перенос в ней сломал бы высоту пузыря сильнее, чем помог бы смыслу.
+  // Цитата живёт в одну строку — переводы строк схлопываются.
   const flat = body.replace(/\s+/gu, " ").trim();
   return flat.length > EXCERPT ? `${flat.slice(0, EXCERPT)}…` : flat;
 }
 
-/**
- * Строка догона: живая реплика или надгробие.
- *
- * Развилка ровно одна и стоит здесь — до того, как собран вид. Собрать
- * вид и потом «вычистить поля» значило бы держать текст удалённой реплики
- * в руках и рассчитывать не забыть его выбросить.
- */
+/** Строка догона: живая реплика или надгробие — развилка до сборки вида. */
 function presentLine(row: Awaited<ReturnType<typeof repo.listMessagesAfter>>[number]): SyncLine {
   if (row.deletedAt !== null) {
     return { id: row.id, conversationId: row.conversationId, seq: Number(row.seq), deleted: true };
@@ -56,16 +44,8 @@ function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[numbe
     editedAt: row.editedAt?.toISOString() ?? null,
     pinnedAt: row.pinnedAt?.toISOString() ?? null,
     author: { id: row.authorId, name: row.authorName, kind: row.authorKind },
-    /**
-     * На что это ответ. `null` — ответа не было ЛИБО исходную реплику
-     * удалили: снаружи это одно и то же намеренно.
-     *
-     * ⚠️ УДАЛЁННОСТЬ ПРОВЕРЯЕТСЯ ОТМЕТКОЙ, А НЕ ПУСТЫМ ТЕЛОМ. Мягкое
-     * удаление стирает тело в пустую строку, а не в `null`, — и цитата
-     * на удалённое показывала рамку с пустым текстом вместо того,
-     * чтобы исчезнуть. Нашёл приёмочный тест, который до этого молча
-     * падал на другой причине.
-     */
+    // `null` — ответа не было или цитату удалили. Удалённость — по отметке:
+    // мягкое удаление стирает тело в пустую строку, а не в `null`.
     replyTo:
       row.replyToId === null || row.replyToBody === null || row.replyToDeletedAt !== null
         ? null
@@ -96,12 +76,8 @@ function isDuplicateClientMsgId(error: unknown): boolean {
 }
 
 /**
- * Панель целиком: разговоры и проекты ОДНИМ ответом.
- *
- * ⚠️ ОДНИМ, А НЕ ДВУМЯ ЗАПРОСАМИ. Панель перечитывается на каждый звонок
- * потока (Р-006), и второй запрос за проектами удваивал бы самый частый
- * обмен в продукте. Внутри — тоже один проход по проектам, а не по чату
- * на проект: N+1 здесь не виден, пока проектов три.
+ * Панель целиком: разговоры и проекты одним ответом — её перечитывают
+ * на каждый звонок потока (Р-006), и второй обмен удвоил бы самый частый.
  */
 export async function listConversations(viewer: Viewer) {
   const [rows, projects] = await Promise.all([
@@ -115,49 +91,26 @@ export async function listConversations(viewer: Viewer) {
       kind: r.kind,
       title: r.title,
       parentId: r.parentId,
-      // К какому проекту относится разговор. `null` — вне проектов (Р-032).
       projectId: r.projectId,
-      // Время последней активности отдаём наружу: по нему клиент показывает
-      // «когда тут в последний раз говорили», не запрашивая ленту.
       lastAt: new Date(r.lastAt).toISOString(),
-      // Сколько чужих реплик человек ещё не видел (Р-029). Едет вместе
-      // со списком, а не отдельной дверью: панель каналов и так его
-      // перечитывает, и второй запрос был бы ровно тем же обходом.
       unread: r.unread,
-      // Сколько раз в разговоре позвали именно этого человека и он этого
-      // ещё не видел (Р-031). Отдельное число, а не часть непрочитанного:
-      // у Телеграма рядом с `unread_count` по той же причине живёт
-      // `unread_mentions_count`.
       mentions: r.mentions,
       readSeq: Number(r.readSeq),
-      // Закреплён ли ЭТИМ человеком (task-038). Личное: у коллеги своё.
       pinned: r.pinned,
     })),
   };
 }
 
 /**
- * Отметить разговор прочитанным до номера включительно.
- *
- * ⚠️ ПРАВО — ЭТО ВИДИМОСТЬ РАЗГОВОРА, А НЕ ЧЛЕНСТВО В НЁМ. Сперва
- * проверкой служил пустой результат `UPDATE` по строке участника —
- * и это оказалось неверно: канал открыт всему пространству, читатель
- * может не быть его участником, и отметка глохла 404-й у всех, кто вошёл
- * позже заведения канала. Кто разговор ВИДИТ, тот вправе отметить его
- * прочитанным: прочтение — это про его собственный взгляд, а не про
- * права в разговоре.
- *
- * Возвращает пересчитанный остаток: клиент видит только загруженный
- * кусок ленты и посчитать сам не может. Так же поступает Телеграм,
- * присылая `still_unread_count` рядом с номером.
+ * Отметить прочитанным до номера включительно. Право — видимость, а не
+ * членство: прочтение про взгляд, а открытый канал читают и не участники.
+ * Отдаёт пересчитанный остаток: клиент видит только окно ленты
+ * (как `still_unread_count` у Телеграма).
  */
 export async function markRead(viewer: Viewer, conversationId: string, seq: number) {
   await requireVisible(db, viewer, conversationId);
-  /**
-   * ⚠️ НЕ ДАЛЬШЕ ГОЛОВЫ ПРОСТРАНСТВА. Номер идёт только вперёд (GREATEST),
-   * и отметка «из будущего» — ошибка клиента или подмена — навсегда
-   * пометила бы прочитанными ещё не написанные сообщения (task-027 №5).
-   */
+  // Не дальше головы: номер идёт только вперёд, и отметка «из будущего»
+  // навсегда пометила бы ненаписанное (task-027 №5).
   const head = await repo.currentSeq(db, viewer.workspaceId);
   await repo.markRead(db, conversationId, viewer.participantId, Math.min(seq, head));
   return { unread: await repo.countUnread(db, conversationId, viewer.participantId) };
@@ -179,32 +132,13 @@ export async function listMessages(
 ) {
   await requireVisible(db, viewer, conversationId);
   const rows = await repo.listMessages(db, conversationId, limit, before);
-  /**
-   * ⚠️ ГОЛОВА ПРОСТРАНСТВА ОТДАЁТСЯ ВМЕСТЕ СО СТРАНИЦЕЙ, И ЭТО НЕ
-   * НАГРУЗКА, А ЕЁ СНЯТИЕ.
-   *
-   * Свежая вкладка нигде не была, и догонять ей нечего: догон отвечает
-   * на вопрос «что изменилось, пока меня не было». Без этого числа
-   * клиент брал начальный курсор из последней страницы ОТКРЫТОГО
-   * разговора — и, открыв тихий канал, оказывался далеко позади головы.
-   * Дальше он переигрывал историю страницами по пятьдесят: до тысячи
-   * чужих сообщений на каждую перезагрузку страницы. Замерено
-   * в браузере (Д-19).
-   *
-   * Один дешёвый запрос по первичному ключу против двадцати страниц
-   * догона — обмен, который не требует размышлений.
-   */
+  // Голова пространства — начальный курсор догона для свежей вкладки;
+  // без неё клиент переигрывал историю страницами (Д-19).
   const head = await repo.currentSeq(db, viewer.workspaceId);
   return { items: rows.map(presentMessage), hasMore: rows.length === limit, head };
 }
 
-/**
- * Записать сообщение: номер, вставка, событие, готовый вид.
- *
- * Общее для человека и агента. Разделять их копией нельзя: расходится
- * не текст, а поведение — например, кто-то один перестанет писать событие,
- * и журнал начнёт врать про половину сообщений.
- */
+/** Записать сообщение: номер, вставка, упоминания, событие, вид. Общее для человека и агента. */
 async function writeMessage(
   tx: Executor,
   target: { workspaceId: string },
@@ -219,9 +153,8 @@ async function writeMessage(
     forwardedFromId?: string | null;
   },
 ): Promise<MessageView> {
-  // Номер берётся ТОЛЬКО так и только внутри этой же транзакции.
-  // Важно, что это UPDATE строки, а не последовательность: при откате
-  // номер возвращается обратно и дыры не остаётся.
+  // Номер — `UPDATE` строки в этой же транзакции, а не последовательность:
+  // при откате он возвращается, и дыры не остаётся.
   const seq = await repo.nextSeq(tx, target.workspaceId);
 
   const created = await repo.insertMessage(tx, {
@@ -252,11 +185,8 @@ export interface SendResult {
 }
 
 /**
- * Отправка сообщения.
- *
- * Идемпотентность доменная: ключ `clientMsgId` генерирует клиент в момент
- * набора. Повтор — не ошибка, а нормальная работа клиента после разрыва:
- * возвращаем то же самое сообщение и тот же номер.
+ * Отправка. Ключ `clientMsgId` генерирует клиент при наборе; повтор после
+ * разрыва — не ошибка: отдаём то же сообщение с тем же номером.
  */
 export async function sendMessage(
   viewer: Viewer,
@@ -275,10 +205,8 @@ export async function sendMessage(
       const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
       if (already) return { replayed: true, message: await viewOf(tx, already.id) };
 
-      // ⚠️ ЦИТАТА И ИСТОЧНИК ПЕРЕСЫЛКИ ПРОВЕРЯЮТСЯ ТОЙ ЖЕ ПРОВЕРКОЙ ВИДИМОСТИ.
-      // Оба идентификатора приходят от клиента, а цитата ПОКАЗЫВАЕТ ТЕКСТ:
-      // без проверки по ним вытаскивался бы кусок чужого разговора. Здесь
-      // не «на всякий случай», а единственный рубеж.
+      // Цитата показывает текст, а её номер пришёл от клиента: без проверки
+      // видимости по нему вытаскивался бы кусок чужого разговора.
       const replyToId = await visibleMessageId(tx, viewer, input.replyToId);
       const forwardedFromId = await visibleMessageId(tx, viewer, input.forwardedFromId);
 
@@ -294,16 +222,12 @@ export async function sendMessage(
       return { replayed: false, message };
     });
 
-    // Звонок ТОЛЬКО после фиксации (Р-006). Позвонив раньше, мы отправили бы
-    // клиента в /v1/sync за тем, чего в базе ещё нет, — и второго звонка
-    // бы не было. Повтор не звонит: ничего не изменилось.
+    // Звонок после фиксации (Р-006); повтор не звонит — ничего не изменилось.
     if (!result.replayed) publish(viewer.workspaceId);
     return result;
   } catch (error) {
-    // Гонка: два запроса с одним ключом ушли одновременно и оба прошли
-    // проверку «уже есть». Проигравший откатывается — номер возвращается
-    // счётчику, дыры не остаётся, — и получает то же сообщение.
-    // Без этой ветки двойной клик давал бы пятисотку.
+    // Гонка двух запросов с одним ключом: проигравший откатывается
+    // и получает то же сообщение, а не 500.
     if (!isDuplicateClientMsgId(error)) throw error;
 
     const existing = await repo.findMessageByClientId(db, conversationId, input.clientMsgId);
@@ -313,17 +237,9 @@ export async function sendMessage(
 }
 
 /**
- * Сообщение от имени участника-агента.
- *
- * ПОЧЕМУ ДВА УЧАСТНИКА В ПОДПИСИ. Видимость проверяется по ЧЕЛОВЕКУ, который
- * позвал: агент сегодня не состоит в каналах, он участник пространства.
- * Автором же ставится агент — иначе журнал не ответит на вопрос «кто это
- * сказал», а в ленте появится реплика человека, которую он не писал.
- * Когда агент станет членом канала, первый параметр уйдёт.
- *
- * `kind = "agent"` — чтобы следующий разбор не принял слова агента за
- * человеческие и не вышла петля. `trust = "untrusted"` — текст пришёл
- * от модели, то есть это недоверенный ввод, ровно как ответ моста.
+ * Сообщение от агента. Видимость проверяется по позвавшему человеку
+ * (агент не состоит в каналах), автор — агент. `kind = "agent"` не даёт
+ * агенту отвечать самому себе; `trust = "untrusted"` — текст от модели.
  */
 export async function sendAsAgent(
   onBehalfOf: Viewer,
@@ -334,8 +250,7 @@ export async function sendAsAgent(
   const result = await withTransaction(async (tx) => {
     const target = await requireVisible(tx, onBehalfOf, conversationId);
 
-    // Идемпотентность: ключ выводится из сообщения-обращения, поэтому
-    // двойной зов даёт один ответ, а не два.
+    // Ключ выведен из обращения: двойной зов — один ответ.
     const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
     if (already) return { fresh: false, message: await viewOf(tx, already.id) };
 
@@ -360,8 +275,7 @@ export async function createThread(viewer: Viewer, parentId: string, title: stri
   return change(viewer.workspaceId, async (tx) => {
     const parent = await requireVisible(tx, viewer, parentId);
     if (parent.parentId) {
-      // Ветка от ветки не заводится: дерево ровно двухуровневое, иначе
-      // «корень» перестаёт быть однозначным.
+      // Дерево двухуровневое: иначе «корень» неоднозначен.
       throw new ConversationNotVisibleError();
     }
 
@@ -372,8 +286,7 @@ export async function createThread(viewer: Viewer, parentId: string, title: stri
       parentId,
     });
 
-    // ⚠️ Участников ветке НЕ заводим: право наследуется от канала.
-    // База это и не позволит — триггер conversation_member_root_only.
+    // Участников у ветки нет — право от корня (триггер conversation_member_root_only).
 
     await appendEvent(tx, {
       kind: "thread.created",
@@ -389,24 +302,13 @@ export async function createThread(viewer: Viewer, parentId: string, title: stri
 }
 
 /**
- * Догон: что появилось после номера, и куда клиенту двигать курсор.
- *
- * Единственное свойство, которое здесь обязано выполняться всегда:
- * **`seq` не смеет обогнать последнее отданное сообщение.** Клиент двигает
- * курсор ровно на него, поэтому всё, что осталось между отданным и `seq`,
- * он не увидит уже никогда. Обе дыры, через которые это происходило:
- *
- * ① граница читалась ОТДЕЛЬНЫМ запросом одновременно с лентой — два разных
- *    снимка базы. Теперь граница читается первой, и лента ограничена ею;
- * ② при обрезке по `limit` отдавалась граница пространства, а не последнее
- *    отданное сообщение. Теперь при обрезке `seq` — последнее отданное.
- *
- * `hasMore` избавляет клиента от угадывания: пришло true — идти за следующей
- * страницей немедленно, а не ждать звонка.
+ * Догон: что изменилось после номера и куда двигать курсор. Главное
+ * свойство: `seq` не обгоняет последнее отданное — клиент ставит курсор
+ * на него, и всё между ними потерял бы навсегда. `hasMore` — идти
+ * за следующей страницей сразу, не дожидаясь звонка.
  */
 export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
-  // Порядок важен. Граница — первой: всё, что зафиксируется после её чтения,
-  // просто придёт следующим догоном. Наоборот было бы потерей.
+  // Граница — первой: записанное после неё придёт следующим догоном.
   const bound = await repo.currentSeq(db, viewer.workspaceId);
   const after = (from: number, upTo: number, size: number) =>
     repo.listMessagesAfter(db, viewer.workspaceId, viewer.participantId, from, upTo, size);
@@ -417,14 +319,9 @@ export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
     return { messages: rows.map(presentLine), seq: bound, hasMore: false };
   }
 
-  /**
-   * ⚠️ СТРАНИЦА НАБРАЛАСЬ — ПОСЛЕДНЯЯ ГРУППА ДОЧИТЫВАЕТСЯ ЦЕЛИКОМ.
-   * Одно изменение может задеть несколько строк одним номером (удаление
-   * реплики двигает и ответы на неё), и `LIMIT` рвёт такую группу. Курсор
-   * встаёт на номер группы, а строгое «больше» следующей страницы навсегда
-   * пропустило бы её хвост (task-027 №4). Курсор — номер ИЗМЕНЕНИЯ, а не
-   * номер реплики: правка старой реплики иначе уводила курсор назад (№3).
-   */
+  // Страница набралась — последняя группа дочитывается целиком: одно
+  // изменение задевает несколько строк одним номером, и `LIMIT` рвёт его
+  // хвост (task-027 №4). Курсор — номер изменения, не реплики (№3).
   const lastChange = Number(last.updatedSeq);
   const group = await after(lastChange - 1, lastChange, GROUP_LIMIT);
   const before = rows.filter((one) => Number(one.updatedSeq) < lastChange);
@@ -461,9 +358,7 @@ export async function createDefaultChannel(
     role: "owner",
   });
 
-  // Изменение состояния и событие — в одной транзакции. Без исключений (Р-2):
-  // первая же «мелочь без события» превращает журнал в тот, которому нельзя
-  // доверять. Эта строка была пропущена и найдена проверкой журнала.
+  // Состояние и событие — в одной транзакции, без исключений (Р-2).
   await appendEvent(tx, {
     kind: "conversation.created",
     workspaceId: input.workspaceId,
@@ -479,21 +374,14 @@ export async function createDefaultChannel(
 /** Кому виден новый канал (Р-010). Ветка своей видимости не имеет. */
 export type Visibility = "workspace" | "private";
 
-/**
- * Завести разговор и сделать заводящего его владельцем.
- *
- * Общее у канала и обсуждения задачи: вставка, членство, событие.
- * Разъехавшись копией, они однажды перестали бы одинаково записывать
- * событие — и половина разговоров пропала бы из журнала.
- */
+/** Завести разговор с заводящим-владельцем: общее у канала и обсуждения задачи. */
 async function openConversation(
   viewer: Viewer,
   input: { kind: string; title: string; visibility: Visibility; projectId?: string | undefined },
 ) {
   return change(viewer.workspaceId, async (tx) => {
-    // ⚠️ ПРОЕКТ ПРОВЕРЯЕТСЯ ДО ВСТАВКИ И ТОЙ ЖЕ ПРОВЕРКОЙ, ЧТО И ПЕРЕНОС.
-    // Иначе по номеру проекта из соседней компании можно было бы завести
-    // канал прямо к ним в панель.
+    // Проект — той же проверкой, что при переносе: иначе по чужому номеру
+    // канал заводился бы в панель соседней компании.
     if (input.projectId) await requireProject(tx, viewer.workspaceId, input.projectId);
 
     const made = await repo.insertConversation(tx, {
@@ -524,12 +412,8 @@ async function openConversation(
 }
 
 /**
- * Создать канал.
- *
- * Строку членства заводим создателю ВСЕГДА, даже для открытого канала:
- * членство отвечает не за доступ, а за «канал у меня в списке». Для
- * приватного она же оказывается единственным основанием доступа —
- * и это не совпадение, а ровно то разделение, ради которого писалось Р-010.
+ * Создать канал. Членство создателю — всегда: для открытого это роль
+ * владельца, для закрытого — ещё и основание доступа (Р-010).
  */
 export async function createChannel(
   viewer: Viewer,
@@ -544,19 +428,9 @@ export async function createChannel(
 }
 
 /**
- * Удалить канал.
- *
- * ⚠️ ТОЛЬКО ТОТ, КТО ЕГО ЗАВЁЛ. Канал виден всему пространству, но
- * «видно» и «можно снести» — разные права, и слить их значило бы отдать
- * любому участнику право стереть чужую переписку. Роль `owner` заводится
- * создателю в тот же миг, что и сам канал (`openConversation`).
- *
- * ⚠️ ЧУЖОЕ И НЕСУЩЕСТВУЮЩЕЕ ОТВЕЧАЮТ ОДИНАКОВО. Отдельный отказ на чужое
- * подтвердил бы, что канал существует, — по нему перебираются чужие
- * пространства. Тот же приём, что у правки реплики.
- *
- * ⚠️ УДАЛЕНИЕ МЯГКОЕ. На сообщения канала ссылаются ответы и пересылки
- * из других каналов; каскад превратил бы их в цитаты в пустоту.
+ * Удалить канал — только владельцу: «видно» и «можно снести» — разные права.
+ * Чужое и несуществующее отвечают одинаково, чтобы не выдать существование.
+ * Удаление мягкое.
  */
 export async function deleteConversation(viewer: Viewer, conversationId: string): Promise<void> {
   await change(viewer.workspaceId, async (tx) => {
@@ -578,23 +452,15 @@ export async function deleteConversation(viewer: Viewer, conversationId: string)
       actorParticipantId: viewer.participantId,
       subjectType: "conversation",
       subjectId: conversationId,
-      // Название — чтобы по журналу было видно, ЧТО снесли: сама строка
-      // ещё лежит в базе, но в списках её больше нет.
+      // Название — чтобы по журналу было видно, что снесли.
       payload: { title: found.title },
     });
   });
 }
 
 /**
- * Обсуждение задачи — обычный разговор вида `task`.
- *
- * НЕ НОВАЯ СУЩНОСТЬ. Один слой хранит каналы, ветки и обсуждения задач;
- * лента, догон и живые обновления работают там даром. Отдельная таблица
- * «комментарии к задаче» пришлось бы учить всему этому заново.
- *
- * Разговор не знает, что он чей-то: ссылку держит задача (Р-4, `talk`
- * ничего не знает про работу). Поэтому здесь нет ни слова про `task`,
- * кроме названия.
+ * Обсуждение задачи — обычный разговор вида `task`: лента, догон и живое
+ * работают даром. Ссылку держит задача — `talk` про работу не знает (Р-4).
  */
 export async function createTaskDiscussion(viewer: Viewer, title: string): Promise<{ id: string }> {
   const created = await openConversation(viewer, { kind: "task", title, visibility: "workspace" });
@@ -602,11 +468,8 @@ export async function createTaskDiscussion(viewer: Viewer, title: string): Promi
 }
 
 /**
- * Сообщение существует, не удалено и лежит в видимом мне разговоре.
- *
- * Возвращает идентификатор или бросает «не найдено». Ничего не отдавать
- * молча нельзя: беззвучно проглоченная ссылка означала бы ответ, который
- * потерял, на что отвечает, — и человек об этом не узнает.
+ * Сообщение живо и в видимом мне разговоре — иначе «не найдено», а не молчаливый
+ * `null`: проглоченная ссылка дала бы ответ, потерявший, на что он отвечает.
  */
 async function visibleMessageId(
   tx: Executor,
@@ -624,20 +487,15 @@ async function visibleMessageId(
 async function requireMine(tx: Executor, viewer: Viewer, messageId: string) {
   const found = await repo.findMessage(tx, messageId);
   if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
-  // ⚠️ ОДИН КОД НА «НЕ ТВОЁ» И «НЕТ ТАКОГО», и это не лень. Отдельный ответ
-  // на «чужое» подтвердил бы, что сообщение существует, — по нему
-  // перебираются чужие разговоры.
+  // «Не твоё» и «нет такого» — один ответ: иначе выдаём, что оно существует.
   if (found.authorParticipantId !== viewer.participantId) throw new ConversationNotVisibleError();
   await requireVisible(tx, viewer, found.conversationId);
   return found;
 }
 
 /**
- * Событие о реплике в журнал: правка, удаление, закрепление.
- *
- * ⚠️ БЕЗ ТЕКСТА — НИ СТАРОГО, НИ НОВОГО. Журнал живёт дольше сообщения
- * и читается шире разговора. Одна функция на три действия, чтобы это
- * правило не приходилось помнить трижды: три копии нашёл гейт повторов.
+ * Событие о реплике в журнал — без текста: журнал живёт дольше сообщения
+ * и читается шире разговора.
  */
 async function logMessageEvent(
   tx: Executor,
@@ -656,12 +514,7 @@ async function logMessageEvent(
   });
 }
 
-/**
- * Изменить своё сообщение.
- *
- * Отметку «изменено» ставит хранилище, а не этот код: разнесённая
- * по вызывающим, она однажды не поставится, и лента соврёт.
- */
+/** Изменить своё сообщение. Отметку «изменено» ставит хранилище. */
 export async function editMessage(
   viewer: Viewer,
   messageId: string,
@@ -672,8 +525,7 @@ export async function editMessage(
     const changed = await repo.updateMessageBody(tx, viewer.workspaceId, messageId, body);
     if (!changed) throw new ConversationNotVisibleError();
 
-    // Правка меняет и то, кого зовут: убрал упоминание — значка
-    // у человека остаться не должно.
+    // Убрал упоминание — значок у человека гаснет.
     await setMentions(tx, messageId, await mentionedWhoSee(tx, found.conversationId, body));
 
     await logMessageEvent(tx, viewer, "message.edited", messageId, found);
@@ -681,13 +533,7 @@ export async function editMessage(
   });
 }
 
-/**
- * Удалить своё сообщение.
- *
- * ⚠️ МЯГКО. Строка остаётся, тело стирается: на реплику могут ссылаться
- * ответы и пересылки, и жёсткое удаление либо унесло бы их с собой,
- * либо оставило висеть в пустоту.
- */
+/** Удалить своё сообщение — мягко: на него ссылаются ответы и пересылки. */
 export async function deleteMessage(viewer: Viewer, messageId: string): Promise<void> {
   await change(viewer.workspaceId, async (tx) => {
     const found = await requireMine(tx, viewer, messageId);
@@ -698,13 +544,7 @@ export async function deleteMessage(viewer: Viewer, messageId: string): Promise<
   });
 }
 
-/**
- * Закрепить или открепить.
- *
- * Закрепляет ЛЮБОЙ, кому разговор виден, а не только автор: закреплённое —
- * свойство разговора, а не сообщения его написавшего. Так в Телеграме
- * и в Слаке.
- */
+/** Закрепить или открепить — любому, кому виден разговор, как в Телеграме и Слаке. */
 export async function pinMessage(
   viewer: Viewer,
   messageId: string,
@@ -715,8 +555,7 @@ export async function pinMessage(
     if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
     await requireVisible(tx, viewer, found.conversationId);
 
-    // Повтор — не ошибка: закрепить закреплённое означает «пусть будет
-    // закреплено», и результат тот же.
+    // Повтор — не ошибка: результат тот же.
     await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
 
     await logMessageEvent(
