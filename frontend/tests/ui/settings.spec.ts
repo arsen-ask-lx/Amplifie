@@ -32,6 +32,21 @@ test("внешний вид меняет масштаб и хранит выбо
   await expect(page.getByRole("heading", { name: "Внешний вид" })).toHaveCSS("font-size", "25px");
 });
 
+test("образцы тем занимают всю ширину общей колонки настроек", async ({ page }) => {
+  await register(page, "Широкий вид");
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto("/settings/appearance");
+
+  const widths = await page.getByRole("button", { name: "Светлая" }).evaluate((element) => {
+    const themes = element.parentElement?.getBoundingClientRect();
+    const column = element.closest("main")?.firstElementChild?.getBoundingClientRect();
+    if (!themes || !column) throw new Error("не найдены колонка или сетка тем");
+    return { themes: Math.round(themes.width), column: Math.round(column.width) };
+  });
+
+  expect(widths.themes).toBe(widths.column);
+});
+
 test("тема выбирается из понятных образцов и сохраняется", async ({ page }) => {
   await register(page, "Читатель");
 

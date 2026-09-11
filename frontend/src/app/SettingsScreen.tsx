@@ -87,7 +87,7 @@ function AppearancePage() {
           Один готовый вид вместо ручной настройки цветов.
         </p>
 
-        <div className="mt-4 grid max-w-3xl grid-cols-2 gap-2.5 sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
           {displayedThemes.map((candidate) => (
             <button
               key={candidate.id}
