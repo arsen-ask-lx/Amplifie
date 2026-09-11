@@ -153,7 +153,13 @@ export async function listConversations(viewer: Viewer) {
  */
 export async function markRead(viewer: Viewer, conversationId: string, seq: number) {
   await requireVisible(db, viewer, conversationId);
-  await repo.markRead(db, conversationId, viewer.participantId, seq);
+  /**
+   * ⚠️ НЕ ДАЛЬШЕ ГОЛОВЫ ПРОСТРАНСТВА. Номер идёт только вперёд (GREATEST),
+   * и отметка «из будущего» — ошибка клиента или подмена — навсегда
+   * пометила бы прочитанными ещё не написанные сообщения (task-027 №5).
+   */
+  const head = await repo.currentSeq(db, viewer.workspaceId);
+  await repo.markRead(db, conversationId, viewer.participantId, Math.min(seq, head));
   return { unread: await repo.countUnread(db, conversationId, viewer.participantId) };
 }
 
@@ -402,23 +408,38 @@ export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
   // Порядок важен. Граница — первой: всё, что зафиксируется после её чтения,
   // просто придёт следующим догоном. Наоборот было бы потерей.
   const bound = await repo.currentSeq(db, viewer.workspaceId);
-  const rows = await repo.listMessagesAfter(
-    db,
-    viewer.workspaceId,
-    viewer.participantId,
-    afterSeq,
-    bound,
-    limit,
-  );
+  const after = (from: number, upTo: number, size: number) =>
+    repo.listMessagesAfter(db, viewer.workspaceId, viewer.participantId, from, upTo, size);
 
-  const hasMore = rows.length === limit;
+  const rows = await after(afterSeq, bound, limit);
   const last = rows.at(-1);
+  if (rows.length < limit || !last) {
+    return { messages: rows.map(presentLine), seq: bound, hasMore: false };
+  }
+
+  /**
+   * ⚠️ СТРАНИЦА НАБРАЛАСЬ — ПОСЛЕДНЯЯ ГРУППА ДОЧИТЫВАЕТСЯ ЦЕЛИКОМ.
+   * Одно изменение может задеть несколько строк одним номером (удаление
+   * реплики двигает и ответы на неё), и `LIMIT` рвёт такую группу. Курсор
+   * встаёт на номер группы, а строгое «больше» следующей страницы навсегда
+   * пропустило бы её хвост (task-027 №4). Курсор — номер ИЗМЕНЕНИЯ, а не
+   * номер реплики: правка старой реплики иначе уводила курсор назад (№3).
+   */
+  const lastChange = Number(last.updatedSeq);
+  const group = await after(lastChange - 1, lastChange, GROUP_LIMIT);
+  const before = rows.filter((one) => Number(one.updatedSeq) < lastChange);
   return {
-    messages: rows.map(presentLine),
-    seq: hasMore && last ? Number(last.seq) : bound,
-    hasMore,
+    messages: [...before, ...group].map(presentLine),
+    seq: lastChange,
+    hasMore: true,
   };
 }
+
+/**
+ * Сколько строк бывает у одного изменения. Группа — это реплика и ответы
+ * на неё; предел — страховка от бесконечности, а не бюджет.
+ */
+const GROUP_LIMIT = 10_000;
 
 /**
  * Первый канал пространства. Заводится при регистрации, а не миграцией:

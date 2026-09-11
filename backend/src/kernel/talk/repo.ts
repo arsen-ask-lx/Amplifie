@@ -450,7 +450,7 @@ const MESSAGE_VIEW = {
  */
 function видСообщения(tx: Executor) {
   return tx
-    .select(MESSAGE_VIEW)
+    .select({ ...MESSAGE_VIEW, updatedSeq: message.updatedSeq })
     .from(message)
     .innerJoin(participant, eq(participant.id, message.authorParticipantId))
     .leftJoin(quoted, eq(quoted.id, message.replyToId))
@@ -501,8 +501,9 @@ export async function softDeleteMessage(tx: Executor, workspaceId: string, messa
    * ⚠️ ОДИН НОМЕР НА ВСЁ УДАЛЕНИЕ, А НЕ ПО НОМЕРУ НА СТРОКУ. Удаление —
    * одно изменение пространства, даже когда оно задевает несколько
    * реплик. Счётчик пространства сериализует записи (Д-2), и брать
-   * из него лишние номера значит платить за то, что никому не нужно:
-   * догон отбирает по `>` и `<=`, совпадающие номера ему безразличны.
+   * из него лишние номера значит платить за то, что никому не нужно.
+   * Группу с одним номером догон отдаёт целиком, даже на границе
+   * страницы (`sync` в `service.ts`) — без этого её хвост терялся.
    */
   const mark = await changed(tx, workspaceId);
 

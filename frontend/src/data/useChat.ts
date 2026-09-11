@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { troubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
+import { catchUpWith } from "./catchUp.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
 import { type Panel, usePanel } from "./usePanel.js";
@@ -229,19 +230,8 @@ export function useChat(me: Me): Chat {
     [currentIdRef],
   );
 
-  /** Догон до конца: страницами, пока сервер говорит, что есть ещё. */
-  const catchUp = useCallback(async () => {
-    for (let page = 0; page < 20; page++) {
-      const batch = await api.sync(cursor.current);
-      cursor.current = batch.seq;
-      if (batch.messages.length > 0) принять(batch.messages);
-      if (!batch.hasMore) return;
-    }
-    // ⚠️ ССЫЛКА В ЗАВИСИМОСТЯХ, А НЕ ЕЁ СОДЕРЖИМОЕ. Сам объект ссылки
-    // неизменен, и от него ничего не пересоздаётся; `currentIdRef.current`
-    // в списке означал бы пересоздание догона на каждом переключении
-    // канала — ровно то, ради чего ссылка и заведена.
-  }, [принять]);
+  /** Догон до конца, один за раз (`catchUp.ts`). */
+  const catchUp = useMemo(() => catchUpWith(api.sync, cursor, принять), [принять]);
 
   // Список разговоров — один раз при входе. `navigate` в зависимостях
   // стоит честно, хотя маршрутизатор и обещает его неизменность: обещание
