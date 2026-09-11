@@ -46,12 +46,23 @@ function clientOf(options: Options): Provider {
   });
 }
 
-async function connect(options: Options): Promise<{ token: string; name: string }> {
-  const saved = load();
-  // Уже подключались к этому же пространству — код не нужен.
-  if (saved && saved.url === options.url) return { token: saved.token, name: saved.name };
+/**
+ * Сервер не признал мост. Повтор не поможет — ключ отозван или база
+ * стёрта, — поэтому это отказ всего моста, а не обрыв связи.
+ */
+class NotRecognized extends Error {}
 
+async function connect(options: Options): Promise<{ token: string; name: string }> {
+  /**
+   * ⚠️ КОД В СТРОКЕ ВАЖНЕЕ СОХРАНЁННОГО. Строку с кодом запускают, чтобы
+   * подключиться ЗАНОВО. Прежде сохранённое подключение к тому же адресу
+   * побеждало, код молча пропускался, и мост вечно стучался старым ключом,
+   * который сервер уже не признавал (владелец, 11.09).
+   */
   if (!options.code) {
+    const saved = load();
+    // Уже подключались к этому же пространству — код не нужен.
+    if (saved && saved.url === options.url) return { token: saved.token, name: saved.name };
     throw new Error(
       "нужен код подключения: на сайте, «Подключить свою нейросеть», скопируйте\n" +
         "строку запуска целиком — в ней уже есть и адрес, и код",
@@ -84,7 +95,9 @@ async function takeJob(options: Options, token: string): Promise<Job | null> {
   });
   if (response.status === 204) return null;
   if (response.status === 401) {
-    throw new Error(`сервер не признал этот мост. Удалите ${statePath()} и подключитесь заново`);
+    throw new NotRecognized(
+      "сервер не признал этот мост. Возьмите на сайте новую строку запуска и запустите её",
+    );
   }
   if (!response.ok) throw new Error(`сервер ответил ${response.status}`);
   return (await response.json()) as Job;
@@ -142,6 +155,7 @@ async function run(): Promise<void> {
       if (!job) continue;
       await sendBack(options, token, job.jobId, await handle(client, job));
     } catch (error) {
+      if (error instanceof NotRecognized) throw error;
       const why = error instanceof Error ? error.message : String(error);
       // Сеть моргнула, сервер перезапускается — обычное дело. Но тихо
       // крутиться в пустом цикле нельзя: человек должен видеть причину.
