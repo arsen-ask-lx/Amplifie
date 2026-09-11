@@ -1,6 +1,6 @@
+import { Cpu } from "@phosphor-icons/react";
 import { useCallback, useState } from "react";
 import { type AgentsView, api, type Bridge } from "../../data/api.js";
-import { Icon } from "../../shared/Icon.js";
 import { usePolling } from "../../shared/usePolling.js";
 import { KeyPanel } from "./KeyPanel.js";
 import { ModelScreen } from "./ModelScreen.js";
@@ -37,7 +37,7 @@ function AgentStatus({
 
   return (
     <p className="mb-8 flex flex-wrap items-center gap-x-2 gap-y-1 text-body text-ink">
-      <Icon name="model" />
+      <Cpu className="size-4 shrink-0 opacity-75" aria-hidden />
       <b>{agent.name}</b>
       <span className="text-muted">{state}</span>
       {payment ? <span className="text-muted">· отвечает через {payment}</span> : null}

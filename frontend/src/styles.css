@@ -552,14 +552,6 @@
     flex: 0 0 auto;
   }
 
-  /* Значок наследует цвет текста — состояния работают сами, без правил
-     на каждое сочетание. Чуть приглушён: значок помогает найти строку,
-     а не спорит с ней за внимание. */
-  .icon {
-    flex: 0 0 auto;
-    color: currentcolor;
-    opacity: 0.75;
-  }
 
   @media (prefers-reduced-motion: no-preference) {
     .msg-fresh {

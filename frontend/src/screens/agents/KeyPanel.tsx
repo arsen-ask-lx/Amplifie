@@ -1,7 +1,7 @@
+import { Plus } from "@phosphor-icons/react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { api, type ModelKey } from "../../data/api.js";
 import { detailOf, fieldsOf } from "../../shared/failure.js";
-import { Icon } from "../../shared/Icon.js";
 import { keyTroubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
 import { Input } from "../../shared/ui/input.js";
@@ -195,7 +195,7 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
 
         <div className="mt-6 flex justify-end">
           <Button type="submit" disabled={busy || key.trim().length === 0}>
-            <Icon name="plus" />
+            <Plus className="size-4 shrink-0 opacity-75" aria-hidden />
             {busy ? "Сохраняем…" : "Сохранить ключ"}
           </Button>
         </div>
