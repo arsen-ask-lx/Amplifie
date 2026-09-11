@@ -34,7 +34,8 @@
     "label": "node tools/arbiter/label.mjs",
     "test": "vitest run --config tools/vitest.acceptance.ts",
     "test-ui": "playwright test",
-    "bridge": "tsc --build bridge && node bridge/dist/main.js"
+    "bridge": "tsc --build bridge && node bridge/dist/main.js",
+    "bridge:pack": "node bridge/pack.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.12",

@@ -10,6 +10,9 @@ COPY packages/model/package.json packages/model/
 # Общее знание бека и фронта: стадии задачи и размыкатель (task-012).
 # Не «удобно переиспользовать», а «обе стороны обязаны понимать одинаково».
 COPY packages/contract/package.json packages/contract/
+# Мост ЗАПУСКАЕТСЯ на машине человека, но РАЗДАЁТСЯ отсюда: бек отдаёт его
+# одним архивом, и строка с сайта ставит его `npx` из любой папки (task-065).
+COPY bridge/package.json bridge/
 RUN npm ci
 COPY packages/model packages/model
 COPY packages/contract packages/contract
@@ -24,6 +27,8 @@ COPY backend backend
 # появился, и молчала до первой пересборки. Явный проект тянет за собой
 # ровно свои ссылки: packages/model, packages/contract — и больше ничего.
 RUN npx tsc --build backend
+COPY bridge bridge
+RUN npm run bridge:pack
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
@@ -50,6 +55,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/packages/model/dist packages/model/dist
 COPY --from=build /app/packages/contract/dist packages/contract/dist
 COPY --from=build /app/backend/dist backend/dist
+COPY --from=build /app/bridge/package/amplifie-bridge.tgz bridge/package/
 # ⚠️ ФАЙЛЫ МИГРАЦИЙ ЕДУТ В ОБРАЗ, И БЕЗ НИХ КОРОБКУ НЕЛЬЗЯ ОБНОВИТЬ (Р-030 ③).
 #
 # До этой строки образ вёз только `dist`, а накатывать миграции предлагалось

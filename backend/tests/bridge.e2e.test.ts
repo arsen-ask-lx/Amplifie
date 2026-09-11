@@ -278,4 +278,46 @@ describe("мост участника", () => {
       expect(list.items[0]?.online).toBe(false);
     });
   });
+
+  // task-065: строка с сайта запускается из любой папки и любой оболочки.
+  describe("строка подключения", () => {
+    const site = "https://amplifie.example.test";
+    const line =
+      /^npx --yes (\S+\/v1\/bridge\/package\/amplifie-bridge-[0-9a-f]+\.tgz) --url (\S+) --code (\S+)$/u;
+
+    async function lineFrom(origin: string): Promise<{ code: string; command: string }> {
+      const svetlana = await person("Светлана");
+      const response = await fetch(`${BASE}/v1/bridges`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: svetlana.cookie, origin },
+        body: "{}",
+      });
+      return (await response.json()) as { code: string; command: string };
+    }
+
+    it("В-1 строка — npx по архиву с того сайта, откуда её взяли", async () => {
+      // `npm run bridge` работал только из папки проекта, а без адреса мост
+      // шёл на localhost — у коллеги на другой машине это пустота.
+      const { code, command } = await lineFrom(site);
+      const [, archive, url, codeInLine] = line.exec(command) ?? [];
+
+      expect(archive?.startsWith(`${site}/`)).toBe(true);
+      expect(url).toBe(site);
+      expect(codeInLine).toBe(code);
+    });
+
+    it("В-2 архив из строки отдаётся, чужое имя — наш 404", async () => {
+      const { command } = await lineFrom(BASE);
+      const archive = line.exec(command)?.[1] ?? "";
+
+      const found = await fetch(archive);
+      const bytes = new Uint8Array(await found.arrayBuffer());
+      expect(found.status).toBe(200);
+      expect([bytes[0], bytes[1]]).toEqual([0x1f, 0x8b]);
+
+      const stale = await fetch(`${BASE}/v1/bridge/package/amplifie-bridge-0000.tgz`);
+      expect(stale.status).toBe(404);
+      expect(((await stale.json()) as { error?: string }).error).toBe("not_found");
+    });
+  });
 });

@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { askOwnBridge } from "../../../app/bridging.js";
 import {
@@ -24,6 +27,36 @@ import { actorOf } from "./viewer.js";
 /** Сколько мост стоит с открытой рукой, прежде чем уйти ни с чем. */
 const HOLD_MS = 25_000;
 
+/**
+ * Мост одним архивом (task-065): его кладёт `npm run bridge:pack`, в образ
+ * везёт Dockerfile. В имени — отпечаток содержимого: `npx` кеширует по
+ * адресу, и новый мост обязан прийти по новому адресу, а не старым из кеша.
+ */
+const ARCHIVE_PATH = resolve("bridge/package/amplifie-bridge.tgz");
+let archive: { name: string; bytes: Buffer } | undefined;
+
+function bridgeArchive(): { name: string; bytes: Buffer } {
+  if (!archive) {
+    const bytes = readFileSync(ARCHIVE_PATH);
+    const print = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+    archive = { name: `amplifie-bridge-${print}.tgz`, bytes };
+  }
+  return archive;
+}
+
+/**
+ * Адрес сайта, с которого человек взял строку: браузер шлёт `Origin` сам.
+ * Подменить его может только тот, кто строку потом и запустит, — навредит себе.
+ */
+function siteOf(request: FastifyRequest): string {
+  const origin = request.headers.origin;
+  if (origin && URL.canParse(origin)) {
+    const url = new URL(origin);
+    if (url.protocol === "http:" || url.protocol === "https:") return url.origin;
+  }
+  return `${request.protocol}://${request.host}`;
+}
+
 /** Токен машины из заголовка. Схема `Bridge`, а не `Bearer`: это не сессия. */
 function bridgeToken(request: FastifyRequest): string | undefined {
   const header = request.headers.authorization;
@@ -44,6 +77,9 @@ async function machineOf(request: FastifyRequest, reply: FastifyReply) {
 export function registerBridgeHumanRoutes(app: FastifyInstance): void {
   app.post("/v1/bridges", async (request, reply) => {
     const actor = actorOf(request);
+    // Архив — до кода: нет архива, нет и строки, и незачем плодить запись моста.
+    const { name } = bridgeArchive();
+    const site = siteOf(request);
 
     const issued = await issueBridgeCode({
       workspaceId: actor.workspaceId,
@@ -52,11 +88,12 @@ export function registerBridgeHumanRoutes(app: FastifyInstance): void {
     });
 
     // Готовая строка запуска — чтобы человеку осталось скопировать
-    // и вставить, а не собирать команду из частей по инструкции.
+    // и вставить, а не собирать команду из частей по инструкции. Одна для
+    // cmd, PowerShell, bash и zsh: `npx` есть везде, где есть Node.
     return reply.code(201).send({
       id: issued.id,
       code: issued.code,
-      command: `npm run bridge -- --code ${issued.code}`,
+      command: `npx --yes ${site}/v1/bridge/package/${name} --url ${site} --code ${issued.code}`,
       expiresAt: issued.expiresAt.toISOString(),
     });
   });
@@ -80,6 +117,17 @@ export function registerBridgeHumanRoutes(app: FastifyInstance): void {
 
 /** Половина машины: удостоверение — заголовок `Authorization: Bridge`. */
 export function registerBridgeMachineRoutes(app: FastifyInstance): void {
+  // Без удостоверения: машина, которая скачивает мост, ещё никто. Секретов
+  // в архиве нет — это тот же мост, что человек и так запускает у себя.
+  app.get<{ Params: { file: string } }>("/v1/bridge/package/:file", async (request, reply) => {
+    const { name, bytes } = bridgeArchive();
+    if (request.params.file !== name) return reply.code(404).send({ error: "not_found" });
+    return reply
+      .header("content-type", "application/gzip")
+      .header("cache-control", "public, max-age=31536000, immutable")
+      .send(bytes);
+  });
+
   app.post<{ Body: { code?: string; name?: string } }>(
     "/v1/bridge/join",
     async (request, reply) => {

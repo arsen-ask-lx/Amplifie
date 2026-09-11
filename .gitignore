@@ -54,3 +54,6 @@ dock/замечания.md
 test-results/
 playwright-report/
 blob-report/
+
+# Мост одним архивом — собирается `npm run bridge:pack` (task-065)
+bridge/package/

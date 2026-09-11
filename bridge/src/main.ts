@@ -53,8 +53,8 @@ async function connect(options: Options): Promise<{ token: string; name: string 
 
   if (!options.code) {
     throw new Error(
-      "нужен код подключения: возьмите его на сайте, «Подключить свою нейросеть»,\n" +
-        "и запустите: npm run bridge -- --code <код>",
+      "нужен код подключения: на сайте, «Подключить свою нейросеть», скопируйте\n" +
+        "строку запуска целиком — в ней уже есть и адрес, и код",
     );
   }
 
