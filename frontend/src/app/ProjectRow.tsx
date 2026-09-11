@@ -1,4 +1,4 @@
-import { DotsThree, Gear, PencilSimple, PushPin, PushPinSlash } from "@phosphor-icons/react";
+import { DotsThree, Gear, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import { ProjectGlyph } from "../shared/projectLook.js";
@@ -109,6 +109,7 @@ export function ProjectRow({
   channels,
   collapsed,
   onToggle,
+  onAddChannel,
   onPin,
   onRename,
   onRemove,
@@ -121,6 +122,7 @@ export function ProjectRow({
   channels: Conversation[];
   collapsed: boolean;
   onToggle: () => void;
+  onAddChannel: () => void;
   /** Закрепить папку в СВОЕЙ панели либо снять (task-038). */
   onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
@@ -129,6 +131,8 @@ export function ProjectRow({
   mentionsOf: (conversationId: string) => number;
   renderChannel: (channel: Conversation) => React.ReactNode;
 }) {
+  // Тело остаётся в потоке лишь на время закрытия. Открытию не нужна
+  // вторая React-фаза: первый кадр задаёт CSS `@starting-style`.
   const [bodyInFlow, setBodyInFlow] = useState(!collapsed);
   const sum = (countOf: (id: string) => number) =>
     channels.reduce((total, one) => total + countOf(one.id), 0);
@@ -138,13 +142,13 @@ export function ProjectRow({
   }, [collapsed]);
 
   return (
-    <div className="group/project flex flex-col gap-0.5">
+    <div className="flex flex-col gap-0.5">
       {/* ⚠️ СТРЕЛКИ СВОРАЧИВАНИЯ НЕТ (владелец 10.09: «нужно убрать
           полностью»). Папка по-прежнему сворачивается нажатием на строку —
           исчез только значок. Признак «свёрнута» остался и он честнее
           стрелки: у свёрнутой видны числа непрочитанного, у развёрнутой —
           сами чаты. */}
-      <div className="flex items-center rounded pr-1 transition-colors hover:bg-raised">
+      <div className="group/project flex items-center rounded pr-1 transition-colors hover:bg-raised">
         <button
           type="button"
           aria-expanded={!collapsed}
@@ -158,16 +162,15 @@ export function ProjectRow({
           {collapsed ? <Summary unread={sum(unreadOf)} mentions={sum(mentionsOf)} /> : null}
         </button>
 
+        <ProjectMenu project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
         <button
           type="button"
-          aria-label={`Редактировать проект «${project.title}»`}
-          onClick={onRename}
+          aria-label={`Новый чат в проекте «${project.title}»`}
+          onClick={onAddChannel}
           className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100"
         >
-          <PencilSimple className="size-4" />
+          <Plus className="size-3.5" weight="bold" />
         </button>
-
-        <ProjectMenu project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
       </div>
 
       {/* ⚠️ У ПУСТОЙ ПАПКИ ТЕЛА НЕТ ВОВСЕ, А НЕ «ПУСТОЕ ТЕЛО». Пустой
@@ -178,13 +181,18 @@ export function ProjectRow({
       {channels.length === 0 || !bodyInFlow ? null : (
         <div
           aria-hidden={collapsed}
+          data-slot="project-chats"
+          data-state={collapsed ? "closed" : "open"}
           onTransitionEnd={(event) => {
-            if (collapsed && event.target === event.currentTarget) setBodyInFlow(false);
+            if (
+              collapsed &&
+              event.target === event.currentTarget &&
+              event.propertyName === "grid-template-rows"
+            ) {
+              setBodyInFlow(false);
+            }
           }}
-          className={[
-            "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
-            collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
-          ].join(" ")}
+          className="project-chats"
         >
           <div className="min-h-0 overflow-hidden">
             <div className="flex flex-col gap-0.5 pl-3">

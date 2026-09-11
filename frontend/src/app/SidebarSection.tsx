@@ -48,33 +48,35 @@ export function SidebarSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="group/section flex min-h-0 flex-col">
+    <section className="flex shrink-0 flex-col">
       <div className="flex items-center gap-1 pr-1">
         {/* ⚠️ ОБЫЧНЫЕ БУКВЫ РАЗМЕРОМ ПОДПИСИ ПАНЕЛИ, А НЕ МЕЛКИЙ КАПС
             (владелец 10.09: «вот эта надпись маленькая по-моему»). Ярлык
             вразрядку читают только при поиске глазами; здесь же подпись —
             заголовок списка. У Codex «Проекты» тоже набраны обычными буквами. */}
-        <span className="min-w-0 flex-1 px-2.5 py-1 text-body text-muted">
-          <span className="truncate">{title}</span>
-        </span>
+        <div className="group/section flex min-w-0 flex-1 items-center">
+          <span className="min-w-0 flex-1 px-2.5 py-1 text-body text-muted">
+            <span className="truncate">{title}</span>
+          </span>
 
-        {onAdd ? (
-          <button
-            type="button"
-            aria-label={addLabel ?? "Добавить"}
-            title={addLabel ?? "Добавить"}
-            onClick={onAdd}
-            className={[
-              "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
-              "hover:bg-raised hover:text-ink focus-visible:opacity-100",
-              addAlwaysVisible
-                ? "opacity-100"
-                : "opacity-0 group-focus-within/section:opacity-100 group-hover/section:opacity-100",
-            ].join(" ")}
-          >
-            <Plus className="size-3.5" weight="bold" />
-          </button>
-        ) : null}
+          {onAdd ? (
+            <button
+              type="button"
+              aria-label={addLabel ?? "Добавить"}
+              title={addLabel ?? "Добавить"}
+              onClick={onAdd}
+              className={[
+                "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
+                "hover:bg-raised hover:text-ink focus-visible:opacity-100",
+                addAlwaysVisible
+                  ? "opacity-100"
+                  : "opacity-0 group-focus-within/section:opacity-100 group-hover/section:opacity-100",
+              ].join(" ")}
+            >
+              <Plus className="size-3.5" weight="bold" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* ⚠️ ПРОСВЕТ МЕЖДУ ПОДПИСЬЮ И СПИСКОМ ЗАДАЁТСЯ ЗДЕСЬ, А НЕ У СПИСКА.

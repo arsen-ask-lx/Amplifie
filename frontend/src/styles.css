@@ -551,7 +551,6 @@
     width: auto;
     flex: 0 0 auto;
   }
-
   @media (prefers-reduced-motion: no-preference) {
     .msg-fresh {
       animation: settle 220ms ease-out;
@@ -580,6 +579,38 @@
      полем — этот маркер не создаёт второй вариант общего Input/Select. */
   .field-baseline {
     box-shadow: none;
+  }
+
+  /* ── РАСКРЫТИЕ ЧАТОВ ПРОЕКТА ──────────────────────────────────────
+     У добавленного DOM-узла нет предыдущего вычисленного стиля. Вместо
+     rAF и второй React-фазы `@starting-style` даёт браузеру стартовые
+     значения; он сам ведёт их к открытому состоянию. При закрытии узел
+     ещё существует, поэтому тот же transition идёт в обратную сторону. */
+  .project-chats {
+    display: grid;
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transition:
+      grid-template-rows 200ms ease-out,
+      opacity 200ms ease-out;
+  }
+
+  .project-chats[data-state="closed"] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+
+  @starting-style {
+    .project-chats[data-state="open"] {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .project-chats {
+      transition: none;
+    }
   }
 
   .msg-found {

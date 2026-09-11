@@ -1,4 +1,4 @@
-import { DotsThree, FolderSimple, Hash, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
+import { DotsThree, FolderSimple, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import {
@@ -157,6 +157,83 @@ function ToProject({
   );
 }
 
+function ProjectChannelActions({
+  channel,
+  onPin,
+  onRemove,
+}: {
+  channel: Conversation;
+  onPin: (pinned: boolean) => Promise<void>;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <button
+        type="button"
+        aria-label={`${channel.pinned ? "Открепить" : "Закрепить"} канал «${channel.title}»`}
+        onClick={() => void onPin(!channel.pinned)}
+        className="grid size-6 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/room:opacity-100"
+      >
+        <PushPin className="size-4" weight={channel.pinned ? "fill" : "regular"} />
+      </button>
+      <button
+        type="button"
+        aria-label={`Удалить канал «${channel.title}»`}
+        onClick={onRemove}
+        className="grid size-6 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-danger focus-visible:opacity-100 group-hover/room:opacity-100"
+      >
+        <Trash className="size-4" />
+      </button>
+    </div>
+  );
+}
+
+function LooseChannelMenu({
+  channel,
+  projects,
+  onPin,
+  onMove,
+  onRemove,
+}: {
+  channel: Conversation;
+  projects: Project[];
+  onPin: (pinned: boolean) => Promise<void>;
+  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Что сделать с каналом «${channel.title}»`}
+          className={[
+            "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
+            "hover:bg-selected hover:text-ink focus-visible:opacity-100",
+            open ? "opacity-100" : "opacity-0 group-hover/room:opacity-100",
+          ].join(" ")}
+        >
+          <DotsThree className="size-4" weight="bold" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuItem onSelect={() => void onPin(!channel.pinned)}>
+          {channel.pinned ? <PushPinSlash /> : <PushPin />}
+          {channel.pinned ? "Открепить" : "Закрепить"}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <ToProject channel={channel} projects={projects} onMove={onMove} />
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+          <Trash />
+          Удалить канал
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ChannelRow({
   channel,
   projects,
@@ -182,8 +259,6 @@ export function ChannelRow({
   onPin: (pinned: boolean) => Promise<void>;
   onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-
   return (
     <div
       className={[
@@ -204,14 +279,11 @@ export function ChannelRow({
           unread > 0 && !current ? "font-medium text-ink" : "",
         ].join(" ")}
       >
-        {/* ⚠️ ЗАКРЕПЛЁННЫЙ ЧАТ ПОКАЗЫВАЕТ ЭТО САМ, а не только положением
-            в списке. Иначе «почему он наверху» остаётся без ответа:
-            свежесть и закрепление снаружи выглядят одинаково. */}
+        {/* ⚠️ БУЛАВКА ОСТАЁТСЯ ТОЛЬКО У ЗАКРЕПЛЁННОГО ЧАТА: это состояние,
+            а не декоративный знак. У обычного чата значок не нужен. */}
         {channel.pinned ? (
           <PushPin className="size-4 shrink-0 opacity-60" weight="fill" aria-hidden="true" />
-        ) : (
-          <Hash className="size-4 shrink-0 opacity-60" />
-        )}
+        ) : null}
         <span className="truncate">{channel.title}</span>
         {/* ⚠️ ЧИСЛО ВНУТРИ КНОПКИ КАНАЛА, А НЕ РЯДОМ С НЕЙ. Оно про этот
             канал, и нажатие по нему обязано открывать его же — как
@@ -220,37 +292,17 @@ export function ChannelRow({
         <Badges unread={unread} mentions={mentions} />
       </button>
 
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Что сделать с каналом «${channel.title}»`}
-            className={[
-              "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
-              "hover:bg-selected hover:text-ink focus-visible:opacity-100",
-              open ? "opacity-100" : "opacity-0 group-hover/room:opacity-100",
-            ].join(" ")}
-          >
-            <DotsThree className="size-4" weight="bold" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-52">
-          {/* ⚠️ ЗАКРЕПЛЕНИЕ ПЕРВЫМ ПУНКТОМ, КАК У CODEX. Это единственное
-              действие в меню, которым пользуются каждый день; перенос
-              и удаление — раз в месяц. */}
-          <DropdownMenuItem onSelect={() => void onPin(!channel.pinned)}>
-            {channel.pinned ? <PushPinSlash /> : <PushPin />}
-            {channel.pinned ? "Открепить" : "Закрепить"}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <ToProject channel={channel} projects={projects} onMove={onMove} />
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-            <Trash />
-            Удалить канал
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {channel.projectId ? (
+        <ProjectChannelActions channel={channel} onPin={onPin} onRemove={onRemove} />
+      ) : (
+        <LooseChannelMenu
+          channel={channel}
+          projects={projects}
+          onPin={onPin}
+          onMove={onMove}
+          onRemove={onRemove}
+        />
+      )}
     </div>
   );
 }

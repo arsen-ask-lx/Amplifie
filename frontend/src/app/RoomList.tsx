@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import type { Panel } from "../data/usePanel.js";
 import { ConfirmRemoval } from "./ChannelAsks.js";
@@ -46,11 +46,11 @@ import { SidebarSection } from "./SidebarSection.js";
  *
  * ⚠️ ЧТЕНИЕ И ЗАПИСЬ В `try`. Хранилище бывает закрыто настройками
  * приватности, и это выбор человека, а не поломка: не прочлось — все
- * папки развёрнуты, и панель работает.
+ * папки, кроме открытого проекта, свёрнуты, и панель работает.
  */
-const COLLAPSED_KEY = "amplifie:свёрнутые-проекты";
+const COLLAPSED_KEY = "amplifie:свёрнутые-проекты:v2";
 
-function useCollapsed() {
+function useCollapsed(projects: Project[], currentId: string | null, items: Conversation[]) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]") as string[]);
@@ -58,6 +58,27 @@ function useCollapsed() {
       return new Set();
     }
   });
+  const initialized = useRef(new Set<string>());
+
+  useEffect(() => {
+    const currentProjectId = items.find((item) => item.id === currentId)?.projectId ?? null;
+    const fresh = projects.filter((project) => !initialized.current.has(project.id));
+    if (fresh.length === 0) return;
+
+    setCollapsed((before) => {
+      const after = new Set(before);
+      for (const project of fresh) {
+        initialized.current.add(project.id);
+        if (project.id !== currentProjectId) after.add(project.id);
+      }
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...after]));
+      } catch {
+        // Браузер без localStorage всё равно получает безопасный первый кадр.
+      }
+      return after;
+    });
+  }, [projects, currentId, items]);
 
   const toggle = (id: string) => {
     setCollapsed((before) => {
@@ -74,7 +95,21 @@ function useCollapsed() {
     });
   };
 
-  return { collapsed: collapsed, toggle: toggle };
+  const expand = useCallback((id: string) => {
+    setCollapsed((before) => {
+      if (!before.has(id)) return before;
+      const after = new Set(before);
+      after.delete(id);
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...after]));
+      } catch {
+        // Не сохранилось — список всё равно раскроется до перезагрузки.
+      }
+      return after;
+    });
+  }, []);
+
+  return { collapsed: collapsed, toggle: toggle, expand: expand };
 }
 
 /**
@@ -84,9 +119,22 @@ function useCollapsed() {
  * так сделано, лежит в плане: упоминания тронули восемь файлов, проекты
  * девять, и половина правок была чистым пробросом.
  */
-export function RoomList({ panel }: { panel: Panel }) {
+export function RoomList({
+  panel,
+  onAddChannel,
+  projectToReveal,
+}: {
+  panel: Panel;
+  onAddChannel: (project: Project) => void;
+  /** Проект, где только что успешно появился чат: раскрыть результат действия. */
+  projectToReveal: { id: string; revision: number } | null;
+}) {
   const { items, projects, currentId, unreadOf, mentionsOf } = panel;
-  const { collapsed, toggle } = useCollapsed();
+  const { collapsed, toggle, expand } = useCollapsed(projects, currentId, items);
+
+  useEffect(() => {
+    if (projectToReveal) expand(projectToReveal.id);
+  }, [projectToReveal, expand]);
 
   /**
    * Что спрашиваем про проекты прямо сейчас.
@@ -162,6 +210,7 @@ export function RoomList({ panel }: { panel: Panel }) {
                 channels={items.filter((one) => one.projectId === project.id)}
                 collapsed={collapsed.has(project.id)}
                 onToggle={() => toggle(project.id)}
+                onAddChannel={() => onAddChannel(project)}
                 onPin={(pinned) => panel.pin({ projectId: project.id }, pinned)}
                 onRename={() => setAsking({ kind: "rename", project })}
                 onRemove={() => setAsking({ kind: "remove", project })}

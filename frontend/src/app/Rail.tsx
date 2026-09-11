@@ -1,6 +1,6 @@
 import { NotePencil } from "@phosphor-icons/react";
 import { useState } from "react";
-import type { Me } from "../data/api.js";
+import type { Me, Project } from "../data/api.js";
 import type { Chat } from "../data/useChat.js";
 import { Logo } from "../shared/Logo.js";
 import { NewChatDialog } from "./ChannelAsks.js";
@@ -27,7 +27,10 @@ export function Rail({
   open: boolean;
   onLeave: () => void;
 }) {
-  const [creating, setCreating] = useState(false);
+  const [creatingFor, setCreatingFor] = useState<Project | null | undefined>(undefined);
+  const [projectToReveal, setProjectToReveal] = useState<{ id: string; revision: number } | null>(
+    null,
+  );
 
   return (
     /* ⚠️ ЗАДВИНУТАЯ ПАНЕЛЬ НЕ УДАЛЯЕТСЯ, А СХЛОПЫВАЕТСЯ ДО НУЛЯ. Убрать её
@@ -74,7 +77,7 @@ export function Rail({
         <div className="flex flex-col gap-0.5">
           <button
             type="button"
-            onClick={() => setCreating(true)}
+            onClick={() => setCreatingFor(null)}
             className="flex items-center gap-2.5 rounded bg-transparent px-2.5 py-2 text-left text-body text-muted transition-colors hover:bg-raised hover:text-ink"
           >
             <NotePencil className="size-4 shrink-0" />
@@ -83,9 +86,19 @@ export function Rail({
         </div>
 
         <NewChatDialog
-          open={creating}
-          onCreate={(title) => chat.panel.addChannel(title)}
-          onClose={() => setCreating(false)}
+          open={creatingFor !== undefined}
+          folderTitle={creatingFor?.title}
+          onCreate={async (title) => {
+            const projectId = creatingFor?.id;
+            await chat.panel.addChannel(title, projectId);
+            if (projectId) {
+              setProjectToReveal((before) => ({
+                id: projectId,
+                revision: (before?.revision ?? 0) + 1,
+              }));
+            }
+          }}
+          onClose={() => setCreatingFor(undefined)}
         />
 
         {/* ⚠️ СПИСОК РАЗГОВОРОВ СТОИТ ВСЕГДА, А НЕ ТОЛЬКО В «ЧАТЕ», И ЭТО
@@ -98,7 +111,11 @@ export function Rail({
             ⚠️ ОДНО СВОЙСТВО, А НЕ ДЕВЯТЬ. Оболочка передаёт панель целиком
             и не знает, что та умеет: прибавится действие — этот файл
             не изменится (task-035, шаг 0). */}
-        <RoomList panel={chat.panel} />
+        <RoomList
+          panel={chat.panel}
+          onAddChannel={setCreatingFor}
+          projectToReveal={projectToReveal}
+        />
 
         {/* Подвал — одна строка вместо трёх. Всё «про меня» под ней:
         тема и выход. Раньше здесь стояли три равновесные кнопки,
