@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Amplifie — варианты экрана «Агенты»</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #171717;
+        --panel: #1d1c1a;
+        --raised: #25231f;
+        --inset: #121212;
+        --ink: #eee7dc;
+        --muted: #afa79b;
+        --line: #3b3730;
+        --accent: #d8b981;
+        --ok: #78c69a;
+        --radius: 14px;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-width: 320px;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      button, input, select { font: inherit; }
+      button { color: inherit; cursor: pointer; }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+      .page { max-width: 1180px; margin: 0 auto; padding: 48px 28px 80px; }
+      .eyebrow { margin: 0 0 8px; color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+      h1 { margin: 0; font-size: clamp(28px, 5vw, 44px); letter-spacing: -.035em; }
+      .intro { max-width: 690px; margin: 12px 0 28px; color: var(--muted); font-size: 17px; }
+      .switcher { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+      .switcher button {
+        border: 0;
+        border-radius: 999px;
+        padding: 9px 14px;
+        background: transparent;
+        color: var(--muted);
+      }
+      .switcher button[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+      .hint { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
+      .mock { min-height: 660px; border-radius: 22px; background: var(--panel); box-shadow: 0 22px 70px #0005; overflow: hidden; }
+      .mock-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 24px 28px; border-bottom: 1px solid var(--line); }
+      .mock-header h2 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
+      .device { color: var(--muted); font-size: 13px; }
+      .live { display: inline-flex; align-items: center; gap: 7px; color: var(--ok); font-size: 13px; font-weight: 600; }
+      .live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 12%, transparent); }
+      .section-title { margin: 0 0 6px; font-size: 15px; }
+      .sub { margin: 0; color: var(--muted); font-size: 13px; }
+      .agent-name { margin: 7px 0 0; font-size: 25px; letter-spacing: -.025em; }
+      .agent-name span { color: var(--accent); }
+      .field-label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 12px; font-weight: 700; }
+      .field, select {
+        width: 100%; border: 0; border-radius: 10px; padding: 12px 13px;
+        background: var(--inset); color: var(--ink); box-shadow: inset 0 0 0 1px transparent;
+      }
+      .field:focus, select:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+      .field::placeholder { color: #777066; }
+      .primary { border: 0; border-radius: 10px; padding: 11px 15px; background: var(--accent); color: #2a1d09; font-weight: 750; }
+      .secondary { border: 0; border-radius: 10px; padding: 10px 13px; background: var(--raised); color: var(--ink); }
+      .key-saved { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+      .key-saved b { font-size: 14px; }
+      .key-saved small { display: block; color: var(--muted); }
+      .ghost { padding: 5px 0; border: 0; background: transparent; color: var(--muted); font-size: 13px; }
+
+      /* 1. Операторская лента */
+      .rail { padding: 12px 28px 32px; }
+      .rail-row { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 30px; padding: 27px 0; border-bottom: 1px solid var(--line); }
+      .rail-row:last-child { border-bottom: 0; }
+      .rail-body { min-width: 0; }
+      .rail-body > .sub { max-width: 590px; }
+      .status-line { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 16px; padding: 13px 15px; border-radius: 11px; background: var(--raised); }
+      .status-line b { font-size: 14px; }
+      .command { display: flex; gap: 8px; margin-top: 16px; }
+      .command code { min-width: 0; flex: 1; overflow: hidden; border-radius: 10px; padding: 11px 13px; background: var(--inset); color: #d7ccc0; text-overflow: ellipsis; white-space: nowrap; }
+      .inline-form { display: grid; grid-template-columns: 150px minmax(190px, 1fr) auto; gap: 10px; margin-top: 16px; align-items: end; }
+
+      /* 2. Рабочее место */
+      .workbench { display: grid; grid-template-columns: minmax(270px, .8fr) minmax(390px, 1.2fr); min-height: 594px; }
+      .workbench aside { padding: 28px; background: color-mix(in srgb, var(--raised) 54%, var(--panel)); }
+      .workbench main { padding: 28px; }
+      .identity { padding: 18px; border-radius: var(--radius); background: var(--panel); }
+      .identity .icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--accent); color: #2a1d09; font-size: 21px; }
+      .identity p { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+      .side-facts { display: grid; gap: 2px; margin: 22px 0 0; }
+      .fact { display: flex; justify-content: space-between; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+      .fact strong { color: var(--ink); font-weight: 650; text-align: right; }
+      .setup-block { padding: 20px 0 24px; border-bottom: 1px solid var(--line); }
+      .setup-block:last-child { border-bottom: 0; }
+      .setup-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+      .setup-number { display: grid; width: 26px; height: 26px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--raised); color: var(--muted); font-size: 12px; font-weight: 700; }
+      .setup-heading { flex: 1; }
+      .setup-heading h3 { margin: 0; font-size: 16px; }
+      .setup-heading p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+      .split-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+      .key-form { display: grid; grid-template-columns: 140px 1fr auto; gap: 10px; margin-top: 16px; align-items: end; }
+
+      /* 3. Путь */
+      .path { max-width: 720px; margin: 0 auto; padding: 36px 28px 44px; }
+      .path-step { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 18px; padding-bottom: 30px; }
+      .path-step:not(:last-child)::before { content: ""; position: absolute; top: 45px; bottom: 0; left: 21px; width: 2px; background: var(--line); }
+      .node { position: relative; display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: var(--raised); color: var(--muted); font-weight: 750; }
+      .done .node { background: color-mix(in srgb, var(--ok) 20%, var(--raised)); color: var(--ok); }
+      .path-content { padding: 9px 0 5px; }
+      .path-content h3 { margin: 0; font-size: 17px; }
+      .path-content p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+      .path-action { margin-top: 15px; padding: 14px; border-radius: 12px; background: var(--raised); }
+      .path-action .command { margin-top: 0; }
+      .path-form { display: grid; gap: 10px; margin-top: 2px; }
+      .path-footer { display: flex; justify-content: flex-end; margin-top: 12px; }
+
+      @media (max-width: 700px) {
+        .page { padding: 30px 16px 50px; }
+        .mock-header, .rail { padding-left: 18px; padding-right: 18px; }
+        .rail-row, .workbench { grid-template-columns: 1fr; gap: 14px; }
+        .rail-row { gap: 8px; }
+        .workbench aside, .workbench main { padding: 20px; }
+        .inline-form, .key-form { grid-template-columns: 1fr; }
+        .split-fields { grid-template-columns: 1fr; }
+        .path { padding-left: 18px; padding-right: 18px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <p class="eyebrow">Amplifie · прототип</p>
+      <h1>Агенты без «забора» из рамок</h1>
+      <p class="intro">Во всех трёх вариантах одинаковые реальные вещи: состояние memo, личная подписка и API-ключ. Меняется только композиция.</p>
+      <div class="switcher" role="group" aria-label="Выбрать вариант">
+        <button type="button" data-view="rail" aria-pressed="true">1 · Операторская лента</button>
+        <button type="button" data-view="workbench" aria-pressed="false">2 · Рабочее место</button>
+        <button type="button" data-view="path" aria-pressed="false">3 · Путь подключения</button>
+      </div>
+      <p class="hint">Поле без обводки по умолчанию — это не потеря доступности: активное поле получает явное акцентное кольцо.</p>
+      <article class="mock" id="mock" aria-live="polite"></article>
+    </div>
+    <script>
+      const views = {
+        rail: `
+          <header class="mock-header"><h2>Агенты</h2><span class="live">memo на связи · отвечает через вашу подписку</span></header>
+          <div class="rail">
+            <section class="rail-row"><div><h3 class="section-title">Своя подписка</h3><p class="sub">Ваша машина</p></div><div class="rail-body"><p class="sub">Мост соединяет открытый клиент с этим пространством. Ключ не нужен.</p><div class="command"><code>amplifie bridge join ···</code><button class="secondary" type="button">Копировать</button></div><p class="sub" style="margin-top:9px">Код одноразовый и живёт 15 минут.</p></div></section>
+            <section class="rail-row"><div><h3 class="section-title">Ключ API</h3><p class="sub">Запасной способ оплаты</p></div><div class="rail-body"><div class="key-saved"><div><b>OpenAI · …X7q4</b><small>Только мой</small></div><button class="ghost" type="button">Убрать</button></div><div class="inline-form"><label><span class="field-label">Поставщик</span><select><option>Anthropic (Claude)</option><option>OpenAI</option></select></label><label><span class="field-label">Новый ключ</span><input class="field" placeholder="sk-ant-…" type="password" /></label><button class="primary" type="button">Сохранить</button></div></div></section>
+          </div>`,
+        workbench: `
+          <header class="mock-header"><h2>Агенты</h2><span class="live">memo готов</span></header>
+          <div class="workbench"><aside><div class="identity"><div class="icon">✦</div><h3 class="agent-name">memo</h3><p>Отвечает, когда его позвали в разговоре. Сам ничего не слушает.</p></div><div class="side-facts"><div class="fact"><span>Сейчас отвечает</span><strong>Через подписку</strong></div><div class="fact"><span>Мост</span><strong>На связи</strong></div><div class="fact"><span>Последняя проверка</span><strong>только что</strong></div></div></aside><main><section class="setup-block"><div class="setup-head"><div class="setup-number">1</div><div class="setup-heading"><h3>Личная подписка</h3><p>Основной способ: ваш открытый клиент отвечает через мост.</p></div><span class="live">готово</span></div><div class="command"><code>amplifie bridge join ···</code><button class="secondary" type="button">Копировать</button></div></section><section class="setup-block"><div class="setup-head"><div class="setup-number">2</div><div class="setup-heading"><h3>API-ключ</h3><p>Нужен, если хотите платить ключом вместо подписки.</p></div></div><div class="key-saved"><div><b>OpenAI · …X7q4</b><small>Только мой</small></div><button class="ghost" type="button">Убрать</button></div><div class="key-form"><label><span class="field-label">Поставщик</span><select><option>Anthropic (Claude)</option><option>OpenAI</option></select></label><label><span class="field-label">Ключ</span><input class="field" placeholder="sk-ant-…" type="password" /></label><button class="primary" type="button">Добавить ключ</button></div></section></main></div>`,
+        path: `
+          <header class="mock-header"><h2>Подключение агента</h2><span class="device">memo ответит только по @обращению</span></header>
+          <div class="path"><section class="path-step done"><div class="node">✓</div><div class="path-content"><h3>Агент готов</h3><p>memo уже доступен в разговорах этого пространства.</p><div class="path-action"><span class="live">можно писать @memo</span></div></div></section><section class="path-step done"><div class="node">✓</div><div class="path-content"><h3>Подключена личная подписка</h3><p>Ваша машина на связи. Это основной путь для ответов.</p><div class="path-action"><div class="command"><code>amplifie bridge join ···</code><button class="secondary" type="button">Копировать</button></div></div></div></section><section class="path-step"><div class="node">3</div><div class="path-content"><h3>Добавить API-ключ <span style="color:var(--muted);font-weight:400">(необязательно)</span></h3><p>Запасной способ оплаты, если подписка недоступна.</p><div class="path-action"><div class="path-form"><label><span class="field-label">Поставщик</span><select><option>Anthropic (Claude)</option><option>OpenAI</option></select></label><label><span class="field-label">Ключ</span><input class="field" placeholder="sk-ant-…" type="password" /></label></div><div class="path-footer"><button class="primary" type="button">Сохранить ключ</button></div></div></div></section></div>`
+      };
+      const mock = document.querySelector('#mock');
+      const buttons = document.querySelectorAll('[data-view]');
+      function show(view) {
+        mock.innerHTML = views[view];
+        buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.view === view)));
+      }
+      buttons.forEach((button) => button.addEventListener('click', () => show(button.dataset.view)));
+      show('rail');
+    </script>
+  </body>
+</html>

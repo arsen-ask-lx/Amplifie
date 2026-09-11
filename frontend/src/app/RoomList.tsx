@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import type { Panel } from "../data/usePanel.js";
-import { ConfirmRemoval, NewChatDialog } from "./ChannelAsks.js";
+import { ConfirmRemoval } from "./ChannelAsks.js";
 import { ChannelRow } from "./ChannelRow.js";
 import { ProjectAsks } from "./ProjectDialog.js";
 import { ProjectRow } from "./ProjectRow.js";
@@ -86,14 +86,6 @@ function useСвёрнутые() {
  */
 export function RoomList({ panel }: { panel: Panel }) {
   const { items, projects, currentId, unreadOf, mentionsOf } = panel;
-  /**
-   * В какой папке заводим чат: `null` — не заводим, иначе номер проекта.
-   *
-   * ⚠️ КНОПКА «НОВЫЙ ЧАТ» БЕЗ ПАПКИ ЖИВЁТ НЕ ЗДЕСЬ, А В ВЕРХНЕМ БЛОКЕ
-   * разделов (`Rail`) — так у Codex, и владелец показал на это пальцем
-   * 10.09. Панель отвечает только за заводку ВНУТРИ папки.
-   */
-  const [adding, setAdding] = useState<string | null>(null);
   const { свёрнуты, свернуть } = useСвёрнутые();
 
   /**
@@ -167,7 +159,6 @@ export function RoomList({ panel }: { panel: Panel }) {
                 channels={items.filter((one) => one.projectId === project.id)}
                 collapsed={свёрнуты.has(project.id)}
                 onToggle={() => свернуть(project.id)}
-                onAddChat={() => setAdding(project.id)}
                 onPin={(pinned) => panel.pin({ projectId: project.id }, pinned)}
                 onRename={() => setСпрашиваем({ вид: "имя", project })}
                 onRemove={() => setСпрашиваем({ вид: "убрать", project })}
@@ -200,13 +191,6 @@ export function RoomList({ panel }: { panel: Panel }) {
           </SidebarSection>
         ) : null}
       </div>
-
-      <NewChatDialog
-        open={adding !== null}
-        внутри={projects.find((one) => one.id === adding)?.title}
-        onCreate={(title) => panel.addChannel(title, adding ?? undefined)}
-        onClose={() => setAdding(null)}
-      />
 
       <ProjectAsks спрашиваем={спрашиваем} panel={panel} onClose={закрыть} />
 

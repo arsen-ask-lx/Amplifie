@@ -22,47 +22,30 @@ import { ModelScreen } from "./ModelScreen.js";
 /** Пока раздел открыт, состояние моста может измениться в другом окне. */
 const REFRESH_MS = 4000;
 
-/**
- * Чем будет оплачен вызов, если позвать агента сейчас.
- *
- * Отдельно от состояния моста: мост — «моя машина на связи», а здесь —
- * «чем платим». У кого подключены и мост, и ключ, обязан видеть, какой
- * из них выиграл, иначе счёт приходит неожиданно.
- */
-function Via({ via }: { via: AgentsView["answersVia"] }) {
-  if (via.kind === "нечем") return null;
+/** Короткая строка — статус, а не третья карточка с повтором имени агента. */
+function AgentStatus({
+  agent,
+  bridge,
+  via,
+}: {
+  agent: AgentsView["items"][number];
+  bridge: AgentsView["bridge"];
+  via: AgentsView["answersVia"];
+}) {
+  const state = bridge.online ? "на связи" : bridge.connected ? "нет связи" : "не подключён";
+  const payment = via.kind === "нечем" ? null : via.kind;
+
   return (
-    <p className="mt-1 text-aside text-muted">
-      Платит: <b>{via.kind}</b>
-      {via.hint ? <span className="text-muted"> …{via.hint}</span> : null}
+    <p className="mb-8 flex flex-wrap items-center gap-x-2 gap-y-1 text-body text-ink">
+      <Icon name="модель" />
+      <b>{agent.name}</b>
+      <span className="text-muted">{state}</span>
+      {payment ? <span className="text-muted">· отвечает через {payment}</span> : null}
     </p>
   );
 }
 
-function State({ bridge }: { bridge: AgentsView["bridge"] }) {
-  if (bridge.online) {
-    return (
-      <p className="mt-3 text-body text-ink">
-        Отвечает через <b>{bridge.name}</b> — машина на связи.
-      </p>
-    );
-  }
-  if (bridge.connected) {
-    return (
-      <p className="mt-3 text-body text-ink text-muted">
-        Мост «{bridge.name}» подключён, но сейчас не на связи. Пока окно терминала закрыто, memo не
-        ответит.
-      </p>
-    );
-  }
-  return (
-    <p className="mt-3 text-body text-ink text-muted">
-      Своя нейросеть не подключена — memo не сможет ответить. Подключение ниже.
-    </p>
-  );
-}
-
-export function AgentsScreen() {
+export function AgentsScreen({ embedded = false }: { embedded?: boolean }) {
   const [view, setView] = useState<AgentsView | null>(null);
   const [bridges, setBridges] = useState<Bridge[]>([]);
 
@@ -85,50 +68,26 @@ export function AgentsScreen() {
   usePolling(refresh, REFRESH_MS);
 
   return (
-    // Тот же контейнер, что у остальных экранов: иначе карточка агента
-    // и блок подписки под ней стоят в разной сетке и разной ширины.
-    <div className="flex-1 overflow-y-auto p-5">
-      {/* Заголовок «Агенты» уже стоит в шапке экрана. Второй такой же
-          под ним — не структура, а эхо. */}
-      {view && view.items.length === 0 ? (
-        <p className="rounded-xl border border-line bg-card p-4 text-body text-muted">
-          Агентов пока нет. memo появится сам, как только его позовут впервые: напишите в любом
-          канале <code>@memo</code> и вопрос.
-        </p>
-      ) : null}
-
+    <div className={embedded ? "w-full" : "flex-1 overflow-y-auto p-5"}>
       {view?.items.map((agent) => (
-        <section
-          key={agent.id}
-          className="mb-6 rounded-xl border border-line bg-card p-4 shadow-raised"
-        >
-          <h3 className="flex items-center gap-2 text-lead font-semibold text-ink">
-            <Icon name="модель" />
-            {agent.name}
-          </h3>
-          <p className="mt-2 text-body leading-relaxed text-muted">
-            Читает разговор и отвечает <b>только по обращению</b> — <code>@{agent.name}</code> в
-            тексте. Сам ничего не слушает.
-          </p>
-          <State bridge={view.bridge} />
-          <Via via={view.answersVia} />
-        </section>
+        <AgentStatus key={agent.id} agent={agent} bridge={view.bridge} via={view.answersVia} />
       ))}
 
-      {/* Заголовки даёт хозяин: у окна установки они свои (task-026). */}
-      <section className="mb-6" aria-labelledby="подписка">
-        <h3 id="подписка" className="mb-3 text-lead font-semibold text-ink">
-          Своя подписка
-        </h3>
-        <ModelScreen bridges={bridges} onChanged={refresh} />
-      </section>
+      <div className="w-full divide-y divide-line">
+        <section className="pb-8" aria-labelledby="подписка">
+          <h3 id="подписка" className="mb-5 text-lead font-semibold text-ink">
+            Своя подписка
+          </h3>
+          <ModelScreen bridges={bridges} onChanged={refresh} />
+        </section>
 
-      <section className="mb-6" aria-labelledby="ключ">
-        <h3 id="ключ" className="mb-3 text-lead font-semibold text-ink">
-          Ключ API
-        </h3>
-        <KeyPanel onChange={() => void refresh()} />
-      </section>
+        <section className="pt-8" aria-labelledby="ключ">
+          <h3 id="ключ" className="mb-5 text-lead font-semibold text-ink">
+            Ключ API
+          </h3>
+          <KeyPanel onChange={() => void refresh()} />
+        </section>
+      </div>
     </div>
   );
 }

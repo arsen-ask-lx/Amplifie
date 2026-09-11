@@ -25,7 +25,7 @@ import { RoomList } from "./RoomList.js";
  * лежит внутри «Агентов»: агент отвечает через мост позвавшего, значит
  * «агент молчит» и «мост погашен» — одно событие с двух сторон.
  */
-export type Section = "talk" | "board" | "agents";
+export type Section = "talk" | "board";
 
 /**
  * Раздел, его адрес, подпись и значок.
@@ -49,10 +49,7 @@ const PARTS: Array<{
   path: string;
   label: string;
   icon: "хэш" | "работа" | "модель" | "точка";
-}> = [
-  { id: "board", path: "/board", label: "Доска", icon: "работа" },
-  { id: "agents", path: "/agents", label: "Агенты", icon: "модель" },
-];
+}> = [{ id: "board", path: "/board", label: "Доска", icon: "работа" }];
 
 /**
  * Какой раздел открыт — по адресу.

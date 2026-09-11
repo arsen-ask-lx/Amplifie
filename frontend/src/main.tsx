@@ -18,10 +18,12 @@ import "@fontsource-variable/geist";
 // заголовку, и подмножество без кириллицы завело бы нас в тупик молча.
 import "@fontsource-variable/unbounded";
 import "./styles.css";
+import { applyTextScale, chosenTextScale } from "./shared/text-scale.js";
 import { apply, chosen } from "./shared/theme.js";
 
 // ДО отрисовки: иначе тот, кто сидит в тёмной, увидит белый первый кадр.
 apply(chosen());
+applyTextScale(chosenTextScale());
 
 // ⚠️ «ТЫКАЛКА» БОЛЬШЕ НЕ ЗАПУСКАЕТСЯ ОТСЮДА, И ЭТО НЕ ЗАБЫВЧИВОСТЬ.
 // Она переехала в пакет `agent-ui-kit`, который подключает сам сборщик

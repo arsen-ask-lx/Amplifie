@@ -1,5 +1,5 @@
-import { DotsThree, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
-import { useState } from "react";
+import { DotsThree, Gear, PencilSimple, PushPin, PushPinSlash } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import { ЗначокПроекта } from "../shared/projectLook.js";
 import {
@@ -52,7 +52,7 @@ function Сводка({ unread, mentions }: { unread: number; mentions: number }
 }
 
 /**
- * Меню проекта: переименовать и убрать.
+ * Меню проекта: только действия, которые уже существуют в продукте.
  *
  * ⚠️ ТРИ ТОЧКИ, КАК У КАНАЛА, И НЕ СЛУЧАЙНО. Действия над строкой панели
  * живут в одном и том же месте — иначе человеку приходится помнить,
@@ -91,7 +91,10 @@ function МенюПроекта({
           {project.pinned ? "Открепить" : "Закрепить"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onRename}>Переименовать</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onRename}>
+          <Gear />
+          Редактировать проект
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onSelect={onRemove}>
           Убрать проект
@@ -106,7 +109,6 @@ export function ProjectRow({
   channels,
   collapsed,
   onToggle,
-  onAddChat,
   onPin,
   onRename,
   onRemove,
@@ -119,8 +121,6 @@ export function ProjectRow({
   channels: Conversation[];
   collapsed: boolean;
   onToggle: () => void;
-  /** Завести чат ВНУТРИ этого проекта (task-035). */
-  onAddChat: () => void;
   /** Закрепить папку в СВОЕЙ панели либо снять (task-038). */
   onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
@@ -129,8 +129,13 @@ export function ProjectRow({
   mentionsOf: (conversationId: string) => number;
   renderChannel: (channel: Conversation) => React.ReactNode;
 }) {
+  const [телоВПотоке, setТелоВПотоке] = useState(!collapsed);
   const сумма = (счёт: (id: string) => number) =>
     channels.reduce((всего, one) => всего + счёт(one.id), 0);
+
+  useEffect(() => {
+    if (!collapsed) setТелоВПотоке(true);
+  }, [collapsed]);
 
   return (
     <div className="group/project flex flex-col gap-0.5">
@@ -144,40 +149,22 @@ export function ProjectRow({
           type="button"
           aria-expanded={!collapsed}
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-aside text-muted transition-colors hover:text-ink"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors hover:text-ink"
         >
-          {/* ⚠️ ЗАКРЕПЛЁННАЯ ПАПКА ПОКАЗЫВАЕТ БУЛАВКУ ВМЕСТО СВОЕГО ЗНАЧКА.
-              Два значка подряд — это два сообщения там, где нужно одно;
-              «почему она наверху» важнее, чем «про что она», пока
-              название рядом. */}
-          {project.pinned ? (
-            <PushPin className="size-4 shrink-0 opacity-60" weight="fill" aria-hidden="true" />
-          ) : (
-            <ЗначокПроекта icon={project.icon} color={project.color} className="size-4" />
-          )}
+          <ЗначокПроекта icon={project.icon} color={project.color} className="size-4" />
           <span className="truncate font-medium">{project.title}</span>
           {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
             на самих чатах, и повторять их сверху значит сказать дважды. */}
           {collapsed ? <Сводка unread={сумма(unreadOf)} mentions={сумма(mentionsOf)} /> : null}
         </button>
 
-        {/* ⚠️ «+» СТОИТ В СТРОКЕ САМОЙ ПАПКИ, А НЕ ОТДЕЛЬНОЙ СТРОКОЙ
-            ПОД ЕЁ ЧАТАМИ (владелец 10.09: «в codex кнопка + где сам
-            проект, отсюда нужно убрать»). Отдельная строка занимала
-            место в каждой развёрнутой папке и притворялась чатом —
-            в списке из семи папок это семь ложных строк. */}
         <button
           type="button"
-          aria-label={`Новый чат в проекте «${project.title}»`}
-          title="Новый чат"
-          onClick={onAddChat}
-          className={[
-            "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
-            "hover:bg-selected hover:text-ink focus-visible:opacity-100",
-            "opacity-0 group-hover/project:opacity-100",
-          ].join(" ")}
+          aria-label={`Редактировать проект «${project.title}»`}
+          onClick={onRename}
+          className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100"
         >
-          <Plus className="size-3.5" weight="bold" />
+          <PencilSimple className="size-4" />
         </button>
 
         <МенюПроекта project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
@@ -188,9 +175,22 @@ export function ProjectRow({
           и папка без чатов дёргалась на каждое нажатие, будто что-то
           раскрывается (владелец увидел это на экране). Показывать
           нечего — значит и места занимать нечем. */}
-      {collapsed || channels.length === 0 ? null : (
-        <div className="flex flex-col gap-0.5 pl-3">
-          {channels.map((channel) => renderChannel(channel))}
+      {channels.length === 0 || !телоВПотоке ? null : (
+        <div
+          aria-hidden={collapsed}
+          onTransitionEnd={(event) => {
+            if (collapsed && event.target === event.currentTarget) setТелоВПотоке(false);
+          }}
+          className={[
+            "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+            collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+          ].join(" ")}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="flex flex-col gap-0.5 pl-3">
+              {channels.map((channel) => renderChannel(channel))}
+            </div>
+          </div>
         </div>
       )}
     </div>

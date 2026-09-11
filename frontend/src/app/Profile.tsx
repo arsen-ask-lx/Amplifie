@@ -1,16 +1,12 @@
-import { Check, Palette, SignOut, UserPlus } from "@phosphor-icons/react";
+import { Gear, SignOut, UserCircle, UserPlus } from "@phosphor-icons/react";
 import { useState } from "react";
+import { Link } from "react-router";
 import type { Me } from "../data/api.js";
-import { apply, chosen, remember, THEMES, type Theme } from "../shared/theme.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../shared/ui/dropdown-menu.js";
 import { InviteDialog } from "./InviteDialog.js";
@@ -20,18 +16,13 @@ import { InviteDialog } from "./InviteDialog.js";
  *
  * ЧТО БЫЛО НЕ ТАК. В подвале стояли три равновесные строки — «Тёмная тема»,
  * «Пригласить», «Выйти», — и панель заканчивалась списком несвязанных
- * действий. Смена темы попадалась на глаза чаще, чем открывается.
+ * действий. Настройки вида попадались на глаза чаще, чем открываются.
  *
  * ЧТО СТАЛО. Одна точка: кружок с инициалом и имя. Всё, что относится
  * к «мне», живёт под ней и открывается по нажатию.
  *
- * ⚠️ ОДИН СПИСОК ТЕМ ВМЕСТО ДВУХ ПЕРЕКЛЮЧАТЕЛЕЙ. Было «светлая/тёмная»
- * плюс семь цветов акцента — четырнадцать состояний, ни одно из которых
- * человек не назвал бы словом. Стало четырнадцать тем с именами; светлота
- * и оттенок в имени уже есть (владелец, 2026-09-08).
- *
- * ⚠️ ВЫБОР НЕ ЗАКРЫВАЕТ МЕНЮ (`preventDefault`). Тему подбирают
- * сравнением: нажал — увидел — нажал соседнюю.
+ * Выбор темы и масштаба живёт на отдельном экране: меню оставляет только
+ * реальные переходы и действия, а не прячет настройку в двух вложенных списках.
  */
 
 /** Кружок с инициалом — вместо картинки, которой у нас нет. */
@@ -39,43 +30,8 @@ function initial(name: string): string {
   return (name.trim()[0] ?? "?").toUpperCase();
 }
 
-/**
- * Список тем.
- *
- * ⚠️ КРУЖОК СЛЕВА ОБЪЯВЛЯЕТ СВОЮ ТЕМУ АТРИБУТОМ И КРАСИТСЯ ЕЮ ЖЕ.
- * Значения тем лежат в CSS и только там; держать рядом со списком вторую
- * копию цветов значило бы завести источник правды, который однажды
- * разойдётся с первым. Тот же приём, что был у образцов палитры.
- */
-function Themes({ value, onPick }: { value: Theme; onPick: (theme: Theme) => void }) {
-  return (
-    <>
-      {THEMES.map((theme) => (
-        <DropdownMenuItem
-          key={theme.id}
-          onSelect={(event: Event) => {
-            event.preventDefault();
-            onPick(theme.id);
-          }}
-        >
-          <span data-theme={theme.id} className="swatch size-4 shrink-0" aria-hidden="true" />
-          {theme.label}
-          {value === theme.id ? <Check className="ml-auto" /> : null}
-        </DropdownMenuItem>
-      ))}
-    </>
-  );
-}
-
 export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
-  const [theme, setTheme] = useState<Theme>(chosen);
   const [inviting, setInviting] = useState(false);
-
-  function pick(picked: Theme) {
-    setTheme(picked);
-    remember(picked);
-    apply(picked);
-  }
 
   return (
     <DropdownMenu>
@@ -96,19 +52,12 @@ export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent side="top" align="start" className="w-56">
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <Palette />
-            Оформление
-          </DropdownMenuSubTrigger>
-
-          <DropdownMenuSubContent className="max-h-96 w-56 overflow-y-auto">
-            <DropdownMenuLabel className="text-muted">Тема</DropdownMenuLabel>
-            <Themes value={theme} onPick={pick} />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/settings/profile">
+            <UserCircle />
+            Профиль
+          </Link>
+        </DropdownMenuItem>
 
         {/* ⚠️ ПРИГЛАШЕНИЕ ЖИВЁТ ЗДЕСЬ, А НЕ У КАНАЛА. Позвать в компанию
             и добавить в группу — разные действия: первое даёт человеку
@@ -118,6 +67,15 @@ export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
         <DropdownMenuItem onSelect={() => setInviting(true)}>
           <UserPlus />
           Пригласить в пространство
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuItem asChild>
+          <Link to="/settings/appearance">
+            <Gear />
+            Настройки
+          </Link>
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />

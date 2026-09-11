@@ -54,7 +54,7 @@ export function SidebarSection({
             (владелец 10.09: «вот эта надпись маленькая по-моему»). Ярлык
             вразрядку читают только при поиске глазами; здесь же подпись —
             заголовок списка. У Codex «Проекты» тоже набраны обычными буквами. */}
-        <span className="min-w-0 flex-1 px-2.5 py-1 text-aside text-muted">
+        <span className="min-w-0 flex-1 px-2.5 py-1 text-body text-muted">
           <span className="truncate">{title}</span>
         </span>
 

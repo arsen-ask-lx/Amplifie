@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useMatch, useNavigate } from "react-router";
+import { Navigate, useMatch, useNavigate } from "react-router";
 import { api, type Me } from "../data/api.js";
 import { AuthScreen } from "../screens/AuthScreen.js";
 import { JoinScreen } from "../screens/JoinScreen.js";
 import { ChatScreen } from "./ChatScreen.js";
+import { SettingsScreen } from "./SettingsScreen.js";
 import { Setup } from "./Setup.js";
 
 type State =
@@ -29,6 +30,8 @@ export function App() {
    * ради которого написано Р-009.
    */
   const invited = useMatch("/join/:token");
+  const settings = useMatch("/settings/*");
+  const legacyAgents = useMatch("/agents");
   const navigate = useNavigate();
 
   /**
@@ -98,6 +101,9 @@ export function App() {
   if (state.status === "setup") {
     return <Setup onDone={() => setState({ status: "entered", me: state.me })} />;
   }
+
+  if (legacyAgents) return <Navigate to="/settings/agents" replace />;
+  if (settings) return <SettingsScreen me={state.me} />;
 
   return (
     <ChatScreen

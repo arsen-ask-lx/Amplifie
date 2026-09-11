@@ -45,6 +45,7 @@ function ProjectDialog({
   title,
   было,
   видБыл,
+  создаём,
   кнопка,
   onSubmit,
   onClose,
@@ -56,6 +57,7 @@ function ProjectDialog({
   было?: string;
   /** Прежний вид папки. Пусто — вид по умолчанию. */
   видБыл?: { icon?: string | null; color?: string | null } | undefined;
+  создаём: boolean;
   кнопка: string;
   onSubmit: (правка: { title: string; icon: string | null; color: string | null }) => Promise<void>;
   onClose: () => void;
@@ -67,6 +69,7 @@ function ProjectDialog({
   const [цвет, setЦвет] = useState<ProjectColor | null>(
     (видБыл?.color as ProjectColor | undefined) ?? null,
   );
+  const [видОткрыт, setВидОткрыт] = useState(!создаём);
 
   return (
     <FormDialog
@@ -81,8 +84,8 @@ function ProjectDialog({
       {(busy) => (
         <>
           <div className="flex items-center gap-2">
-            {/* Значок стоит слева от поля, как в окне Codex: видно сразу,
-                как папка будет выглядеть в списке. */}
+            {/* Образец строки показывает результат до сохранения, но не
+                заставляет выбирать оформление ради создания проекта. */}
             <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-edge">
               <ЗначокПроекта icon={значок} color={цвет} className="size-5" />
             </span>
@@ -97,7 +100,27 @@ function ProjectDialog({
             />
           </div>
 
-          <Выбор значок={значок} цвет={цвет} setЗначок={setЗначок} setЦвет={setЦвет} />
+          {создаём ? (
+            <p className="text-aside text-muted">
+              Сначала назовите проект. Вид можно настроить сейчас или позже.
+            </p>
+          ) : null}
+
+          {создаём && !видОткрыт ? (
+            <button
+              type="button"
+              disabled={busy}
+              aria-expanded={видОткрыт}
+              onClick={() => setВидОткрыт(true)}
+              className="w-fit rounded bg-raised px-2.5 py-1.5 text-aside text-muted transition-colors hover:text-ink disabled:opacity-50"
+            >
+              Настроить вид
+            </button>
+          ) : null}
+
+          {видОткрыт ? (
+            <Выбор значок={значок} цвет={цвет} setЗначок={setЗначок} setЦвет={setЦвет} />
+          ) : null}
         </>
       )}
     </FormDialog>
@@ -214,10 +237,11 @@ export function ProjectAsks({
     <>
       <ProjectDialog
         open={спрашиваем?.вид === "новый" || правим !== null}
-        title={правим ? "Переименовать проект" : "Новый проект"}
+        title={правим ? "Редактировать проект" : "Новый проект"}
         было={правим?.title ?? ""}
         видБыл={правим ?? undefined}
-        кнопка={правим ? "Переименовать" : "Завести"}
+        создаём={!правим}
+        кнопка={правим ? "Сохранить" : "Создать проект"}
         // ⚠️ КЛЮЧ ПО СЛУЧАЮ: без него поле помнит прежнее имя, когда окно
         // открывают второй раз с другим проектом.
         key={правим?.id ?? "новый"}

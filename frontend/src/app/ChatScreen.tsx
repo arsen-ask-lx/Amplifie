@@ -4,15 +4,14 @@ import { useLocation } from "react-router";
 import type { Me } from "../data/api.js";
 import { type Chat, useChat } from "../data/useChat.js";
 import { useWork, type Work } from "../data/useWork.js";
-import { AgentsScreen } from "../screens/agents/AgentsScreen.js";
 import { BoardScreen } from "../screens/BoardScreen.js";
 import { Room } from "../screens/talk/Room.js";
 import { Rail, type Section, sectionOf } from "./Rail.js";
+import { ThemePicker } from "./ThemePicker.js";
 
 /** Заголовок середины экрана. Разговор подписывается своим названием. */
 const TITLES: Partial<Record<Section, string>> = {
   board: "Доска",
-  agents: "Агенты",
 };
 
 /**
@@ -53,7 +52,6 @@ function Middle({
   work: Work;
   meId: string;
 }) {
-  if (section === "agents") return <AgentsScreen />;
   if (section === "board") return <BoardScreen work={work} meId={meId} />;
   return <Room chat={chat} meId={meId} />;
 }
@@ -129,6 +127,10 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
           <h2 className="min-w-0 truncate text-head font-semibold text-ink">
             {TITLES[section] ?? chat.current?.title ?? "Канал"}
           </h2>
+
+          <div className="ml-auto flex shrink-0 items-center">
+            <ThemePicker />
+          </div>
         </header>
 
         {chat.failure ? (

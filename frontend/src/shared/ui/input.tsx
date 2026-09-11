@@ -33,7 +33,7 @@ function Input({ className, type = "text", ...props }: React.ComponentProps<"inp
       data-slot="input"
       type={type}
       className={cn(
-        "h-9 w-full min-w-0 rounded-lg border border-edge bg-bg px-3 text-body text-ink outline-none placeholder:text-muted focus-visible:border-accent focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger aria-invalid:outline-danger",
+        "h-9 w-full min-w-0 rounded-lg border-2 border-edge bg-bg px-3 text-body text-ink outline-none placeholder:text-muted focus-visible:border-accent focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger aria-invalid:outline-danger",
         className,
       )}
       {...props}

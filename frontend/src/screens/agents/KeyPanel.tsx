@@ -83,7 +83,10 @@ function Choice({
     <div className="flex flex-col gap-1 text-aside text-muted">
       <span id={подпись}>{label}</span>
       <Select value={value} onValueChange={onPick}>
-        <SelectTrigger aria-labelledby={подпись} className="w-full text-ink">
+        <SelectTrigger
+          aria-labelledby={подпись}
+          className="field-baseline w-full !rounded-xl !border-0 !border-b !border-line !bg-raised text-ink focus-visible:!outline-none focus-visible:!shadow-none"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -100,7 +103,7 @@ function Choice({
 
 function Saved({ item, onRemove }: { item: ModelKey; onRemove: () => void }) {
   return (
-    <li className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-card px-3 py-2 text-body">
+    <li className="flex flex-wrap items-center gap-2 rounded-lg bg-raised px-3 py-2 text-body">
       <span className="text-ink">
         {item.provider} · <span className="text-muted">…{item.hint}</span>
       </span>
@@ -182,6 +185,7 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
               type="password"
               value={key}
               placeholder={shape ? `${shape.prefix}…` : ""}
+              className="field-baseline !rounded-xl !border-0 !border-b !border-line !bg-raised focus-visible:!outline-none focus-visible:!shadow-none"
               autoComplete="off"
               spellCheck={false}
               onChange={(event) => setKey(event.target.value)}

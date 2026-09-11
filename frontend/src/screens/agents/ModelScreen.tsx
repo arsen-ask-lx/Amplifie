@@ -71,33 +71,28 @@ function Command({
   onCopy: () => void;
 }) {
   return (
-    <>
-      <p className="mt-2 text-aside text-muted">
-        Выполните это у себя один раз. Код одноразовый и живёт 15 минут.
-      </p>
-      <div className="relative">
-        <Input
-          className="pr-11 text-aside"
-          readOnly
-          value={command}
-          onFocus={(event) => event.target.select()}
-          aria-label="Строка запуска моста"
-        />
-        {/* ⚠️ ЗНАЧОК В САМОМ ПОЛЕ, А НЕ КНОПКА В РЯДУ ДЕЙСТВИЙ. Копирование
+    <div className="relative">
+      <Input
+        className="field-baseline !rounded-xl !border-0 !border-b !border-line !bg-raised pr-11 text-aside focus-visible:!outline-none focus-visible:!shadow-none"
+        readOnly
+        value={command}
+        onFocus={(event) => event.target.select()}
+        aria-label="Строка запуска моста"
+      />
+      {/* ⚠️ ЗНАЧОК В САМОМ ПОЛЕ, А НЕ КНОПКА В РЯДУ ДЕЙСТВИЙ. Копирование
           относится к этой строке, а не к окну: рядом с ней ему и место —
           так же, как в Телеграме. Заодно ряд внизу остаётся коротким,
           и в нём видно то, что действительно меняет состояние. */}
-        <Button
-          className="-translate-y-1/2 absolute top-1/2 right-1"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={copied ? "Скопировано" : "Копировать строку запуска"}
-          onClick={onCopy}
-        >
-          {copied ? <Check /> : <Copy />}
-        </Button>
-      </div>
-    </>
+      <Button
+        className="-translate-y-1/2 absolute top-1/2 right-1"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={copied ? "Скопировано" : "Копировать строку запуска"}
+        onClick={onCopy}
+      >
+        {copied ? <Check /> : <Copy />}
+      </Button>
+    </div>
   );
 }
 
@@ -241,11 +236,6 @@ export function ModelScreen({
      * вверх за причиной.
      */
     <div className="flex flex-col gap-4">
-      <p className="text-body leading-relaxed text-muted">
-        Нужен установленный клиент — <code>claude</code> или <code>codex</code>, — в который вы
-        вошли. Токен подписки остаётся на вашем компьютере: мы его не видим и не храним.
-      </p>
-
       {/* ⚠️ ТОЛЬКО ПОДКЛЮЧЁННЫЕ МАШИНЫ, А НЕ ВСЕ ВЫДАННЫЕ КОДЫ.
         Каждое нажатие «Новый код» заводит ещё одну запись моста; показывая
         все, панель росла с каждым нажатием, а окно установки расползалось

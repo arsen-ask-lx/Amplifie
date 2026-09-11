@@ -114,11 +114,13 @@ test("чат уходит из папки наверх и возвращаетс
   await register(page, "Хозяин");
   await завестиПроект(page, "Объект");
 
-  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового чата").fill("Смета");
-  await page.getByLabel("Название нового чата").press("Enter");
-  await expect(канал(page, "Смета")).toBeVisible();
+  // Новый чат рождается общим входом, затем его относят к проекту. У проекта
+  // нет фальшивого плюса — это закреплено соседним сценарием ниже.
+  await createChannel(page, "Смета");
 
+  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await page.getByRole("menuitem", { name: "В проект" }).click();
+  await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Убрать из проекта" }).click();
@@ -195,9 +197,10 @@ test("у папки свой значок и свой цвет, и они пер
 
   await page.getByRole("button", { name: "Новый проект" }).click();
   await page.getByLabel("Название проекта").fill("Объект");
+  await page.getByRole("button", { name: "Настроить вид" }).click();
   await page.getByRole("button", { name: "Портфель" }).click();
   await page.getByRole("button", { name: "Оранжевый" }).click();
-  await page.getByRole("button", { name: "Завести" }).click();
+  await page.getByRole("button", { name: "Создать проект" }).click();
 
   await expect(папка(page, "Объект")).toBeVisible();
 
@@ -216,18 +219,27 @@ test("у папки свой значок и свой цвет, и они пер
   });
   expect(вид, "выбранный вид папки не сохранился").toEqual({ icon: "briefcase", color: "orange" });
 
+  await вМенюПроекта(page, "Объект", "Закрепить");
+  const значки = await папка(page, "Объект")
+    .locator("svg")
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("class") ?? ""));
+  expect(значки, "закрепление подменило портфель скрепкой").toContain("size-4");
+  expect(значки.join(" "), "закрепление нарисовало скрепку").not.toContain("push-pin");
+
   await page.reload();
   await expect(папка(page, "Объект"), "папка пропала после перезагрузки").toBeVisible();
 });
 
-test("чат заводится ВНУТРИ проекта, а не снаружи", async ({ page }) => {
+test("чат можно отнести в проект из рабочего меню", async ({ page }) => {
   await register(page, "Хозяин");
   await завестиПроект(page, "Объект");
 
-  // Кнопка живёт внутри развёрнутой папки — там, где человек уже смотрит.
-  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового чата").fill("Смета");
-  await page.getByLabel("Название нового чата").press("Enter");
+  // Чат заводится общим рабочим входом, затем относится в проект действием
+  // «В проект»; отдельного плюса в строке проекта нет.
+  await createChannel(page, "Смета");
+  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await page.getByRole("menuitem", { name: "В проект" }).click();
+  await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
   await expect(канал(page, "Смета")).toBeVisible();
 
@@ -255,12 +267,13 @@ test("проект переименовывается, и это видно во
 
   const другой = await browser.newPage();
   await invited(другой, page, "Коллега");
-  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового чата").fill("Смета");
-  await page.getByLabel("Название нового чата").press("Enter");
+  await createChannel(page, "Смета");
+  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await page.getByRole("menuitem", { name: "В проект" }).click();
+  await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await expect(папка(другой, "Объект")).toBeVisible();
 
-  await вМенюПроекта(page, "Объект", "Переименовать");
+  await вМенюПроекта(page, "Объект", "Редактировать проект");
   await page.getByLabel("Название проекта").fill("Второй объект");
   await page.getByLabel("Название проекта").press("Enter");
 
@@ -268,12 +281,46 @@ test("проект переименовывается, и это видно во
   await expect(папка(другой, "Второй объект"), "переименование не доехало").toBeVisible();
 });
 
+test("у проекта нет плюса, а меню оставляет только работающие действия", async ({ page }) => {
+  await register(page, "Хозяин");
+  await завестиПроект(page, "Объект");
+
+  await expect(page.getByRole("button", { name: "Новый чат в проекте «Объект»" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Что сделать с проектом «Объект»" }).click();
+  await expect(page.getByRole("menuitem", { name: "Закрепить" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Редактировать проект" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Убрать проект" })).toBeVisible();
+  await expect(page.getByRole("menuitem")).toHaveCount(3);
+});
+
+test("карандаш проекта открывает существующее редактирование", async ({ page }) => {
+  await register(page, "Хозяин");
+  await завестиПроект(page, "Объект");
+
+  const строкаПроекта = папка(page, "Объект");
+  await строкаПроекта.hover();
+  await page.getByRole("button", { name: "Редактировать проект «Объект»" }).click();
+  await expect(page.getByRole("heading", { name: "Редактировать проект" })).toBeVisible();
+});
+
+test("новый проект спрашивает имя до необязательной настройки вида", async ({ page }) => {
+  await register(page, "Хозяин");
+  await page.getByRole("button", { name: "Новый проект" }).click();
+
+  await expect(page.getByRole("button", { name: "Настроить вид" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Портфель" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Настроить вид" }).click();
+  await expect(page.getByRole("button", { name: "Портфель" })).toBeVisible();
+  await expect(page.getByLabel("Название проекта")).toHaveCSS("border-top-width", "2px");
+});
+
 test("убрать проект — переписка цела и лежит снаружи", async ({ page }) => {
   await register(page, "Хозяин");
   await завестиПроект(page, "Объект");
-  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового чата").fill("Смета");
-  await page.getByLabel("Название нового чата").press("Enter");
+  await createChannel(page, "Смета");
+  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await page.getByRole("menuitem", { name: "В проект" }).click();
+  await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await openChannel(page, "Смета");
   await say(page, "важные слова");
 

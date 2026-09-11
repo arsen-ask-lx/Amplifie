@@ -1,91 +1,188 @@
 /**
- * Тема оформления.
+ * Личный выбор оформления.
  *
- * ⚠️ ОДИН ВЫБОР, А НЕ ДВА. Раньше было «тема (светлая/тёмная) × акцент
- * (семь цветов)» — четырнадцать состояний, ни одно из которых человек
- * не мог назвать словом. Стало четырнадцать ТЕМ С ИМЕНАМИ: «корпоративная»,
- * «фарфор», «ночной город». Светлота и оттенок в имени уже есть; разводить
- * их по двум переключателям значило заставлять человека собирать тему
- * самому (владелец, 2026-09-08).
- *
- * Двенадцать тем перенесены из audit_project и живут у нас числами
- * в `themes.css` — чужой проект не стал зависимостью.
- *
- * ПОЧЕМУ ЧЕРЕЗ АТРИБУТ, А НЕ ЧЕРЕЗ `prefers-color-scheme`. Медиазапрос
- * отвечает на вопрос «что выбрано в системе», а человеку нужно ответить
- * на другой: «что выбрал я здесь».
- *
- * ⚠️ Ставится ДО отрисовки, в `main.tsx`. Иначе первый кадр будет светлым
- * у того, кто сидит в тёмной, — и это видно.
+ * Выбор хранится один раз на устройстве и всегда указывает на одну
+ * настоящую палитру, чтобы все компоненты видели одни и те же роли цветов.
  */
-
-export type Theme = string;
 
 const KEY = "amplifie.тема";
 
-/**
- * Что можно выбрать. Порядок — порядок списка в меню.
- *
- * ⚠️ СПИСОК ЗДЕСЬ, А ЗНАЧЕНИЯ В CSS, и это разные знания. Здесь —
- * «какие темы предлагаем и как называем в меню»; там — «из чего они
- * состоят». Держать вместе значило бы завести в коде вторую копию цветов.
- */
-export const THEMES: ReadonlyArray<{ id: Theme; label: string; dark: boolean }> = [
-  { id: "монохром светлая", label: "Монохром", dark: false },
-  { id: "монохром тёмная", label: "Монохром тёмный", dark: true },
-  { id: "фарфор", label: "Фарфор", dark: false },
-  { id: "серая", label: "Серая", dark: false },
-  { id: "сланец", label: "Сланец", dark: false },
-  { id: "гитхаб светлый", label: "Гитхаб светлый", dark: false },
-  { id: "таблица", label: "Таблица", dark: false },
-  { id: "золото", label: "Золото", dark: false },
-  { id: "корпоративная", label: "Корпоративная", dark: true },
-  { id: "океан", label: "Океан", dark: true },
-  { id: "гитхаб тёмный", label: "Гитхаб тёмный", dark: true },
-  { id: "оксокарбон", label: "Оксокарбон", dark: true },
-  { id: "самурай", label: "Самурай", dark: true },
-  { id: "ночной город", label: "Ночной город", dark: true },
-  // ⚠️ ПЯТЬ ТЕМ ЗАВЕДЕНЫ ПОД ЗНАК, А НЕ ПОД ЭКРАН (владелец, 09.09).
-  // Он выбрал понравившиеся раскраски знака — алую, сиреневую,
-  // бирюзовую, индиго, малиновую, — а знак берёт шарик из `--accent`.
-  // Значит «тема под знак» и «тема» — одно и то же, и заводить вторую
-  // настройку «цвет знака» не понадобилось вовсе.
-  { id: "алая", label: "Алая", dark: true },
-  { id: "сирень", label: "Сирень", dark: true },
-  { id: "бирюза", label: "Бирюза", dark: true },
-  { id: "индиго", label: "Индиго", dark: true },
-  { id: "малина", label: "Малина", dark: true },
-];
+export const THEMES = [
+  {
+    id: "светлая",
+    label: "Светлая",
+    description: "Нейтральный рабочий вид на каждый день",
+    group: "featured",
+    tone: "light",
+  },
+  {
+    id: "бумага",
+    label: "Бумага",
+    description: "Мягкий кремовый фон для долгой работы днём",
+    group: "featured",
+    tone: "light",
+  },
+  {
+    id: "сепия",
+    label: "Сепия",
+    description: "Тёплый книжный оттенок без яркого белого",
+    group: "featured",
+    tone: "light",
+  },
+  {
+    id: "сумерки",
+    label: "Сумерки",
+    description: "Приглушённый вид для вечера",
+    group: "featured",
+    tone: "dark",
+  },
+  {
+    id: "ночь",
+    label: "Ночь",
+    description: "Тёмный экран с мягким светлым текстом",
+    group: "featured",
+    tone: "dark",
+  },
+  {
+    id: "монохром",
+    label: "Монохром",
+    description: "Строгий белый фон и чёрный текст",
+    group: "featured",
+    tone: "light",
+  },
+  {
+    id: "монохром тёмный",
+    label: "Монохром тёмный",
+    description: "Чистый тёмный контраст",
+    group: "featured",
+    tone: "dark",
+  },
+  {
+    id: "гитхаб светлый",
+    label: "GitHub светлый",
+    description: "Светлая палитра GitHub",
+    group: "featured",
+    tone: "light",
+  },
+  {
+    id: "гитхаб тёмный",
+    label: "GitHub тёмный",
+    description: "Тёмная палитра GitHub",
+    group: "featured",
+    tone: "dark",
+  },
+  {
+    id: "фарфор",
+    label: "Фарфор",
+    description: "Светлый холодный оттенок",
+    group: "extra",
+    tone: "light",
+  },
+  { id: "серая", label: "Серая", description: "Нейтральный графит", group: "extra", tone: "dark" },
+  {
+    id: "сланец",
+    label: "Сланец",
+    description: "Тёплый нейтральный фон",
+    group: "extra",
+    tone: "light",
+  },
+  {
+    id: "таблица",
+    label: "Таблица",
+    description: "Светлая деловая палитра",
+    group: "extra",
+    tone: "light",
+  },
+  {
+    id: "золото",
+    label: "Золото",
+    description: "Светлый золотистый акцент",
+    group: "extra",
+    tone: "light",
+  },
+  {
+    id: "корпоративная",
+    label: "Корпоративная",
+    description: "Тёмная строгая палитра",
+    group: "extra",
+    tone: "dark",
+  },
+  { id: "океан", label: "Океан", description: "Тёмный синий акцент", group: "extra", tone: "dark" },
+  {
+    id: "оксокарбон",
+    label: "Оксокарбон",
+    description: "Тёмный технический вид",
+    group: "extra",
+    tone: "dark",
+  },
+  {
+    id: "самурай",
+    label: "Самурай",
+    description: "Тёмный вид с жёлтым акцентом",
+    group: "extra",
+    tone: "dark",
+  },
+  {
+    id: "ночной город",
+    label: "Ночной город",
+    description: "Холодный ночной контраст",
+    group: "extra",
+    tone: "dark",
+  },
+  {
+    id: "сирень",
+    label: "Сирень",
+    description: "Тёмный фиолетовый акцент",
+    group: "extra",
+    tone: "dark",
+  },
+  {
+    id: "бирюза",
+    label: "Бирюза",
+    description: "Тёмный бирюзовый акцент",
+    group: "extra",
+    tone: "dark",
+  },
+  {
+    id: "индиго",
+    label: "Индиго",
+    description: "Тёмный синий акцент",
+    group: "extra",
+    tone: "dark",
+  },
+] as const;
 
-const DEFAULT_LIGHT: Theme = "монохром светлая";
-const DEFAULT_DARK: Theme = "монохром тёмная";
+export type Theme = (typeof THEMES)[number]["id"];
 
-/**
- * Что выбрано. Ничего не выбрано или значение испорчено — берём системную
- * настройку ОДИН РАЗ, как отправную точку, и дальше она уже не следит.
- */
+/** Старые имена не становятся вечным публичным API: переводим разово при чтении. */
+const LEGACY: Readonly<Record<string, Theme>> = {
+  системная: "светлая",
+  "монохром светлая": "монохром",
+  алая: "ночь",
+  малина: "ночь",
+};
+
+function isTheme(value: string | null): value is Theme {
+  return THEMES.some((theme) => theme.id === value);
+}
+
+/** Выбранная человеком тема; старое сохранённое имя нормализуется в этом одном месте. */
 export function chosen(): Theme {
   try {
     const saved = localStorage.getItem(KEY);
-    if (THEMES.some((one) => one.id === saved)) return saved as Theme;
+    if (isTheme(saved)) return saved;
+    const migrated = saved === null ? undefined : LEGACY[saved];
+    if (migrated !== undefined) {
+      localStorage.setItem(KEY, migrated);
+      return migrated;
+    }
   } catch {
-    // Хранилище может быть закрыто настройками приватности. Тема — не то,
-    // ради чего стоит падать.
+    // Приватный режим может запретить storage. Внешний вид не должен ронять приложение.
   }
-  return systemIsDark() ? DEFAULT_DARK : DEFAULT_LIGHT;
+  return "светлая";
 }
 
-function systemIsDark(): boolean {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-/**
- * Применить выбор к документу.
- *
- * `color-scheme` объявлен внутри каждой темы в CSS, поэтому здесь его
- * ставить не нужно: браузер прочтёт его сам вместе с остальными
- * переменными. Вторая копия этого знания в коде разошлась бы с первой.
- */
+/** Применить явную тему к документу. */
 export function apply(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
 }
@@ -94,8 +191,6 @@ export function remember(theme: Theme): void {
   try {
     localStorage.setItem(KEY, theme);
   } catch {
-    // Не сохранилось — тема продержится до перезагрузки. Говорить об этом
-    // человеку нечем и незачем: он увидит результат сразу, а забывчивость
-    // заметит потом. Молчание здесь осознанное, а не проглоченная ошибка.
+    // Результат виден до перезагрузки; хранение — лишь удобство, не причина падения.
   }
 }
