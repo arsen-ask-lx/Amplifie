@@ -45,10 +45,6 @@ cd "$ROOT"
 step "Собираем образы"
 AMPLIFIE_VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo "")" \
   docker compose -f compose.yml -f compose.dev.yml build >/dev/null
-# Чужие образы (Postgres) сборка не приносит. На стенде они лежат с прошлого
-# подъёма, на чистой машине CI их нет — и `docker save` падал «reference
-# does not exist» на первом же прогоне конвейера.
-docker compose -f compose.yml pull --ignore-buildable --quiet
 
 # ⚠️ СПИСОК БЕРЁТСЯ ИЗ РАЗОБРАННОГО БАЗОВОГО ФАЙЛА, А НЕ ПИШЕТСЯ РУКАМИ.
 # «Образы» здесь значит ВСЕ рантаймовые образы установки, включая postgres.
@@ -57,6 +53,14 @@ docker compose -f compose.yml pull --ignore-buildable --quiet
 IMAGES="$(docker compose -f compose.yml config --images | sort -u)"
 step "В поставку входят образы:"
 printf '   %s\n' $IMAGES
+
+# Чужие образы (Postgres) сборка не приносит. На стенде они лежат с прошлого
+# подъёма, на чистой машине CI их нет — и `docker save` падал «reference
+# does not exist» на первом же прогоне конвейера. Скачивается только
+# недостающее: наши образы только что собраны, в реестре их нет.
+for image in $IMAGES; do
+  docker image inspect "$image" >/dev/null 2>&1 || docker pull --quiet "$image" >/dev/null
+done
 
 step "Выгружаем архивом и удаляем локальные"
 docker save $IMAGES -o "$ARCHIVE"
