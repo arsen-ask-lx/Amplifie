@@ -19,7 +19,7 @@ import { api, type Conversation, type Message } from "./api.js";
  */
 
 /** Сколько ждать, прежде чем сказать серверу. У них — те же 3 секунды. */
-const ЗАДЕРЖКА = 3000;
+const DELAY_MS = 3000;
 
 export interface Reading {
   /** Сколько непрочитанного у разговора — с поправкой на нашу отметку. */
@@ -35,7 +35,7 @@ export interface Reading {
 }
 
 /** Смотрит ли человек на нас прямо сейчас. */
-function смотрят(): boolean {
+function isWatching(): boolean {
   return document.visibilityState === "visible" && document.hasFocus();
 }
 
@@ -60,7 +60,7 @@ export function useReading({
    * сервер, чтобы убрать своё же число, — это подвисающий интерфейс.
    * Так же поступает их клиент.
    */
-  const [прочитано, setПрочитано] = useState<Record<string, number>>({});
+  const [readUpTo, setReadUpTo] = useState<Record<string, number>>({});
 
   /**
    * ⚠️ ЧЕРТА ЗАМИРАЕТ, И ЭТО ВЕСЬ ЕЁ СМЫСЛ. Она берётся один раз —
@@ -71,14 +71,14 @@ export function useReading({
    * только уходом из разговора.
    */
   const [boundary, setBoundary] = useState<number | null>(null);
-  const открыт = useRef<string | null>(null);
+  const openRef = useRef<string | null>(null);
 
   const roomsRef = useRef(rooms);
   roomsRef.current = rooms;
 
   useEffect(() => {
-    if (открыт.current === currentId) return;
-    открыт.current = currentId;
+    if (openRef.current === currentId) return;
+    openRef.current = currentId;
     const room = currentId ? roomsRef.current.find((one) => one.id === currentId) : undefined;
     // Ноль значит «не читал ничего»: черта встанет перед самой первой
     // чужой репликой. Отсутствие непрочитанного — черты нет вовсе.
@@ -86,17 +86,17 @@ export function useReading({
   }, [currentId]);
 
   /** Отложенная отправка: пока человек листает, номера копятся в одну. */
-  const таймер = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const ждёт = useRef<{ id: string; seq: number } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pendingRef = useRef<{ id: string; seq: number } | null>(null);
 
-  const отправить = useCallback(async () => {
-    const заказ = ждёт.current;
-    ждёт.current = null;
-    if (!заказ) return;
+  const send = useCallback(async () => {
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (!pending) return;
     try {
-      const { unread } = await api.markRead(заказ.id, заказ.seq);
+      const { unread } = await api.markRead(pending.id, pending.seq);
       // Число с сервера точнее нашего: он видит весь разговор, мы — окно.
-      setПрочитано((было) => ({ ...было, [заказ.id]: заказ.seq }));
+      setReadUpTo((prev) => ({ ...prev, [pending.id]: pending.seq }));
       if (unread === 0) return;
     } catch {
       // Отметка не дошла — число просто останется. Это БЕЗОПАСНЫЙ отказ:
@@ -113,40 +113,40 @@ export function useReading({
    * на ночь, к утру пометит прочитанным всё пришедшее — и человек
    * не узнает, что ему писали. Отменить нечем: номер идёт только вперёд.
    */
-  const планировать = useCallback(
-    (id: string, последний: number) => {
-      if (!following.current || !смотрят()) return;
+  const schedule = useCallback(
+    (id: string, lastSeq: number) => {
+      if (!following.current || !isWatching()) return;
       const room = roomsRef.current.find((one) => one.id === id);
-      const уже = прочитано[id] ?? room?.readSeq ?? 0;
-      if (последний <= уже) return;
+      const already = readUpTo[id] ?? room?.readSeq ?? 0;
+      if (lastSeq <= already) return;
 
-      ждёт.current = { id, seq: последний };
-      clearTimeout(таймер.current);
+      pendingRef.current = { id, seq: lastSeq };
+      clearTimeout(timer.current);
       // Полное обнуление уходит сразу: его видит глаз. Всё остальное
       // копится — человек листает, а не читает по одной реплике.
-      if ((room?.unread ?? 0) > 0) void отправить();
-      else таймер.current = setTimeout(() => void отправить(), ЗАДЕРЖКА);
+      if ((room?.unread ?? 0) > 0) void send();
+      else timer.current = setTimeout(() => void send(), DELAY_MS);
     },
-    [прочитано, following, отправить],
+    [readUpTo, following, send],
   );
 
-  const последний = messages.at(-1)?.seq;
+  const lastSeq = messages.at(-1)?.seq;
 
   useEffect(() => {
-    if (!currentId || последний === undefined) return;
+    if (!currentId || lastSeq === undefined) return;
 
-    const запланировать = () => планировать(currentId, последний);
+    const scheduleNow = () => schedule(currentId, lastSeq);
 
-    запланировать();
+    scheduleNow();
     // Вернулся к вкладке — самое время отметить: до этого мы намеренно
     // молчали, даже если лента всё это время стояла внизу.
-    document.addEventListener("visibilitychange", запланировать);
-    window.addEventListener("focus", запланировать);
+    document.addEventListener("visibilitychange", scheduleNow);
+    window.addEventListener("focus", scheduleNow);
     return () => {
-      document.removeEventListener("visibilitychange", запланировать);
-      window.removeEventListener("focus", запланировать);
+      document.removeEventListener("visibilitychange", scheduleNow);
+      window.removeEventListener("focus", scheduleNow);
     };
-  }, [currentId, последний, планировать]);
+  }, [currentId, lastSeq, schedule]);
 
   /**
    * Сколько из посчитанного сервером мы успели прочесть сами.
@@ -160,15 +160,15 @@ export function useReading({
    * `годится` отличает вопросы: «любая чужая реплика» или «та, в которой
    * позвали меня».
    */
-  const съеденоНами = useCallback(
-    (room: Conversation, наш: number, годится: (one: Message) => boolean) =>
+  const readLocally = useCallback(
+    (room: Conversation, ourSeq: number, counts: (one: Message) => boolean) =>
       messages.filter(
         (one) =>
           one.conversationId === room.id &&
           one.seq > room.readSeq &&
-          one.seq <= наш &&
+          one.seq <= ourSeq &&
           one.author.id !== meId &&
-          годится(one),
+          counts(one),
       ).length,
     [messages, meId],
   );
@@ -179,29 +179,29 @@ export function useReading({
    * Ниже нуля не опускаемся: число не бывает отрицательным, а гонка
    * между нашей отметкой и счётом сервера — возможна.
    */
-  const считать = useCallback(
+  const adjusted = useCallback(
     (
       conversationId: string,
-      сколько: (room: Conversation) => number,
-      годится: (one: Message) => boolean,
+      serverCount: (room: Conversation) => number,
+      counts: (one: Message) => boolean,
     ) => {
       const room = roomsRef.current.find((one) => one.id === conversationId);
       if (!room) return 0;
-      const наш = прочитано[conversationId];
-      if (наш === undefined) return сколько(room);
-      return Math.max(0, сколько(room) - съеденоНами(room, наш, годится));
+      const ourSeq = readUpTo[conversationId];
+      if (ourSeq === undefined) return serverCount(room);
+      return Math.max(0, serverCount(room) - readLocally(room, ourSeq, counts));
     },
-    [прочитано, съеденоНами],
+    [readUpTo, readLocally],
   );
 
   const unreadOf = useCallback(
     (conversationId: string) =>
-      считать(
+      adjusted(
         conversationId,
         (room) => room.unread,
         () => true,
       ),
-    [считать],
+    [adjusted],
   );
 
   /**
@@ -213,12 +213,12 @@ export function useReading({
    */
   const mentionsOf = useCallback(
     (conversationId: string) =>
-      считать(
+      adjusted(
         conversationId,
         (room) => room.mentions,
         (one) => (meId ? mentionedIds(one.body).includes(meId) : false),
       ),
-    [считать, meId],
+    [adjusted, meId],
   );
 
   return { unreadOf, mentionsOf, boundary };

@@ -25,7 +25,7 @@ import { RoomList } from "./RoomList.js";
  * лежит внутри «Агентов»: агент отвечает через мост позвавшего, значит
  * «агент молчит» и «мост погашен» — одно событие с двух сторон.
  */
-export type Section = "talk" | "board" | "agents";
+export type Section = "talk" | "board";
 
 /**
  * Раздел, его адрес, подпись и значок.
@@ -51,7 +51,6 @@ const PARTS: Array<{
   icon: "хэш" | "работа" | "модель" | "точка";
 }> = [
   { id: "board", path: "/board", label: "Доска", icon: "работа" },
-  { id: "agents", path: "/agents", label: "Агенты", icon: "модель" },
 ];
 
 /**
@@ -108,7 +107,7 @@ export function Rail({
   open: boolean;
   onLeave: () => void;
 }) {
-  const [заводим, setЗаводим] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   return (
     /* ⚠️ ЗАДВИНУТАЯ ПАНЕЛЬ НЕ УДАЛЯЕТСЯ, А СХЛОПЫВАЕТСЯ ДО НУЛЯ. Убрать её
@@ -155,7 +154,7 @@ export function Rail({
         <div className="flex flex-col gap-0.5">
           <button
             type="button"
-            onClick={() => setЗаводим(true)}
+            onClick={() => setCreating(true)}
             className="flex items-center gap-2.5 rounded bg-transparent px-2.5 py-2 text-left text-body text-muted transition-colors hover:bg-raised hover:text-ink"
           >
             <NotePencil className="size-4 shrink-0" />
@@ -166,9 +165,9 @@ export function Rail({
         </div>
 
         <NewChatDialog
-          open={заводим}
+          open={creating}
           onCreate={(title) => chat.panel.addChannel(title)}
-          onClose={() => setЗаводим(false)}
+          onClose={() => setCreating(false)}
         />
 
         {/* ⚠️ СПИСОК РАЗГОВОРОВ СТОИТ ВСЕГДА, А НЕ ТОЛЬКО В «ЧАТЕ», И ЭТО

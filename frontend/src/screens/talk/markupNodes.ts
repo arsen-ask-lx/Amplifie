@@ -85,7 +85,7 @@ const AS_MARKS: Array<{ format: TextFormatType; with: string }> = [
  * Пришла старая строка вида `` **`код`** `` — жирный с неё снимается,
  * остаётся один моноширинный.
  */
-function признаки(kind: Token["kind"], formats: TextFormatType[]): TextFormatType[] {
+function formatsOf(kind: Token["kind"], formats: TextFormatType[]): TextFormatType[] {
   const own = AS_FORMAT[kind];
   if (own === "code") return [own];
   return own ? [...formats, own] : formats;
@@ -100,7 +100,7 @@ function признаки(kind: Token["kind"], formats: TextFormatType[]): TextF
  * вложенность разбора здесь схлопывается в набор, а обратно
  * собирается в том порядке, что задан списком выше.
  */
-function $добавить(
+function $append(
   paragraph: ReturnType<typeof $createParagraphNode>,
   token: Token,
   formats: TextFormatType[],
@@ -121,9 +121,9 @@ function $добавить(
    * и собирается обратно (`linkMarkup`).
    */
   if (token.kind === "mention") {
-    const упоминание = $createLinkNode(`@${token.id}`);
-    упоминание.append($createTextNode(token.text));
-    paragraph.append(упоминание);
+    const mention = $createLinkNode(`@${token.id}`);
+    mention.append($createTextNode(token.text));
+    paragraph.append(mention);
     return;
   }
 
@@ -136,13 +136,13 @@ function $добавить(
 
   if ("children" in token) {
     const format = AS_FORMAT[token.kind];
-    const внутрь = format ? [...formats, format] : formats;
-    for (const child of token.children) $добавить(paragraph, child, внутрь);
+    const inner = format ? [...formats, format] : formats;
+    for (const child of token.children) $append(paragraph, child, inner);
     return;
   }
 
   const node = $createTextNode(token.text);
-  for (const format of признаки(token.kind, formats)) node.toggleFormat(format);
+  for (const format of formatsOf(token.kind, formats)) node.toggleFormat(format);
   paragraph.append(node);
 }
 
@@ -157,7 +157,7 @@ export function $fillFromMarkup(text: string): void {
   root.clear();
 
   const paragraph = $createParagraphNode();
-  for (const token of parseMarkup(text)) $добавить(paragraph, token, []);
+  for (const token of parseMarkup(text)) $append(paragraph, token, []);
   root.append(paragraph);
 }
 

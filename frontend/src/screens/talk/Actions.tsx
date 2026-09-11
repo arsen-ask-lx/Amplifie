@@ -11,7 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import type { Message } from "../../data/api.js";
 import { copyAndTell } from "../../shared/clipboard.js";
-import { СКОПИРОВАНО } from "../../shared/toast.js";
+import { COPIED } from "../../shared/toast.js";
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -77,7 +77,7 @@ export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
         {pinned ? "Открепить" : "Закрепить"}
       </ContextMenuItem>
 
-      <ContextMenuItem onSelect={() => void copyAndTell(message.body, СКОПИРОВАНО.текст)}>
+      <ContextMenuItem onSelect={() => void copyAndTell(message.body, COPIED.text)}>
         <Copy />
         Копировать текст
       </ContextMenuItem>
@@ -85,7 +85,7 @@ export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
         onSelect={() =>
           void copyAndTell(
             `${window.location.origin}/c/${message.conversationId}/${message.seq}`,
-            СКОПИРОВАНО.ссылка,
+            COPIED.link,
           )
         }
       >

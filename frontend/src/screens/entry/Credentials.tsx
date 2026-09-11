@@ -27,7 +27,7 @@ export function Credentials({
   onEmail,
   onPassword,
   problem,
-  придумывает,
+  newPassword,
 }: {
   email: string;
   password: string;
@@ -35,7 +35,7 @@ export function Credentials({
   onPassword: (value: string) => void;
   problem: FormProblem;
   /** Пароль заводится впервые — регистрация или вход по приглашению. */
-  придумывает: boolean;
+  newPassword: boolean;
 }) {
   return (
     <>
@@ -52,7 +52,7 @@ export function Credentials({
         label="Пароль"
         type="password"
         name="password"
-        autoComplete={придумывает ? "new-password" : "current-password"}
+        autoComplete={newPassword ? "new-password" : "current-password"}
         value={password}
         onChange={onPassword}
         error={problem.fields.password}

@@ -192,7 +192,7 @@ export function useChat(me: Me): Chat {
    * за 17 мс при пороге виртуализации в 100. Запас шестикратный, поэтому
    * библиотека не нужна.
    */
-  const ОКНО = 300;
+  const windowSize = 300;
 
   /**
    * Человек внизу ленты — значит можно резать сверху.
@@ -218,20 +218,20 @@ export function useChat(me: Me): Chat {
    * (Р-029), и второй способ его получить разошёлся бы с первым.
    * Запрос идёт, только когда событие ЕСТЬ, — то есть ровно по делу.
    */
-  const принять = useCallback(
-    (приехавшие: SyncLine[]) => {
-      const открыт = currentIdRef.current;
+  const accept = useCallback(
+    (arrived: SyncLine[]) => {
+      const openId = currentIdRef.current;
       setMessages((current) =>
-        merge(current, ofRoom(приехавшие, открыт), following.current ? ОКНО : undefined),
+        merge(current, ofRoom(arrived, openId), following.current ? windowSize : undefined),
       );
-      setPinned((current) => mergePinned(current, приехавшие, открыт));
-      if (приехавшие.some((one) => one.conversationId !== открыт)) void roomsRef.current();
+      setPinned((current) => mergePinned(current, arrived, openId));
+      if (arrived.some((one) => one.conversationId !== openId)) void roomsRef.current();
     },
     [currentIdRef],
   );
 
   /** Догон до конца, один за раз (`catchUp.ts`). */
-  const catchUp = useMemo(() => catchUpWith(api.sync, cursor, принять), [принять]);
+  const catchUp = useMemo(() => catchUpWith(api.sync, cursor, accept), [accept]);
 
   // Список разговоров — один раз при входе. `navigate` в зависимостях
   // стоит честно, хотя маршрутизатор и обещает его неизменность: обещание
@@ -311,8 +311,8 @@ export function useChat(me: Me): Chat {
          * побеждает при совпадении.
          */
         setMessages((current) => {
-          const свои = current.filter((one) => one.conversationId === currentId);
-          return свои.length === 0 ? page.items : merge(свои, page.items);
+          const own = current.filter((one) => one.conversationId === currentId);
+          return own.length === 0 ? page.items : merge(own, page.items);
         });
         setHasOlder(page.hasMore);
         /**
@@ -606,7 +606,7 @@ export function useChat(me: Me): Chat {
   // Лента открытого разговора — одна на возврат наружу и на подсчёт
   // прочитанного: два разных выражения для одного и того же однажды
   // разошлись бы.
-  const видимые = messages.filter((m) => m.conversationId === currentId);
+  const visible = messages.filter((m) => m.conversationId === currentId);
 
   /**
    * ⚠️ ПЕРЕЧИТЫВАЕМ СПИСОК И ПРИ СМЕНЕ РАЗГОВОРА. Пока человек сидел
@@ -624,7 +624,7 @@ export function useChat(me: Me): Chat {
   const reading = useReading({
     rooms: rooms.items,
     currentId,
-    messages: видимые,
+    messages: visible,
     meId: me.participant.id,
     following,
   });
@@ -644,7 +644,7 @@ export function useChat(me: Me): Chat {
     edit,
     remove,
     forward,
-    messages: видимые,
+    messages: visible,
     hasOlder,
     loading,
     failure,

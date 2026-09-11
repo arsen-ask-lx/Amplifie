@@ -193,7 +193,7 @@ const KINDS = [
  * и уронила вкладку ЧИТАТЕЛЮ, а не отправителю. Восемь заведомо больше,
  * чем случается у человека: три вложенных вида уже редкость.
  */
-const ПРЕДЕЛ_ГЛУБИНЫ = 8;
+const MAX_DEPTH = 8;
 
 /**
  * Подпись языка в первой строке ограды: ```` ```sql ````.
@@ -224,8 +224,8 @@ function splitLang(raw: string): { text: string; lang?: string } {
  * его показывают постоянно.
  */
 function children(text: string, depth: number): Token[] {
-  if (depth >= ПРЕДЕЛ_ГЛУБИНЫ) return [{ kind: "text", text }];
-  return разобрать(text, depth + 1);
+  if (depth >= MAX_DEPTH) return [{ kind: "text", text }];
+  return parseAt(text, depth + 1);
 }
 
 /** Подошедшая ветка обёртки → кусок. */
@@ -253,23 +253,23 @@ function tokenOf(match: RegExpExecArray, depth: number): { token: Token; tail: s
   // (подпись и номер), у ссылки две, у голого адреса одна. Вставишь
   // ветку в середину, не тронув эти числа, — и жирный молча станет
   // курсивом, а упоминание ссылкой.
-  const УПОМИНАНИЕ = KINDS.length + 1;
-  const ССЫЛКА = УПОМИНАНИЕ + 2;
-  const ГОЛЫЙ_АДРЕС = ССЫЛКА + 2;
+  const mentionGroup = KINDS.length + 1;
+  const linkGroup = mentionGroup + 2;
+  const bareUrlGroup = linkGroup + 2;
 
-  const mentionText = match[УПОМИНАНИЕ];
-  const mentionId = match[УПОМИНАНИЕ + 1];
+  const mentionText = match[mentionGroup];
+  const mentionId = match[mentionGroup + 1];
   if (mentionText !== undefined && mentionId !== undefined) {
     return { token: { kind: "mention", text: mentionText, id: mentionId }, tail: "" };
   }
 
-  const linkText = match[ССЫЛКА];
-  const linkHref = match[ССЫЛКА + 1];
+  const linkText = match[linkGroup];
+  const linkHref = match[linkGroup + 1];
   if (linkText !== undefined && linkHref !== undefined) {
     return { token: linkToken(match[0], linkText, linkHref), tail: "" };
   }
 
-  const bare = match[ГОЛЫЙ_АДРЕС];
+  const bare = match[bareUrlGroup];
   if (bare !== undefined) return bareToken(bare);
   return { token: { kind: "text", text: match[0] }, tail: "" };
 }
@@ -282,7 +282,7 @@ function tokenOf(match: RegExpExecArray, depth: number): { token: Token; tail: s
  * Заводить вторую регулярку ради этого — два места с одним знанием,
  * и они разойдутся.
  */
-function разобрать(body: string, depth: number): Token[] {
+function parseAt(body: string, depth: number): Token[] {
   const tokens: Token[] = [];
   let at = 0;
   let from = 0;
@@ -315,5 +315,5 @@ function разобрать(body: string, depth: number): Token[] {
  * жирным текстом со скобками, как и было.
  */
 export function parseMarkup(body: string): Token[] {
-  return разобрать(body, 0);
+  return parseAt(body, 0);
 }

@@ -19,7 +19,7 @@ import { parseMarkup, plain, type Token } from "../../shared/markup.js";
 import { $fillFromMarkup, toMarkup } from "./markupNodes.js";
 
 /** Круг: строка → дерево → строка. */
-function круг(markup: string): string {
+function roundTrip(markup: string): string {
   const editor = createHeadlessEditor({
     namespace: "проверка",
     // Те же узлы, что и у настоящего поля: круг, прогнанный на другом
@@ -35,70 +35,70 @@ function круг(markup: string): string {
 
 describe("превращение разметки", () => {
   it("обычный текст проходит круг без изменений", () => {
-    expect(круг("просто строка")).toBe("просто строка");
+    expect(roundTrip("просто строка")).toBe("просто строка");
   });
 
   it("каждый вид разметки переживает круг", () => {
-    expect(круг("**жирный**")).toBe("**жирный**");
-    expect(круг("*курсив*")).toBe("*курсив*");
-    expect(круг("__подчёркнутый__")).toBe("__подчёркнутый__");
-    expect(круг("~~зачёркнутый~~")).toBe("~~зачёркнутый~~");
-    expect(круг("`моно`")).toBe("`моно`");
+    expect(roundTrip("**жирный**")).toBe("**жирный**");
+    expect(roundTrip("*курсив*")).toBe("*курсив*");
+    expect(roundTrip("__подчёркнутый__")).toBe("__подчёркнутый__");
+    expect(roundTrip("~~зачёркнутый~~")).toBe("~~зачёркнутый~~");
+    expect(roundTrip("`моно`")).toBe("`моно`");
   });
 
   it("разметка вперемешку с текстом не теряет ни знака", () => {
-    const было = "начало **жирное** середина *курсив* конец";
-    expect(круг(было)).toBe(было);
+    const before = "начало **жирное** середина *курсив* конец";
+    expect(roundTrip(before)).toBe(before);
   });
 
   it("пробелы и переводы строк не схлопываются", () => {
     // ⚠️ Ровно то, на чём поле сломалось живьём: редактируемая область
     // схлопывает пробелы по правилам HTML, если не сказать обратного.
-    expect(круг("два  пробела")).toBe("два  пробела");
-    expect(круг("строка\nвторая")).toBe("строка\nвторая");
+    expect(roundTrip("два  пробела")).toBe("два  пробела");
+    expect(roundTrip("строка\nвторая")).toBe("строка\nвторая");
   });
 
   it("пустая строка даёт пустую строку", () => {
-    expect(круг("")).toBe("");
+    expect(roundTrip("")).toBe("");
   });
 
   it("моноширинный на нескольких строках уезжает оградой, а не кавычками", () => {
     // ⚠️ ЭТО И НЕ РАБОТАЛО. Кавычка — разметка ОДНОЙ строки: разборщик
     // через перенос её не пускает намеренно. Кусок с переносами уезжал
     // в кавычках, и в ленте они оставались видны буквами.
-    expect(круг("```строка\nвторая```")).toBe("```строка\nвторая```");
+    expect(roundTrip("```строка\nвторая```")).toBe("```строка\nвторая```");
   });
 
   it("моноширинный в одну строку остаётся кавычками", () => {
-    expect(круг("`одна строка`")).toBe("`одна строка`");
+    expect(roundTrip("`одна строка`")).toBe("`одна строка`");
   });
 
   it("скрытый текст переживает круг", () => {
-    expect(круг("||секрет||")).toBe("||секрет||");
+    expect(roundTrip("||секрет||")).toBe("||секрет||");
   });
 
   it("ссылка с подписью не теряет адрес", () => {
     // ⚠️ РОВНО ЭТО И ТЕРЯЛОСЬ. В поле уезжала только подпись, адрес
     // пропадал молча, и реплика, открытая на правку, возвращалась
     // на сервер словом без ссылки.
-    const было = "смотри [договор](https://example.test/dogovor) внутри";
-    expect(круг(было)).toBe(было);
+    const before = "смотри [договор](https://example.test/dogovor) внутри";
+    expect(roundTrip(before)).toBe(before);
   });
 
   it("голый адрес остаётся голым, а не обрастает скобками", () => {
-    expect(круг("вот https://example.test/x")).toBe("вот https://example.test/x");
+    expect(roundTrip("вот https://example.test/x")).toBe("вот https://example.test/x");
   });
 
   it("негодная схема адреса остаётся текстом", () => {
     // `javascript:` разборщик ссылкой не считает — и круг обязан
     // вернуть ровно то, что человек написал, а не съесть это.
-    const было = "[тык](javascript:alert(1))";
-    expect(круг(было)).toBe(было);
+    const before = "[тык](javascript:alert(1))";
+    expect(roundTrip(before)).toBe(before);
   });
 
   it("незакрытая разметка остаётся текстом, а не съедается", () => {
     // Разборщик возвращает такое обычным текстом — значит и круг обязан.
-    expect(круг("**без пары")).toBe("**без пары");
+    expect(roundTrip("**без пары")).toBe("**без пары");
   });
 });
 
@@ -121,70 +121,67 @@ describe("превращение разметки", () => {
  * ни один вид не потерян, ни один текст не съеден, второй оборот
  * ничего не меняет.
  */
-const СОВМЕСТИМЫЕ = [
-  { марка: (t: string) => `**${t}**`, имя: "жирный" },
-  { марка: (t: string) => `*${t}*`, имя: "курсив" },
-  { марка: (t: string) => `__${t}__`, имя: "подчёркнутый" },
-  { марка: (t: string) => `~~${t}~~`, имя: "зачёркнутый" },
-  { марка: (t: string) => `||${t}||`, имя: "скрытый" },
+const COMPATIBLE = [
+  { wrap: (t: string) => `**${t}**`, name: "жирный" },
+  { wrap: (t: string) => `*${t}*`, name: "курсив" },
+  { wrap: (t: string) => `__${t}__`, name: "подчёркнутый" },
+  { wrap: (t: string) => `~~${t}~~`, name: "зачёркнутый" },
+  { wrap: (t: string) => `||${t}||`, name: "скрытый" },
 ];
 
 /** Какие виды встретились в строке, по одному разу и по порядку имени. */
-function виды(markup: string): string[] {
-  const собрано = new Set<string>();
-  const обойти = (tokens: Token[]): void => {
+function kinds(markup: string): string[] {
+  const collected = new Set<string>();
+  const walk = (tokens: Token[]): void => {
     for (const token of tokens) {
-      собрано.add(token.kind);
-      if ("children" in token) обойти(token.children);
+      collected.add(token.kind);
+      if ("children" in token) walk(token.children);
     }
   };
-  обойти(parseMarkup(markup));
-  собрано.delete("text");
-  return [...собрано].sort();
+  walk(parseMarkup(markup));
+  collected.delete("text");
+  return [...collected].sort();
 }
 
-const текст = (markup: string) => parseMarkup(markup).map(plain).join("");
+const text = (markup: string) => parseMarkup(markup).map(plain).join("");
 
 describe("два вида на одном куске", () => {
-  const пары = СОВМЕСТИМЫЕ.flatMap((внешний) =>
-    СОВМЕСТИМЫЕ.filter((внутренний) => внутренний !== внешний).map((внутренний) => ({
-      внешний,
-      внутренний,
+  const pairs = COMPATIBLE.flatMap((outer) =>
+    COMPATIBLE.filter((inner) => inner !== outer).map((inner) => ({
+      outer: outer,
+      inner: inner,
     })),
   );
 
-  it.each(пары)(
-    "$внешний.имя поверх $внутренний.имя переживает круг",
-    ({ внешний, внутренний }) => {
-      const было = внешний.марка(внутренний.марка("слово"));
-      const стало = круг(было);
+  it.each(pairs)("$внешний.имя поверх $внутренний.имя переживает круг", ({ outer, inner }) => {
+    const before = outer.wrap(inner.wrap("слово"));
+    const after = roundTrip(before);
 
-      expect(виды(стало)).toEqual(виды(было));
-      expect(текст(стало)).toBe("слово");
-      // Второй оборот ничего не меняет: иначе строка гуляла бы при каждой
-      // правке реплики и обрастала обёртками.
-      expect(круг(стало)).toBe(стало);
-    },
-  );
+    expect(kinds(after)).toEqual(kinds(before));
+    expect(text(after)).toBe("слово");
+    // Второй оборот ничего не меняет: иначе строка гуляла бы при каждой
+    // правке реплики и обрастала обёртками.
+    expect(roundTrip(after)).toBe(after);
+  });
 
   it("три вида друг в друге не теряют ни одного", () => {
-    const стало = круг("~~**__всё сразу__**~~");
-    expect(виды(стало)).toEqual(["bold", "strike", "underline"]);
-    expect(текст(стало)).toBe("всё сразу");
-    expect(круг(стало)).toBe(стало);
+    const after = roundTrip("~~**__всё сразу__**~~");
+    expect(kinds(after)).toEqual(["bold", "strike", "underline"]);
+    expect(text(after)).toBe("всё сразу");
+    expect(roundTrip(after)).toBe(after);
   });
 
   it("все пять разом", () => {
-    const стало = круг("||~~__**и курсив тоже**__~~||");
-    expect(виды(стало)).toEqual(["bold", "spoiler", "strike", "underline"]);
-    expect(круг(стало)).toBe(стало);
+    const after = roundTrip("||~~__**и курсив тоже**__~~||");
+    expect(kinds(after)).toEqual(["bold", "spoiler", "strike", "underline"]);
+    expect(roundTrip(after)).toBe(after);
   });
 
   it("вложенное вперемешку с обычным текстом", () => {
-    const было = "до **жирного *с курсивом* внутри** после";
-    const стало = круг(было);
-    expect(виды(стало)).toEqual(["bold", "italic"]);
-    expect(текст(стало)).toBe("до жирного с курсивом внутри после");
+    const before = "до **жирного *с курсивом* внутри** после";
+    const after = roundTrip(before);
+    expect(kinds(after)).toEqual(["bold", "italic"]);
+    expect(text(after)).toBe("до жирного с курсивом внутри после");
   });
 });
 
@@ -194,10 +191,10 @@ describe("моноширинный не совмещается ни с чем", 
     // производило само, а прочесть её не мог никто: в ленте выходило
     // жирное слово в кавычках. По Р-028 совмещения нет — и круг это
     // показывает: лишняя обёртка не переживает даже одного оборота.
-    expect(круг("**`код`**")).toBe("`код`");
+    expect(roundTrip("**`код`**")).toBe("`код`");
   });
 
   it("моноширинный сам по себе круг переживает", () => {
-    expect(круг("`код`")).toBe("`код`");
+    expect(roundTrip("`код`")).toBe("`код`");
   });
 });

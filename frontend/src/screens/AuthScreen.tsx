@@ -151,7 +151,7 @@ export function AuthScreen({
           onEmail={set("email")}
           onPassword={set("password")}
           problem={problem}
-          придумывает={isRegister}
+          newPassword={isRegister}
         />
 
         {isRegister ? <Extra draft={draft} problem={problem} set={set} /> : null}

@@ -34,7 +34,7 @@ import {
  * после этого не находит ровно те каналы, ради которых сценарий
  * и написан.
  */
-function канал(page: import("@playwright/test").Page, title: string) {
+function channelRow(page: import("@playwright/test").Page, title: string) {
   return page.getByRole("button", { name: new RegExp(`^${title}`) });
 }
 
@@ -44,8 +44,8 @@ test("непрочитанное видно числом у канала и че
 
   // Второй человек — в своей вкладке: непрочитанное без чужих реплик
   // не проверить вовсе, свои не считаются по построению.
-  const другой = await browser.newPage();
-  await invited(другой, page, "Коллега");
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Коллега");
 
   /**
    * ⚠️ ХОЗЯИН УХОДИТ ИЗ КАНАЛА ДО ТОГО, КАК ТАМ ЗАГОВОРЯТ, И ЭТО НЕ
@@ -57,14 +57,14 @@ test("непрочитанное видно числом у канала и че
    */
   await openChannel(page, "Общий");
 
-  await openChannel(другой, "Совещание");
-  await say(другой, "первое чужое");
-  await say(другой, "второе чужое");
+  await openChannel(otherPage, "Совещание");
+  await say(otherPage, "первое чужое");
+  await say(otherPage, "второе чужое");
 
-  const строка = канал(page, "Совещание");
+  const row = channelRow(page, "Совещание");
   // Слово для чтения с экрана лежит в самой строке — ищем по нему, а не
   // по голой цифре: «2» найдётся и в названии канала с двойкой.
-  await expect(строка).toContainText("непрочитанных: 2");
+  await expect(row).toContainText("непрочитанных: 2");
 
   // Возвращаемся — черта стоит перед первой непрочитанной.
   await openChannel(page, "Совещание");
@@ -76,22 +76,22 @@ test("непрочитанное видно числом у канала и че
    * черта всегда стоит под последним сообщением и не отвечает
    * на вопрос «докуда я дочитал».
    */
-  await say(другой, "третье чужое");
+  await say(otherPage, "третье чужое");
   await expect(bubble(page, "третье чужое")).toBeVisible();
   await expect(page.getByText("Непрочитанные сообщения")).toBeVisible();
 
   // Число гаснет: разговор открыт, лента внизу, вкладка в фокусе.
-  await expect(строка).not.toContainText("непрочитанных:");
-  await другой.close();
+  await expect(row).not.toContainText("непрочитанных:");
+  await otherPage.close();
 });
 
 test("вкладка в фоне не помечает прочитанным ничего", async ({ page, browser }) => {
   await register(page);
   await createChannel(page, "Тихий");
 
-  const другой = await browser.newPage();
-  await invited(другой, page, "Пишущий");
-  await openChannel(другой, "Тихий");
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Пишущий");
+  await openChannel(otherPage, "Тихий");
 
   // Хозяин смотрит ровно в этот канал и стоит внизу ленты — то есть
   // выполнены ДВА условия из трёх.
@@ -111,7 +111,7 @@ test("вкладка в фоне не помечает прочитанным н
     document.dispatchEvent(new Event("visibilitychange"));
   });
 
-  await say(другой, "пока тебя нет");
+  await say(otherPage, "пока тебя нет");
   await expect(bubble(page, "пока тебя нет")).toBeVisible();
 
   // Ждём дольше задержки отправки (3 секунды): если бы отметка ушла,
@@ -129,22 +129,22 @@ test("вкладка в фоне не помечает прочитанным н
    * Настоящее свойство одно: фоновая вкладка НЕ СКАЗАЛА СЕРВЕРУ, что
    * прочитала. Его и спрашиваем — тем же запросом, каким живёт панель.
    */
-  const серверСчитает = async () => {
-    const список = (await page.evaluate(() =>
+  const serverCount = async () => {
+    const list = (await page.evaluate(() =>
       fetch("/v1/conversations", { credentials: "include" }).then((r) => r.json()),
     )) as { items: Array<{ title: string; unread: number; readSeq: number }> };
-    return список.items.find((one) => one.title === "Тихий");
+    return list.items.find((one) => one.title === "Тихий");
   };
 
-  const тихий = await серверСчитает();
-  expect(тихий?.unread, "фоновая вкладка съела непрочитанное").toBe(1);
-  expect(тихий?.readSeq, "фоновая вкладка отправила отметку прочтения").toBe(0);
+  const quiet = await serverCount();
+  expect(quiet?.unread, "фоновая вкладка съела непрочитанное").toBe(1);
+  expect(quiet?.readSeq, "фоновая вкладка отправила отметку прочтения").toBe(0);
 
   // И только теперь — что это видно человеку.
   await openChannel(page, "Общий");
-  await expect(канал(page, "Тихий")).toContainText("непрочитанных: 1");
+  await expect(channelRow(page, "Тихий")).toContainText("непрочитанных: 1");
 
-  await другой.close();
+  await otherPage.close();
 });
 
 test("свои реплики непрочитанными не считаются", async ({ page }) => {
@@ -153,8 +153,8 @@ test("свои реплики непрочитанными не считаютс
   await say(page, "сам себе");
 
   await openChannel(page, "Общий");
-  const строка = канал(page, "Монолог");
-  await expect(строка).not.toContainText("непрочитанных:");
+  const row = channelRow(page, "Монолог");
+  await expect(row).not.toContainText("непрочитанных:");
 
   // Поле пустое — значит канал открывался и реплика ушла, а не потерялась.
   await openChannel(page, "Монолог");
@@ -180,15 +180,15 @@ test("своя реплика уводит ленту вниз, даже есл�
    * режимом. Слова взяты неповторяющиеся, а доставку ждём один раз,
    * у последней: именно она нужна сценарию.
    */
-  const слова = ["один", "два", "три", "четыре", "пять", "шесть"];
-  for (const слово of [...слова, ...слова.map((one) => `${one} снова`)]) {
-    await typeInto(page, слово, "Отправить");
+  const words = ["один", "два", "три", "четыре", "пять", "шесть"];
+  for (const word of [...words, ...words.map((one) => `${one} снова`)]) {
+    await typeInto(page, word, "Отправить");
   }
   await expect(bubble(page, "шесть снова").getByLabel("доставлено")).toBeVisible();
 
   // Уходим вверх — так, чтобы последней реплики на экране не было.
-  await feedBox(page).evaluate((узел) => {
-    узел.scrollTop = 0;
+  await feedBox(page).evaluate((node) => {
+    node.scrollTop = 0;
   });
 
   /**

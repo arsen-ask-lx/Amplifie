@@ -53,8 +53,8 @@ describe("слияние догона в ленту", () => {
   it("исправленная старая реплика остаётся на своём месте", () => {
     // Догон упорядочен по номеру ИЗМЕНЕНИЯ, поэтому правка первой реплики
     // приезжает последней. Место в разговоре при этом прежнее.
-    const было = [line("a", 1, "первая"), line("b", 2, "вторая"), line("c", 3, "третья")];
-    const got = merge(было, [line("a", 1, "исправленная первая")]);
+    const before = [line("a", 1, "первая"), line("b", 2, "вторая"), line("c", 3, "третья")];
+    const got = merge(before, [line("a", 1, "исправленная первая")]);
     expect(got.map((m) => m.seq)).toEqual([1, 2, 3]);
     expect(got[0]?.body).toBe("исправленная первая");
   });
@@ -65,14 +65,14 @@ describe("слияние догона в ленту", () => {
   });
 
   it("надгробие на незнакомую реплику ничего не ломает", () => {
-    const было = [line("a", 1, "раз")];
-    expect(merge(было, [grave("щ", 9)])).toHaveLength(1);
+    const before = [line("a", 1, "раз")];
+    expect(merge(before, [grave("щ", 9)])).toHaveLength(1);
   });
 
   it("повторный догон ленту не меняет", () => {
-    const было = [line("a", 1, "раз"), line("b", 2, "два")];
-    const пришло: SyncLine[] = [line("a", 1, "раз")];
-    expect(merge(merge(было, пришло), пришло)).toEqual(merge(было, пришло));
+    const before = [line("a", 1, "раз"), line("b", 2, "два")];
+    const arrived: SyncLine[] = [line("a", 1, "раз")];
+    expect(merge(merge(before, arrived), arrived)).toEqual(merge(before, arrived));
   });
 
   it("пустой ответ на загрузку не стирает уже показанное", () => {
@@ -81,13 +81,13 @@ describe("слияние догона в ленту", () => {
     // на загрузку сервер уже подтверждал отправку: метки состояния
     // на реплике не оставалось, и она стиралась снова.
     // Правило проще: пустой ответ не стирает ничего.
-    const уже = [line("настоящая", 1, "первое в канале")];
-    expect(merge(уже, []).map((m) => m.body)).toEqual(["первое в канале"]);
+    const already = [line("настоящая", 1, "первое в канале")];
+    expect(merge(already, []).map((m) => m.body)).toEqual(["первое в канале"]);
   });
 
   it("ответ сервера побеждает при совпадении идентификаторов", () => {
-    const уже = [line("a", 1, "местная копия")];
-    expect(merge(уже, [line("a", 1, "с сервера")])[0]?.body).toBe("с сервера");
+    const already = [line("a", 1, "местная копия")];
+    expect(merge(already, [line("a", 1, "с сервера")])[0]?.body).toBe("с сервера");
   });
 
   it("записанная реплика вытесняет свой черновик, а не встаёт рядом", () => {
@@ -95,16 +95,16 @@ describe("слияние догона в ленту", () => {
     // пришедшая с сервера — под настоящим `id`. Пока они считались
     // разными репликами, строка на экране уничтожалась и создавалась
     // заново, и появление проигрывалось второй раз.
-    const черновик = line("ключ-1", 0.5, "первое в канале");
-    const записанная = { ...line("сервер-1", 12, "первое в канале"), clientMsgId: "ключ-1" };
-    const got = merge([черновик], [записанная]);
+    const draft = line("ключ-1", 0.5, "первое в канале");
+    const saved = { ...line("сервер-1", 12, "первое в канале"), clientMsgId: "ключ-1" };
+    const got = merge([draft], [saved]);
     expect(got).toHaveLength(1);
     expect(got[0]?.id).toBe("сервер-1");
   });
 
   it("пустой догон возвращает ту же ленту, а не её копию", () => {
-    const было = [line("a", 1, "раз")];
-    expect(merge(было, [])).toBe(было);
+    const before = [line("a", 1, "раз")];
+    expect(merge(before, [])).toBe(before);
   });
 });
 
@@ -116,17 +116,17 @@ describe("слияние догона в ленту", () => {
  * не «стало 300», а КАКИЕ именно триста.
  */
 describe("окно ленты", () => {
-  const много = (n: number) => Array.from({ length: n }, (_, i) => line(`м${i}`, i + 1, `${i}`));
+  const many = (n: number) => Array.from({ length: n }, (_, i) => line(`м${i}`, i + 1, `${i}`));
 
   it("без указания окна не режется ничего", () => {
     // Догрузка старого сливается тем же слиянием, и резать там нельзя:
     // человек листает вверх ровно за тем, что мы бы выбросили.
-    const got = merge(много(400), [line("новая", 401, "хвост")]);
+    const got = merge(many(400), [line("новая", 401, "хвост")]);
     expect(got).toHaveLength(401);
   });
 
   it("окно оставляет последние и выбрасывает первые", () => {
-    const got = merge(много(400), [line("новая", 401, "хвост")], 300);
+    const got = merge(many(400), [line("новая", 401, "хвост")], 300);
     expect(got).toHaveLength(300);
     expect(got.at(-1)?.body).toBe("хвост");
     // Самая старая из оставшихся — 102-я по счёту: 401 минус 300 плюс 1.
@@ -134,13 +134,13 @@ describe("окно ленты", () => {
   });
 
   it("лента короче окна не трогается", () => {
-    const было = много(10);
-    expect(merge(было, [line("новая", 11, "хвост")], 300)).toHaveLength(11);
+    const before = many(10);
+    expect(merge(before, [line("новая", 11, "хвост")], 300)).toHaveLength(11);
   });
 
   it("надгробие внутри окна не выталкивает лишнего", () => {
     // Удаление уменьшает ленту: добирать ей взамен нечего и неоткуда.
-    const got = merge(много(400), [grave("м0", 1)], 300);
+    const got = merge(many(400), [grave("м0", 1)], 300);
     expect(got).toHaveLength(300);
     expect(got.some((m) => m.id === "м0")).toBe(false);
   });
@@ -148,15 +148,15 @@ describe("окно ленты", () => {
 
 describe("отбор по открытой комнате", () => {
   it("чужая комната в ленту не попадает", () => {
-    const было = [line("a", 1, "своё")];
-    const чужое = { ...line("z", 5, "не тут"), conversationId: "друг" };
-    expect(ofRoom([чужое], ROOM)).toEqual([]);
-    expect(merge(было, ofRoom([чужое], ROOM))).toBe(было);
+    const before = [line("a", 1, "своё")];
+    const foreign = { ...line("z", 5, "не тут"), conversationId: "друг" };
+    expect(ofRoom([foreign], ROOM)).toEqual([]);
+    expect(merge(before, ofRoom([foreign], ROOM))).toBe(before);
   });
 
   it("своя комната проходит целиком", () => {
-    const свои: SyncLine[] = [line("a", 1, "раз"), grave("b", 2)];
-    expect(ofRoom(свои, ROOM)).toHaveLength(2);
+    const own: SyncLine[] = [line("a", 1, "раз"), grave("b", 2)];
+    expect(ofRoom(own, ROOM)).toHaveLength(2);
   });
 
   it("без открытой комнаты не проходит ничего", () => {
@@ -171,29 +171,32 @@ describe("слияние догона в полоску закреплённог
   });
 
   it("открепление убирает", () => {
-    const было = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
-    expect(mergePinned(было, [line("a", 1, "важное", null)], ROOM)).toEqual([]);
+    const before = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
+    expect(mergePinned(before, [line("a", 1, "важное", null)], ROOM)).toEqual([]);
   });
 
   it("удаление закреплённого убирает и из полоски", () => {
-    const было = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
-    expect(mergePinned(было, [grave("a", 1)], ROOM)).toEqual([]);
+    const before = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
+    expect(mergePinned(before, [grave("a", 1)], ROOM)).toEqual([]);
   });
 
   it("свежее закрепление сверху", () => {
-    const было = [line("a", 1, "раннее", "2026-09-08T10:00:00.000Z")];
-    const got = mergePinned(было, [line("b", 2, "позднее", "2026-09-08T12:00:00.000Z")], ROOM);
+    const before = [line("a", 1, "раннее", "2026-09-08T10:00:00.000Z")];
+    const got = mergePinned(before, [line("b", 2, "позднее", "2026-09-08T12:00:00.000Z")], ROOM);
     expect(got.map((m) => m.id)).toEqual(["b", "a"]);
   });
 
   it("чужая комната полоску не трогает", () => {
-    const было = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
-    const чужое = { ...line("z", 5, "не тут", "2026-09-08T11:00:00.000Z"), conversationId: "друг" };
-    expect(mergePinned(было, [чужое], ROOM)).toBe(было);
+    const before = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
+    const foreign = {
+      ...line("z", 5, "не тут", "2026-09-08T11:00:00.000Z"),
+      conversationId: "друг",
+    };
+    expect(mergePinned(before, [foreign], ROOM)).toBe(before);
   });
 
   it("без открытой комнаты полоска не трогается", () => {
-    const было = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
-    expect(mergePinned(было, [grave("a", 1)], null)).toBe(было);
+    const before = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
+    expect(mergePinned(before, [grave("a", 1)], null)).toBe(before);
   });
 });

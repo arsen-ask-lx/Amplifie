@@ -16,7 +16,7 @@ import { describeFailure, type FormProblem } from "../../shared/authMessages.js"
  * а на соседней покажут код ошибки.
  */
 
-const БЕЗ_ОТКАЗА: FormProblem = { fields: {}, common: null };
+const NO_PROBLEM: FormProblem = { fields: {}, common: null };
 
 export interface EntryForm {
   /** Идёт отправка — кнопку выключают, чтобы не нажали дважды. */
@@ -28,16 +28,16 @@ export interface EntryForm {
   forget: () => void;
 }
 
-export function useEntryForm(отправить: () => Promise<void>): EntryForm {
-  const [problem, setProblem] = useState<FormProblem>(БЕЗ_ОТКАЗА);
+export function useEntryForm(send: () => Promise<void>): EntryForm {
+  const [problem, setProblem] = useState<FormProblem>(NO_PROBLEM);
   const [busy, setBusy] = useState(false);
 
   async function submit(formEvent: React.FormEvent): Promise<void> {
     formEvent.preventDefault();
     setBusy(true);
-    setProblem(БЕЗ_ОТКАЗА);
+    setProblem(NO_PROBLEM);
     try {
-      await отправить();
+      await send();
     } catch (error) {
       setProblem(describeFailure(error));
     } finally {
@@ -45,5 +45,5 @@ export function useEntryForm(отправить: () => Promise<void>): EntryForm
     }
   }
 
-  return { busy, problem, submit, forget: () => setProblem(БЕЗ_ОТКАЗА) };
+  return { busy, problem, submit, forget: () => setProblem(NO_PROBLEM) };
 }

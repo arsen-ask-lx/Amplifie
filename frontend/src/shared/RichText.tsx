@@ -2,7 +2,7 @@ import { Check, Copy } from "@phosphor-icons/react";
 import { useState } from "react";
 import { copyAndTell } from "./clipboard.js";
 import { parseMarkup, type Token, type Wrap } from "./markup.js";
-import { СКОПИРОВАНО } from "./toast.js";
+import { COPIED } from "./toast.js";
 
 /**
  * Отрисовка размеченного текста.
@@ -112,9 +112,9 @@ const MONO = "rounded-sm bg-current/12 px-1 py-0.5 font-mono text-[0.92em]";
  * её ВНУТРИ куска — и это тоже нажатие. Скопировался бы весь кусок,
  * молча затерев выбранное.
  */
-function выделяют(): boolean {
-  const выбор = window.getSelection();
-  return выбор !== null && !выбор.isCollapsed && выбор.toString().length > 0;
+function isSelecting(): boolean {
+  const selection = window.getSelection();
+  return selection !== null && !selection.isCollapsed && selection.toString().length > 0;
 }
 
 /**
@@ -136,8 +136,8 @@ function Mono({ text }: { text: string }) {
       type="button"
       title="Скопировать"
       onClick={() => {
-        if (выделяют()) return;
-        void copyAndTell(text.trim(), СКОПИРОВАНО.текст);
+        if (isSelecting()) return;
+        void copyAndTell(text.trim(), COPIED.text);
       }}
       className="cursor-pointer align-baseline"
     >
@@ -200,9 +200,9 @@ function CodeBlock({ text, lang }: { text: string; lang: string | undefined }) {
    * блока; разойдись они — одна из кнопок однажды начала бы копировать
    * не то.
    */
-  function скопировать(): void {
-    if (выделяют()) return;
-    void copyAndTell(text.trim(), СКОПИРОВАНО.код).then((ok) => {
+  function copy(): void {
+    if (isSelecting()) return;
+    void copyAndTell(text.trim(), COPIED.code).then((ok) => {
       if (!ok) return;
       setCopied(true);
       // Галочка гаснет: оставшаяся навсегда, она соврёт при следующем
@@ -223,7 +223,7 @@ function CodeBlock({ text, lang }: { text: string; lang: string | undefined }) {
         type="button"
         aria-label={copied ? "Скопировано" : "Скопировать код"}
         title={copied ? "Скопировано" : "Скопировать код"}
-        onClick={скопировать}
+        onClick={copy}
         className={[
           "absolute top-1 right-1 z-10 grid size-7 place-items-center rounded",
           "bg-current/10 text-current/60 backdrop-blur-sm transition-opacity",
@@ -241,7 +241,7 @@ function CodeBlock({ text, lang }: { text: string; lang: string | undefined }) {
       <button
         type="button"
         title="Скопировать"
-        onClick={скопировать}
+        onClick={copy}
         className="block w-full cursor-pointer overflow-x-auto text-left"
       >
         <code className="block px-2.5 py-2 font-mono text-[0.92em] leading-snug whitespace-pre">

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { bubble, createChannel, register, say, шрифтыГотовы } from "./fixtures.js";
+import { bubble, createChannel, fontsReady, register, say } from "./fixtures.js";
 
 /**
  * Время в углу реплики стоит там же, где у Телеграма.
@@ -37,19 +37,19 @@ import { bubble, createChannel, register, say, шрифтыГотовы } from "
  * у самого пузыря, а не повторяем числами здесь: повтор разъедется
  * с `Bubble.tsx` в первый же раз, когда поля тронут.
  */
-const СВЕС_ВПРАВО = 2;
-const СВЕС_ВНИЗ = 5;
+const OVERHANG_RIGHT = 2;
+const OVERHANG_BOTTOM = 5;
 
 /** `msgDateSpace − msgDateDelta.x`: воздух между последним словом и временем. */
-const ВОЗДУХ = 10;
+const GAP = 10;
 
-interface Мерка {
+interface Measure {
   /** Просвет между концом текста и началом времени. */
-  воздух: number;
+  gap: number;
   /** Насколько время свисает за правое поле текста. */
-  свесВправо: number;
+  overhangRight: number;
   /** Насколько время свисает за нижнее поле текста. */
-  свесВниз: number;
+  overhangBottom: number;
 }
 
 /**
@@ -58,43 +58,43 @@ interface Мерка {
  * распорку, и просвет вышел бы нулевым при любом коде — тест был бы
  * зелёным всегда.
  */
-const МЕРИТЬ = (текст: string): Мерка => {
-  const реплика = document.querySelector("article");
-  if (!реплика) throw new Error("реплики нет на странице");
+const measure = (text: string): Measure => {
+  const article = document.querySelector("article");
+  if (!article) throw new Error("реплики нет на странице");
 
-  const время = реплика.querySelector("time");
-  if (!время) throw new Error("времени нет в реплике");
+  const time = article.querySelector("time");
+  if (!time) throw new Error("времени нет в реплике");
 
-  const угол = время.parentElement;
-  const пузырь = угол?.offsetParent;
-  if (!угол || !(пузырь instanceof HTMLElement)) throw new Error("угол не привязан к пузырю");
+  const corner = time.parentElement;
+  const bubbleBox = corner?.offsetParent;
+  if (!corner || !(bubbleBox instanceof HTMLElement)) throw new Error("угол не привязан к пузырю");
 
-  const обход = document.createTreeWalker(пузырь, NodeFilter.SHOW_TEXT);
-  let слова: Text | null = null;
-  while (обход.nextNode()) {
-    const узел = обход.currentNode as Text;
-    if (узел.nodeValue?.includes(текст)) слова = узел;
+  const walker = document.createTreeWalker(bubbleBox, NodeFilter.SHOW_TEXT);
+  let textNode: Text | null = null;
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    if (node.nodeValue?.includes(text)) textNode = node;
   }
-  if (!слова) throw new Error("текст реплики не найден");
+  if (!textNode) throw new Error("текст реплики не найден");
 
-  const диапазон = document.createRange();
-  диапазон.selectNodeContents(слова);
-  const последняя = Array.from(диапазон.getClientRects()).at(-1);
-  if (!последняя) throw new Error("у текста нет строк");
+  const range = document.createRange();
+  range.selectNodeContents(textNode);
+  const lastRect = Array.from(range.getClientRects()).at(-1);
+  if (!lastRect) throw new Error("у текста нет строк");
 
-  const у = угол.getBoundingClientRect();
-  const п = пузырь.getBoundingClientRect();
-  const вид = getComputedStyle(пузырь);
-  const число = (имя: string) => Number.parseFloat(вид.getPropertyValue(имя)) || 0;
+  const cornerRect = corner.getBoundingClientRect();
+  const bubbleRect = bubbleBox.getBoundingClientRect();
+  const style = getComputedStyle(bubbleBox);
+  const px = (prop: string) => Number.parseFloat(style.getPropertyValue(prop)) || 0;
 
   // Правый и нижний края ПОЛЯ ТЕКСТА — то, за что время и свисает.
-  const полеСправа = п.right - число("border-right-width") - число("padding-right");
-  const полеСнизу = п.bottom - число("border-bottom-width") - число("padding-bottom");
+  const paddingRight = bubbleRect.right - px("border-right-width") - px("padding-right");
+  const paddingBottom = bubbleRect.bottom - px("border-bottom-width") - px("padding-bottom");
 
   return {
-    воздух: Math.round(у.left - последняя.right),
-    свесВправо: Math.round(у.right - полеСправа),
-    свесВниз: Math.round(у.bottom - полеСнизу),
+    gap: Math.round(cornerRect.left - lastRect.right),
+    overhangRight: Math.round(cornerRect.right - paddingRight),
+    overhangBottom: Math.round(cornerRect.bottom - paddingBottom),
   };
 };
 
@@ -104,16 +104,16 @@ test("время в углу реплики стоит по правилам Т�
 
   // Короткая реплика: время обязано уместиться на одной строке с текстом —
   // именно этот случай владелец и видел тесным.
-  const текст = "Привет";
-  await say(page, текст);
-  await expect(bubble(page, текст).locator("time")).toBeVisible();
+  const text = "Привет";
+  await say(page, text);
+  await expect(bubble(page, text).locator("time")).toBeVisible();
   // Меряем ПОСЛЕ того, как доехал наш шрифт: у системного запасного
   // другая ширина знака, и просвет вышел бы другим.
-  await шрифтыГотовы(page);
+  await fontsReady(page);
 
-  const мерка = await page.evaluate(МЕРИТЬ, текст);
+  const measured = await page.evaluate(measure, text);
 
-  expect(мерка.воздух).toBeGreaterThanOrEqual(ВОЗДУХ);
-  expect(мерка.свесВправо).toBe(СВЕС_ВПРАВО);
-  expect(мерка.свесВниз).toBe(СВЕС_ВНИЗ);
+  expect(measured.gap).toBeGreaterThanOrEqual(GAP);
+  expect(measured.overhangRight).toBe(OVERHANG_RIGHT);
+  expect(measured.overhangBottom).toBe(OVERHANG_BOTTOM);
 });

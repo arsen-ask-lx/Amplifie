@@ -28,11 +28,11 @@ import { api, type Person } from "../../data/api.js";
  */
 
 /** Больше десятка в списке — это уже не подсказка, а справочник. */
-const ПРЕДЕЛ = 10;
+const LIMIT = 10;
 
-class Кандидат extends MenuOption {
-  constructor(readonly человек: Person) {
-    super(человек.id);
+class Candidate extends MenuOption {
+  constructor(readonly person: Person) {
+    super(person.id);
   }
 }
 
@@ -50,11 +50,11 @@ class Кандидат extends MenuOption {
  * Поймано сценарием, где второй человек входит уже после того, как канал
  * открыт, — то есть ровно так, как это и бывает.
  */
-function useЛюди(conversationId: string | null, открыта: boolean): Person[] {
-  const [люди, setЛюди] = useState<Person[]>([]);
+function usePeople(conversationId: string | null, isOpen: boolean): Person[] {
+  const [people, setPeople] = useState<Person[]>([]);
 
   useEffect(() => {
-    if (!conversationId || !открыта) return;
+    if (!conversationId || !isOpen) return;
 
     /**
      * ⚠️ ОТВЕТ НА ПРОШЛЫЙ КАНАЛ ВЫБРАСЫВАЕТСЯ. Человек переключает
@@ -62,35 +62,35 @@ function useЛюди(conversationId: string | null, открыта: boolean): Pe
      * оказались бы люди из канала, который он уже закрыл, — и в приватном
      * он предложил бы позвать того, кому туда нельзя.
      */
-    let ушли = false;
+    let cancelled = false;
     api
       .people(conversationId)
-      .then((ответ) => {
-        if (!ушли) setЛюди(ответ.items);
+      .then((response) => {
+        if (!cancelled) setPeople(response.items);
       })
       // Молча: подсказка — удобство, а не работа. Не приехала —
       // человек напишет имя словами, как писал вчера.
       .catch(() => {
-        if (!ушли) setЛюди([]);
+        if (!cancelled) setPeople([]);
       });
 
     return () => {
-      ушли = true;
+      cancelled = true;
     };
-  }, [conversationId, открыта]);
+  }, [conversationId, isOpen]);
 
-  return люди;
+  return people;
 }
 
 /** Строка списка. Вид общий с меню канала: это одна и та же подсказка. */
-function Строка({
-  человек,
-  выбран,
+function Row({
+  person,
+  selected,
   onPick,
   onHover,
 }: {
-  человек: Person;
-  выбран: boolean;
+  person: Person;
+  selected: boolean;
   onPick: () => void;
   onHover: () => void;
 }) {
@@ -98,7 +98,7 @@ function Строка({
     <button
       type="button"
       role="option"
-      aria-selected={выбран}
+      aria-selected={selected}
       onMouseEnter={onHover}
       onMouseDown={(event) => {
         // ⚠️ ИМЕННО `mousedown`, А НЕ `click`. Нажатие мышью по списку
@@ -109,38 +109,36 @@ function Строка({
       }}
       className={[
         "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body transition-colors",
-        выбран ? "bg-selected text-ink" : "bg-transparent text-muted hover:text-ink",
+        selected ? "bg-selected text-ink" : "bg-transparent text-muted hover:text-ink",
       ].join(" ")}
     >
-      <span className="truncate">{человек.name}</span>
-      {человек.kind === "agent" ? (
-        <span className="ml-auto text-mark text-muted">агент</span>
-      ) : null}
+      <span className="truncate">{person.name}</span>
+      {person.kind === "agent" ? <span className="ml-auto text-mark text-muted">агент</span> : null}
     </button>
   );
 }
 
 export function Mentions({ conversationId }: { conversationId: string | null }) {
   const [editor] = useLexicalComposerContext();
-  const [запрос, setЗапрос] = useState<string | null>(null);
+  const [query, setQuery] = useState<string | null>(null);
   // Подсказка открыта ровно тогда, когда у неё есть запрос: закрываясь,
   // плагин присылает `null`.
-  const люди = useЛюди(conversationId, запрос !== null);
+  const people = usePeople(conversationId, query !== null);
 
   /**
    * ⚠️ `minLength: 0` — СПИСОК ОТКРЫВАЕТСЯ НА САМУ СОБАЧКУ. Иначе человек
    * обязан угадать, что надо набрать хотя бы букву, — а он не знает даже,
    * что список существует.
    */
-  const триггер = useBasicTypeaheadTriggerMatch("@", { minLength: 0 });
+  const trigger = useBasicTypeaheadTriggerMatch("@", { minLength: 0 });
 
-  const подходящие = useMemo(() => {
-    const искомое = (запрос ?? "").trim().toLowerCase();
-    return люди
-      .filter((one) => !искомое || one.name.toLowerCase().startsWith(искомое))
-      .slice(0, ПРЕДЕЛ)
-      .map((one) => new Кандидат(one));
-  }, [люди, запрос]);
+  const matching = useMemo(() => {
+    const needle = (query ?? "").trim().toLowerCase();
+    return people
+      .filter((one) => !needle || one.name.toLowerCase().startsWith(needle))
+      .slice(0, LIMIT)
+      .map((one) => new Candidate(one));
+  }, [people, query]);
 
   /**
    * Поставить упоминание вместо набранного `@…`.
@@ -150,17 +148,17 @@ export function Mentions({ conversationId }: { conversationId: string | null }) 
    * в упоминание: «@Мария Петровапривет» одним куском, который уедет
    * на сервер как подпись зова.
    */
-  const выбрать = useCallback(
-    (кандидат: Кандидат, узел: TextNode | null, закрыть: () => void) => {
+  const choose = useCallback(
+    (candidate: Candidate, node: TextNode | null, close: () => void) => {
       editor.update(() => {
-        const упоминание = $createLinkNode(`@${кандидат.человек.id}`);
-        упоминание.append($createTextNode(кандидат.человек.name));
-        if (узел) узел.replace(упоминание);
-        const пробел = $createTextNode(" ");
-        упоминание.insertAfter(пробел);
-        пробел.select();
+        const mention = $createLinkNode(`@${candidate.person.id}`);
+        mention.append($createTextNode(candidate.person.name));
+        if (node) node.replace(mention);
+        const space = $createTextNode(" ");
+        mention.insertAfter(space);
+        space.select();
       });
-      закрыть();
+      close();
     },
     [editor],
   );
@@ -168,11 +166,11 @@ export function Mentions({ conversationId }: { conversationId: string | null }) 
   if (!conversationId) return null;
 
   return (
-    <LexicalTypeaheadMenuPlugin<Кандидат>
-      options={подходящие}
-      onQueryChange={setЗапрос}
-      onSelectOption={(кандидат, узел, закрыть) => выбрать(кандидат, узел, закрыть)}
-      triggerFn={триггер}
+    <LexicalTypeaheadMenuPlugin<Candidate>
+      options={matching}
+      onQueryChange={setQuery}
+      onSelectOption={(candidate, node, close) => choose(candidate, node, close)}
+      triggerFn={trigger}
       /**
        * ⚠️ ПОДСКАЗКА ЗАБИРАЕТ ENTER СЕБЕ, И БЕЗ ЭТОГО ОНА БЕСПОЛЕЗНА.
        * Замечание владельца: «нажал собачку, стрелками выбрал нужного,
@@ -199,7 +197,7 @@ export function Mentions({ conversationId }: { conversationId: string | null }) 
        */
       anchorClassName="fixed! top-0! left-0! h-0! w-0! overflow-hidden!"
       menuRenderFn={(_якорь, { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) => {
-        if (подходящие.length === 0) return null;
+        if (matching.length === 0) return null;
         return (
           <div
             /**
@@ -219,13 +217,13 @@ export function Mentions({ conversationId }: { conversationId: string | null }) 
             role="listbox"
             aria-label="Кого позвать"
           >
-            {подходящие.map((кандидат, i) => (
-              <Строка
-                key={кандидат.key}
-                человек={кандидат.человек}
-                выбран={i === selectedIndex}
+            {matching.map((candidate, i) => (
+              <Row
+                key={candidate.key}
+                person={candidate.person}
+                selected={i === selectedIndex}
                 onHover={() => setHighlightedIndex(i)}
-                onPick={() => selectOptionAndCleanUp(кандидат)}
+                onPick={() => selectOptionAndCleanUp(candidate)}
               />
             ))}
           </div>

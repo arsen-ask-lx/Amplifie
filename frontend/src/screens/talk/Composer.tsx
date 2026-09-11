@@ -1,6 +1,6 @@
 import { PaperPlaneRight } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
-import type { Message, Quote as Цитата } from "../../data/api.js";
+import type { Message, Quote as QuoteData } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
 import { Above } from "./Above.js";
 import { FieldMenu } from "./FieldMenu.js";
@@ -39,7 +39,7 @@ export function Composer({
   conversationId: string | null;
   /** Этот чат в проекте — значит агента можно позвать по всему проекту. */
   onSend: (body: string, clientMsgId: string, scope?: "conversation" | "project") => Promise<void>;
-  replying: Цитата | null;
+  replying: QuoteData | null;
   onCancelReply: () => void;
   editing: Message | null;
   onCancelEdit: () => void;

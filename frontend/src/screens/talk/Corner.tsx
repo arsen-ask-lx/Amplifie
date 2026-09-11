@@ -22,7 +22,7 @@ import type { Row } from "./rows.js";
  *
  * У чужих реплик значка нет вовсе: их доставка — не наше дело.
  */
-function State({ row, тень = false }: { row: Row; тень?: boolean }) {
+function State({ row, shadow = false }: { row: Row; shadow?: boolean }) {
   if (!row.mine) return null;
   /**
    * ⚠️ У НЕВИДИМОЙ КОПИИ ПОДПИСИ БЫТЬ НЕ ДОЛЖНО. `aria-hidden` на обёртке
@@ -30,14 +30,14 @@ function State({ row, тень = false }: { row: Row; тень?: boolean }) {
    * и «доставлено» находится дважды. На этом сразу лёг общий шаг
    * подготовки всех проверок чата.
    */
-  const назвать = (label: string) => (тень ? { "aria-hidden": true } : { "aria-label": label });
+  const ariaLabel = (label: string) => (shadow ? { "aria-hidden": true } : { "aria-label": label });
   if (row.message.state === "идёт") {
-    return <Clock {...назвать("отправляется")} className="size-3 opacity-70" />;
+    return <Clock {...ariaLabel("отправляется")} className="size-3 opacity-70" />;
   }
   if (row.message.state === "не ушло") {
-    return <WarningCircle {...назвать("не ушло")} className="size-3 text-danger" />;
+    return <WarningCircle {...ariaLabel("не ушло")} className="size-3 text-danger" />;
   }
-  return <Check {...назвать("доставлено")} className="size-3 opacity-70" />;
+  return <Check {...ariaLabel("доставлено")} className="size-3 opacity-70" />;
 }
 
 /**
@@ -53,8 +53,8 @@ function State({ row, тень = false }: { row: Row; тень?: boolean }) {
  *
  * Наши поля — 12 и 8 (`px-3 py-2`), свес тот же.
  */
-const СВЕС_ВПРАВО = "right-2.5"; /* 12 − 2 */
-const СВЕС_ВНИЗ = "bottom-[3px]"; /* 8 − 5 */
+const OVERHANG_RIGHT = "right-2.5"; /* 12 − 2 */
+const OVERHANG_BOTTOM = "bottom-[3px]"; /* 8 − 5 */
 
 /**
  * Воздух между последним словом и временем.
@@ -70,7 +70,7 @@ const СВЕС_ВНИЗ = "bottom-[3px]"; /* 8 − 5 */
  * десять просвета — и это соразмерно нашему шрифту: у нас речь 14 и время
  * 11 против их 15 и 13, то есть всё мельче примерно на восьмую часть.
  */
-const ВОЗДУХ = "pl-2";
+const GAP = "pl-2";
 
 /**
  * Что стоит в углу: изменено, время, состояние доставки.
@@ -85,13 +85,13 @@ const ВОЗДУХ = "pl-2";
  * `тень` меняет только тег времени: двух `<time>` на одну реплику
  * в странице быть не должно.
  */
-function Marks({ row, тень = false }: { row: Row; тень?: boolean }) {
-  const текст = часы.format(new Date(row.message.createdAt));
+function Marks({ row, shadow = false }: { row: Row; shadow?: boolean }) {
+  const text = часы.format(new Date(row.message.createdAt));
   return (
     <>
-      {row.message.editedAt ? <span title={тень ? undefined : "изменено"}>изм.</span> : null}
-      {тень ? <span>{текст}</span> : <time dateTime={row.message.createdAt}>{текст}</time>}
-      <State row={row} тень={тень} />
+      {row.message.editedAt ? <span title={shadow ? undefined : "изменено"}>изм.</span> : null}
+      {shadow ? <span>{text}</span> : <time dateTime={row.message.createdAt}>{text}</time>}
+      <State row={row} shadow={shadow} />
     </>
   );
 }
@@ -102,8 +102,8 @@ export function Corner({ row }: { row: Row }) {
     <span
       className={[
         "absolute flex items-center gap-1 text-mark",
-        СВЕС_ВПРАВО,
-        СВЕС_ВНИЗ,
+        OVERHANG_RIGHT,
+        OVERHANG_BOTTOM,
         row.mine ? "text-muted-on-soft" : "text-muted",
       ].join(" ")}
     >
@@ -124,11 +124,9 @@ export function Spacer({ row }: { row: Row }) {
   return (
     <span
       aria-hidden="true"
-      className={["invisible inline-flex select-none items-center gap-1 text-mark", ВОЗДУХ].join(
-        " ",
-      )}
+      className={["invisible inline-flex select-none items-center gap-1 text-mark", GAP].join(" ")}
     >
-      <Marks row={row} тень />
+      <Marks row={row} shadow />
     </span>
   );
 }

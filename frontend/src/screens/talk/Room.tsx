@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, type Message } from "../../data/api.js";
 import type { Chat } from "../../data/useChat.js";
 import { copyAndTell } from "../../shared/clipboard.js";
-import { СКОПИРОВАНО } from "../../shared/toast.js";
+import { COPIED } from "../../shared/toast.js";
 import { Composer } from "./Composer.js";
 import { Feed } from "./Feed.js";
 import { ForwardPicker } from "./ForwardPicker.js";
@@ -65,10 +65,10 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
    * в 300 реплик (Р-023), и зов может лежать за его краем — тогда поиск
    * по загруженному нашёл бы не первый пропущенный, а первый попавшийся.
    */
-  const кЗову = async () => {
-    const где = chat.current;
-    if (!где) return;
-    const { seq } = await api.nearestMention(где.id);
+  const jumpToMention = async () => {
+    const current = chat.current;
+    if (!current) return;
+    const { seq } = await api.nearestMention(current.id);
     if (seq !== null) go(seq);
   };
 
@@ -110,7 +110,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
         key={chat.current?.id ?? "пусто"}
         messages={chat.messages}
         mentions={chat.current ? chat.panel.mentionsOf(chat.current.id) : 0}
-        onGoToMention={() => void кЗову()}
+        onGoToMention={() => void jumpToMention()}
         hasOlder={chat.hasOlder}
         onLoadOlder={() => chat.loadOlder()}
         title={chat.current?.title}
@@ -134,7 +134,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
           onCopy={() => {
             void copyAndTell(
               chosen.map((one) => `${one.author.name}: ${one.body}`).join("\n"),
-              СКОПИРОВАНО.текст,
+              COPIED.text,
             );
             setPicked(null);
           }}

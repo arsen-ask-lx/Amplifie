@@ -42,7 +42,7 @@ export function ConfirmDialog({
   onCancel: () => void;
 }) {
   return (
-    <Dialog open onOpenChange={(открыто) => !открыто && onCancel()}>
+    <Dialog open onOpenChange={(isOpen) => !isOpen && onCancel()}>
       <DialogContent className="sm:max-w-96">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -89,31 +89,31 @@ export function FormDialog({
   /** Сделать дело. Удалось — окно закроется само. */
   onSubmit: () => Promise<void>;
   /** Отказ человеческими словами. */
-  explain: (ошибка: unknown) => string;
+  explain: (failure: unknown) => string;
   onClose: () => void;
   /** Поля окна; `busy` — пока ждём сервер, поля не правятся. */
   children: (busy: boolean) => React.ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
-  const [беда, setБеда] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     if (!canSubmit || busy) return;
     setBusy(true);
-    setБеда(null);
+    setProblem(null);
     try {
       await onSubmit();
       onClose();
-    } catch (ошибка) {
-      setБеда(explain(ошибка));
+    } catch (failure) {
+      setProblem(explain(failure));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(открыто) => !открыто && onClose()}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="sm:max-w-96">
         <form onSubmit={(event) => void submit(event)}>
           <DialogHeader>
@@ -123,9 +123,9 @@ export function FormDialog({
           <div className="my-4 flex flex-col gap-3">
             {children(busy)}
 
-            {беда ? (
+            {problem ? (
               <p role="alert" className="text-aside text-danger">
-                {беда}
+                {problem}
               </p>
             ) : null}
           </div>

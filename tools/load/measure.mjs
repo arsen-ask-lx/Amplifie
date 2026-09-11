@@ -31,9 +31,9 @@ const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
  * окружения с кириллицей оболочка не примет: `ВКЛАДОК=3 node ...` падает
  * с «command not found». Проверено, а не предположено.
  */
-const ВКЛАДОК = Number(process.env.TABS ?? 400);
-const В_СЕКУНДУ = Number(process.env.RATE ?? 10);
-const СЕКУНД = Number(process.env.SECONDS ?? 20);
+const TABS = Number(process.env.TABS ?? 400);
+const RATE = Number(process.env.RATE ?? 10);
+const SECONDS = Number(process.env.SECONDS ?? 20);
 
 /**
  * ⚠️ ОТПРАВИТЕЛЕЙ НЕСКОЛЬКО, И ЭТО НЕ УКРАШЕНИЕ. Порог отправки — 30
@@ -41,7 +41,7 @@ const СЕКУНД = Number(process.env.SECONDS ?? 20);
  * упрутся в него через три секунды, и мы измерили бы свой же порог,
  * а не сервер.
  */
-const ОТПРАВИТЕЛЕЙ = Math.max(2, Math.ceil((В_СЕКУНДУ * СЕКУНД) / 25));
+const SENDERS = Math.max(2, Math.ceil((RATE * SECONDS) / 25));
 
 /**
  * Сколько вкладок открывает один человек.
@@ -55,15 +55,15 @@ const ОТПРАВИТЕЛЕЙ = Math.max(2, Math.ceil((В_СЕКУНДУ * СЕ
  * не пропустит и правильно сделает. Измеритель об этом сказал сам —
  * ровно то, ради чего в нём заведена отдельная ошибка «это мой порог».
  */
-const ВКЛАДОК_НА_ЧЕЛОВЕКА = 8;
+const TABS_PER_PERSON = 8;
 
-const пароль = "ochen-dlinnyi-parol-dlya-zamera";
+const password = "ochen-dlinnyi-parol-dlya-zamera";
 
-function адрес(tag) {
+function emailFor(tag) {
   return `load-${Date.now()}-${tag}-${Math.floor(Math.random() * 1e6)}@example.test`;
 }
 
-async function запрос(path, { method = "GET", body, cookie } = {}) {
+async function request(path, { method = "GET", body, cookie } = {}) {
   return fetch(`${BASE}${path}`, {
     method,
     headers: {
@@ -74,7 +74,7 @@ async function запрос(path, { method = "GET", body, cookie } = {}) {
   });
 }
 
-function печенька(response) {
+function cookieOf(response) {
   const raw = response.headers.getSetCookie?.() ?? [];
   const header = raw.find((one) => one.startsWith("amplifie_session="));
   const value = header ? header.split(";")[0] : null;
@@ -83,19 +83,19 @@ function печенька(response) {
 }
 
 /** Завести владельца со своим пространством. */
-async function владелец() {
-  const response = await запрос("/v1/auth/register", {
+async function registerOwner() {
+  const response = await request("/v1/auth/register", {
     method: "POST",
     body: {
-      email: адрес("owner"),
-      password: пароль,
+      email: emailFor("owner"),
+      password: password,
       displayName: "Замер",
       workspaceName: `Замер ${new Date().toISOString().slice(11, 19)}`,
     },
   });
   if (!response.ok) throw new Error(`регистрация владельца: ${response.status}`);
-  const cookie = печенька(response);
-  const rooms = await запрос("/v1/conversations", { cookie });
+  const cookie = cookieOf(response);
+  const rooms = await request("/v1/conversations", { cookie });
   const list = await rooms.json();
   const room = list.items?.[0]?.id;
   if (!room) throw new Error("у нового пространства нет канала");
@@ -103,28 +103,28 @@ async function владелец() {
 }
 
 /** Одна ссылка на всех: столько же, сколько сделал бы человек. */
-async function ссылка(cookie, наСколько) {
-  const response = await запрос("/v1/invites", {
+async function inviteLink(cookie, uses) {
+  const response = await request("/v1/invites", {
     method: "POST",
-    body: { maxUses: Math.min(500, наСколько + 5) },
+    body: { maxUses: Math.min(500, uses + 5) },
     cookie,
   });
   if (!response.ok) throw new Error(`приглашение: ${response.status}`);
   return (await response.json()).token;
 }
 
-async function вошедший(token, tag) {
-  const response = await запрос("/v1/auth/join", {
+async function joined(token, tag) {
+  const response = await request("/v1/auth/join", {
     method: "POST",
-    body: { token, email: адрес(tag), password: пароль, displayName: `Гость ${tag}` },
+    body: { token, email: emailFor(tag), password: password, displayName: `Гость ${tag}` },
   });
-  if (response.status === 429) throw new ПорогНашЖе("вход по приглашению");
+  if (response.status === 429) throw new OwnRateLimitError("вход по приглашению");
   if (!response.ok) throw new Error(`вход по ссылке: ${response.status}`);
-  return печенька(response);
+  return cookieOf(response);
 }
 
 /** Упёрлись в СВОЙ порог частоты, а не в предел сервера (Р-025). */
-class ПорогНашЖе extends Error {}
+class OwnRateLimitError extends Error {}
 
 /**
  * Открытая вкладка: держит поток и запоминает, когда увидела событие.
@@ -133,13 +133,13 @@ class ПорогНашЖе extends Error {}
  * `response.text()` на нём висел бы вечно, и замер молча показал бы ноль
  * событий при живом сервере.
  */
-async function вкладка(cookie, увидено) {
+async function openTab(cookie, seen) {
   const controller = new AbortController();
   const response = await fetch(`${BASE}/v1/stream`, {
     headers: { cookie, accept: "text/event-stream" },
     signal: controller.signal,
   });
-  if (response.status === 429) throw new ПорогНашЖе("подключение к потоку");
+  if (response.status === 429) throw new OwnRateLimitError("подключение к потоку");
   if (!response.ok || !response.body) throw new Error(`поток: ${response.status}`);
 
   const reader = response.body.getReader();
@@ -152,7 +152,7 @@ async function вкладка(cookie, увидено) {
         // Событие приехало — только время и важно. Что именно приехало,
         // проверяют приёмочные, а не замер.
         if (decoder.decode(value, { stream: true }).includes("data:")) {
-          увидено.push(Date.now());
+          seen.push(Date.now());
         }
       }
     } catch {
@@ -163,15 +163,15 @@ async function вкладка(cookie, увидено) {
 }
 
 /** Доли, а не среднее: среднее прячет как раз то, ради чего меряем. */
-function доли(числа) {
-  if (числа.length === 0) return null;
-  const ряд = [...числа].sort((a, b) => a - b);
-  const at = (доля) => ряд[Math.min(ряд.length - 1, Math.floor(доля * ряд.length))];
-  return { половина: at(0.5), девять: at(0.9), почтиВсе: at(0.99), худшее: ряд.at(-1) };
+function percentiles(numbers) {
+  if (numbers.length === 0) return null;
+  const sorted = [...numbers].sort((a, b) => a - b);
+  const at = (share) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))];
+  return { p50: at(0.5), p90: at(0.9), p99: at(0.99), worst: sorted.at(-1) };
 }
 
-function мс(значение) {
-  return значение === undefined ? "—" : `${значение} мс`;
+function ms(value) {
+  return value === undefined ? "—" : `${value} мс`;
 }
 
 /**
@@ -182,81 +182,81 @@ function мс(значение) {
  * складывалась бы с временем ответа, и десять в секунду превращались
  * бы в семь — мы измерили бы собственную арифметику.
  */
-async function нагрузка(room, отправители, увидено) {
-  const задержки = [];
-  const отказы = { порог: 0, прочие: 0 };
-  const всего = В_СЕКУНДУ * СЕКУНД;
-  const шаг = 1000 / В_СЕКУНДУ;
-  const начало = Date.now();
-  увидено.length = 0;
+async function load(room, senders, seen) {
+  const latencies = [];
+  const failures = { rateLimit: 0, other: 0 };
+  const total = RATE * SECONDS;
+  const step = 1000 / RATE;
+  const startedAt = Date.now();
+  seen.length = 0;
 
-  const посланное = [];
-  for (let n = 0; n < всего; n++) {
-    const пауза = начало + n * шаг - Date.now();
-    if (пауза > 0) await new Promise((r) => setTimeout(r, пауза));
+  const sent = [];
+  for (let n = 0; n < total; n++) {
+    const pause = startedAt + n * step - Date.now();
+    if (pause > 0) await new Promise((r) => setTimeout(r, pause));
 
-    const cookie = отправители[n % отправители.length];
-    const ушло = Date.now();
-    посланное.push(
-      запрос(`/v1/conversations/${room}/messages`, {
+    const cookie = senders[n % senders.length];
+    const sentAt = Date.now();
+    sent.push(
+      request(`/v1/conversations/${room}/messages`, {
         method: "POST",
         body: { body: `замер ${n}`, clientMsgId: crypto.randomUUID() },
         cookie,
       })
         .then((response) => {
-          if (response.status === 429) отказы.порог += 1;
-          else if (!response.ok) отказы.прочие += 1;
-          else задержки.push(Date.now() - ушло);
+          if (response.status === 429) failures.rateLimit += 1;
+          else if (!response.ok) failures.other += 1;
+          else latencies.push(Date.now() - sentAt);
         })
         .catch(() => {
-          отказы.прочие += 1;
+          failures.other += 1;
         }),
     );
   }
-  await Promise.all(посланное);
-  return { задержки, отказы, шло: (Date.now() - начало) / 1000, всего };
+  await Promise.all(sent);
+  return { latencies, failures, seconds: (Date.now() - startedAt) / 1000, total };
 }
 
-async function замер() {
+async function run() {
   console.log(`стенд: ${BASE}`);
-  console.log(`цель: ${ВКЛАДОК} вкладок · ${В_СЕКУНДУ} сообщений в секунду · ${СЕКУНД} с\n`);
+  console.log(`цель: ${TABS} вкладок · ${RATE} сообщений в секунду · ${SECONDS} с\n`);
 
-  const хозяин = await владелец();
-  const token = await ссылка(хозяин.cookie, ВКЛАДОК + ОТПРАВИТЕЛЕЙ);
+  const owner = await registerOwner();
+  const token = await inviteLink(owner.cookie, TABS + SENDERS);
 
-  process.stdout.write(`открываю вкладки: 0/${ВКЛАДОК}`);
-  const увидено = [];
-  const держим = [];
-  for (let открыто = 0; открыто < ВКЛАДОК; ) {
-    const cookie = await вошедший(token, `tab${открыто}`);
+  process.stdout.write(`открываю вкладки: 0/${TABS}`);
+  const seen = [];
+  const held = [];
+  for (let opened = 0; opened < TABS; ) {
+    const cookie = await joined(token, `tab${opened}`);
     // Несколько вкладок на одну сессию — см. ВКЛАДОК_НА_ЧЕЛОВЕКА выше.
-    for (let n = 0; n < ВКЛАДОК_НА_ЧЕЛОВЕКА && открыто < ВКЛАДОК; n++, открыто++) {
-      держим.push(await вкладка(cookie, увидено));
-      if (открыто % 50 === 0)
+    for (let n = 0; n < TABS_PER_PERSON && opened < TABS; n++, opened++) {
+      held.push(await openTab(cookie, seen));
+      if (opened % 50 === 0)
         process.stdout.write(`
-открываю вкладки: ${открыто}/${ВКЛАДОК}`);
+открываю вкладки: ${opened}/${TABS}`);
     }
   }
-  console.log(`\rоткрыто вкладок: ${держим.length}/${ВКЛАДОК}          `);
+  console.log(`\rоткрыто вкладок: ${held.length}/${TABS}          `);
 
-  const отправители = [];
-  for (let n = 0; n < ОТПРАВИТЕЛЕЙ; n++) {
-    отправители.push(await вошедший(token, `send${n}`));
+  const senders = [];
+  for (let n = 0; n < SENDERS; n++) {
+    senders.push(await joined(token, `send${n}`));
   }
 
-  const { задержки, отказы, шло, всего } = await нагрузка(хозяин.room, отправители, увидено);
+  const { latencies, failures, seconds, total } = await load(owner.room, senders, seen);
 
   // Даём событиям доехать: раздача идёт после ответа на отправку.
   await new Promise((r) => setTimeout(r, 3000));
-  for (const controller of держим) controller.abort();
+  for (const controller of held) controller.abort();
 
-  печать({
-    задержки,
-    отказы,
-    всего,
-    шло,
-    вкладок: держим.length,
-    событий: увидено.length,
+  report({
+    latencies,
+    failures,
+    total,
+    seconds,
+    tabs: held.length,
+    events: seen.length,
   });
 }
 
@@ -267,29 +267,31 @@ async function замер() {
  * голове. Замер с одной машины систематически приукрашивает, и число
  * без этой строки однажды процитируют как обещание клиенту.
  */
-function печать({ задержки, отказы, всего, шло, вкладок, событий }) {
-  const ожидали = задержки.length * вкладок;
-  const ответ = доли(задержки);
+function report({ latencies, failures, total, seconds, tabs, events }) {
+  const expected = latencies.length * tabs;
+  const stats = percentiles(latencies);
 
   console.log("\n── что получилось ─────────────────────────────────");
-  console.log(`отправлено:        ${задержки.length} из ${всего} за ${шло.toFixed(1)} с`);
-  console.log(`отказов по порогу: ${отказы.порог}${отказы.порог ? "  ⚠️ мерили СВОЙ порог" : ""}`);
-  console.log(`прочих отказов:    ${отказы.прочие}`);
+  console.log(`отправлено:        ${latencies.length} из ${total} за ${seconds.toFixed(1)} с`);
   console.log(
-    `ответ на отправку: половина ${мс(ответ?.половина)} · 0.9 ${мс(ответ?.девять)} · ` +
-      `0.99 ${мс(ответ?.почтиВсе)} · худший ${мс(ответ?.худшее)}`,
+    `отказов по порогу: ${failures.rateLimit}${failures.rateLimit ? "  ⚠️ мерили СВОЙ порог" : ""}`,
+  );
+  console.log(`прочих отказов:    ${failures.other}`);
+  console.log(
+    `ответ на отправку: половина ${ms(stats?.p50)} · 0.9 ${ms(stats?.p90)} · ` +
+      `0.99 ${ms(stats?.p99)} · худший ${ms(stats?.worst)}`,
   );
   console.log(
-    `событий в потоках: ${событий} из ${ожидали} ожидаемых ` +
-      `(${ожидали ? Math.round((событий / ожидали) * 100) : 0}%)`,
+    `событий в потоках: ${events} из ${expected} ожидаемых ` +
+      `(${expected ? Math.round((events / expected) * 100) : 0}%)`,
   );
   console.log(`память процесса:   ${Math.round(process.memoryUsage().rss / 1e6)} МБ у ИЗМЕРИТЕЛЯ`);
   console.log("\n⚠️ Оговорка: замер с ОДНОЙ машины. Сто вкладок отсюда и сто человек");
   console.log("   из разных сетей — не одно и то же; числа получаются оптимистичными.");
 }
 
-замер().catch((error) => {
-  if (error instanceof ПорогНашЖе) {
+run().catch((error) => {
+  if (error instanceof OwnRateLimitError) {
     console.error(`\n⚠️ упёрлись в СВОЙ порог частоты (${error.message}) — это не предел сервера.`);
     console.error("   Пороги живут в Р-025; для замера их поднимают, а не обходят.");
     process.exit(2);

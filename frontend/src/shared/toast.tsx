@@ -43,32 +43,32 @@ import { useSyncExternalStore } from "react";
  */
 
 /** Тексты — те же, что у них (`lng_text_copied` и соседи). */
-export const СКОПИРОВАНО = {
-  текст: "Текст скопирован в буфер обмена.",
-  код: "Код скопирован в буфер обмена.",
-  ссылка: "Ссылка скопирована в буфер обмена.",
+export const COPIED = {
+  text: "Текст скопирован в буфер обмена.",
+  code: "Код скопирован в буфер обмена.",
+  link: "Ссылка скопирована в буфер обмена.",
 } as const;
 
-const ЖИЗНЬ = 1500;
-const УГАСАНИЕ = 1000;
+const LIFE_MS = 1500;
+const FADE_MS = 1000;
 
-interface Плашка {
+interface ToastItem {
   /** Своё число на каждый показ: по нему перезапускается появление. */
   id: number;
   text: string;
   /** Уже гаснет — значит прозрачность едет к нулю. */
-  гаснет: boolean;
+  fading: boolean;
 }
 
-let текущая: Плашка | null = null;
-let слушатели: Array<() => void> = [];
-let счёт = 0;
-let таймерУгасания: ReturnType<typeof setTimeout> | undefined;
-let таймерСнятия: ReturnType<typeof setTimeout> | undefined;
+let current: ToastItem | null = null;
+let listeners: Array<() => void> = [];
+let counter = 0;
+let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+let removeTimer: ReturnType<typeof setTimeout> | undefined;
 
-function поставить(следующая: Плашка | null): void {
-  текущая = следующая;
-  for (const слушатель of слушатели) слушатель();
+function show(next: ToastItem | null): void {
+  current = next;
+  for (const listener of listeners) listener();
 }
 
 /**
@@ -80,26 +80,26 @@ function поставить(следующая: Плашка | null): void {
  * то, что он только что сделал.
  */
 export function toast(text: string): void {
-  clearTimeout(таймерУгасания);
-  clearTimeout(таймерСнятия);
+  clearTimeout(fadeTimer);
+  clearTimeout(removeTimer);
 
-  счёт += 1;
-  поставить({ id: счёт, text, гаснет: false });
+  counter += 1;
+  show({ id: counter, text, fading: false });
 
-  таймерУгасания = setTimeout(() => {
-    if (текущая) поставить({ ...текущая, гаснет: true });
-  }, ЖИЗНЬ);
-  таймерСнятия = setTimeout(() => поставить(null), ЖИЗНЬ + УГАСАНИЕ);
+  fadeTimer = setTimeout(() => {
+    if (current) show({ ...current, fading: true });
+  }, LIFE_MS);
+  removeTimer = setTimeout(() => show(null), LIFE_MS + FADE_MS);
 }
 
-function подписаться(слушатель: () => void): () => void {
-  слушатели = [...слушатели, слушатель];
+function subscribe(listener: () => void): () => void {
+  listeners = [...listeners, listener];
   return () => {
-    слушатели = слушатели.filter((один) => один !== слушатель);
+    listeners = listeners.filter((one) => one !== listener);
   };
 }
 
-const прочитать = (): Плашка | null => текущая;
+const read = (): ToastItem | null => current;
 
 /**
  * Узел плашки. Ставится ОДИН РАЗ на всё приложение.
@@ -110,31 +110,31 @@ const прочитать = (): Плашка | null => текущая;
  * назойливостью, а не заботой.
  */
 export function Toasts() {
-  const плашка = useSyncExternalStore(подписаться, прочитать, прочитать);
+  const shown = useSyncExternalStore(subscribe, read, read);
 
   return (
     <div
       aria-live="polite"
       className="pointer-events-none fixed inset-0 z-100 grid place-items-center"
     >
-      {плашка ? (
+      {shown ? (
         // ⚠️ КЛЮЧ ПО ЧИСЛУ ПОКАЗА: без него React переиспользовал бы узел,
         // и появление второй плашки не проигрывалось бы вовсе.
         <div
-          key={плашка.id}
+          key={shown.id}
           style={{
             // Цвет объявлен ролью в `styles.css`, как и всё остальное:
             // литерал тема не перекрашивает, а гейт цвета его не пустит.
             background: "var(--toast-bg)",
-            transitionDuration: `${УГАСАНИЕ}ms`,
+            transitionDuration: `${FADE_MS}ms`,
           }}
           className={[
             "toast-in max-w-[480px] rounded-lg px-5 py-3",
             "text-body text-[var(--toast-fg)] transition-opacity",
-            плашка.гаснет ? "opacity-0" : "opacity-100",
+            shown.fading ? "opacity-0" : "opacity-100",
           ].join(" ")}
         >
-          {плашка.text}
+          {shown.text}
         </div>
       ) : null}
     </div>

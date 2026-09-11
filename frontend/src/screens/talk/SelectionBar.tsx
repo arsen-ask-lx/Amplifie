@@ -14,7 +14,7 @@ import type { Message } from "../../data/api.js";
  * это тот самый мелкий мусор, из которого складывается ощущение, что
  * продукт делали второпях.
  */
-function сообщений(n: number): string {
+function messagesWord(n: number): string {
   const last = n % 10;
   const teen = n % 100 >= 11 && n % 100 <= 14;
   if (!teen && last === 1) return "сообщение";
@@ -54,7 +54,7 @@ export function SelectionBar({
       </button>
 
       <span className="flex-1 text-body text-ink">
-        Выбрано {chosen.length} {сообщений(chosen.length)}
+        Выбрано {chosen.length} {messagesWord(chosen.length)}
       </span>
 
       <button

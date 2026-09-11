@@ -14,7 +14,7 @@ import { extendTailwindMerge } from "tailwind-merge";
  * Появится новая ступень — её надо добавить сюда; забудешь, и она просто
  * перестанет перебиваться, как было с `text-aside` на экране входа.
  */
-const РАЗМЕРЫ = ["mark", "aside", "body", "lead", "head", "brand"];
+const SIZES = ["mark", "aside", "body", "lead", "head", "brand"];
 
 /**
  * Собрать классы и разрешить их спор.
@@ -33,7 +33,7 @@ const РАЗМЕРЫ = ["mark", "aside", "body", "lead", "head", "brand"];
 const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
-      "font-size": [{ text: РАЗМЕРЫ }],
+      "font-size": [{ text: SIZES }],
     },
   },
 });

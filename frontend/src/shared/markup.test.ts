@@ -206,22 +206,22 @@ describe("вложенность", () => {
   it("тысяча звёздочек не кладёт вкладку", () => {
     // ⚠️ ПРЕДЕЛ ГЛУБИНЫ — НЕ ПЕРЕСТРАХОВКА. Разбор рекурсивный, и строка,
     // которую ничего не мешает прислать, переполнила бы стек.
-    const края = "**".repeat(1000);
-    const кривая = `${края}дно${края}`;
-    expect(() => parseMarkup(кривая)).not.toThrow();
+    const edges = "**".repeat(1000);
+    const crooked = `${edges}дно${edges}`;
+    expect(() => parseMarkup(crooked)).not.toThrow();
   });
 });
 
 describe("упоминание человека", () => {
-  const НОМЕР = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6b";
+  const personId = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6b";
 
   it("разбирается своим куском, а не ссылкой", () => {
-    const tokens = parseMarkup(`привет, [Мария Петрова](@${НОМЕР})`);
+    const tokens = parseMarkup(`привет, [Мария Петрова](@${personId})`);
     expect(kinds(tokens)).toEqual(["text", "mention"]);
-    const позвали = tokens[1];
-    if (позвали === undefined || позвали.kind !== "mention") throw new Error("не упоминание");
-    expect(позвали.text).toBe("Мария Петрова");
-    expect(позвали.id).toBe(НОМЕР);
+    const mentioned = tokens[1];
+    if (mentioned === undefined || mentioned.kind !== "mention") throw new Error("не упоминание");
+    expect(mentioned.text).toBe("Мария Петрова");
+    expect(mentioned.id).toBe(personId);
   });
 
   it("обычная ссылка упоминанием не становится", () => {
@@ -241,7 +241,7 @@ describe("упоминание человека", () => {
   });
 
   it("внутри жирного упоминание читается", () => {
-    const tokens = parseMarkup(`**зову [Мария](@${НОМЕР})**`);
+    const tokens = parseMarkup(`**зову [Мария](@${personId})**`);
     expect(kinds(tokens)).toEqual(["bold"]);
     const bold = tokens[0];
     if (bold === undefined || !("children" in bold)) throw new Error("жирный без детей");

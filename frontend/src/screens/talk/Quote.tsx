@@ -1,4 +1,4 @@
-import type { Quote as Цитата } from "../../data/api.js";
+import type { Quote as QuoteData } from "../../data/api.js";
 
 /**
  * Цитата: на что отвечает реплика.
@@ -19,7 +19,7 @@ export function Quote({
   onGo,
   tone = "обычный",
 }: {
-  quote: Цитата;
+  quote: QuoteData;
   /** Куда вести по щелчку. Нет — цитата не нажимается (над полем ввода). */
   onGo?: (() => void) | undefined;
   /** «на заливке» — цитата внутри своего пузыря, где фон плотный. */

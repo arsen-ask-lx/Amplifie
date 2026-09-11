@@ -23,7 +23,7 @@ import type { Address } from "./useAddress.js";
  * только вместе — это одно понятие «как папка выглядит», и в четырёх
  * местах, где оно передаётся, пара не должна разъезжаться.
  */
-interface Вид {
+interface Look {
   icon?: string | null;
   color?: string | null;
 }
@@ -46,8 +46,8 @@ export interface Rooms {
   removeChannel: (id: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
   /** Завести проект. */
-  addProject: (title: string, вид?: Вид) => Promise<void>;
-  renameProject: (id: string, правка: { title?: string } & Вид) => Promise<void>;
+  addProject: (title: string, look?: Look) => Promise<void>;
+  renameProject: (id: string, edit: { title?: string } & Look) => Promise<void>;
   /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
   removeProject: (id: string) => Promise<void>;
   /** Отнести чат к проекту либо снять принадлежность (`null`). */
@@ -60,7 +60,10 @@ export interface Rooms {
    *
    * ⚠️ ЛИЧНОЕ (Д-32): у коллеги порядок свой. Считает его сервер.
    */
-  pin: (что: { conversationId: string } | { projectId: string }, pinned: boolean) => Promise<void>;
+  pin: (
+    target: { conversationId: string } | { projectId: string },
+    pinned: boolean,
+  ) => Promise<void>;
 }
 
 export function useRooms(where: Address): Rooms {
@@ -69,9 +72,9 @@ export function useRooms(where: Address): Rooms {
   const { currentId, currentIdRef, navigate } = where;
 
   const reload = useCallback(async () => {
-    const { items: fresh, projects: папки } = await api.conversations();
+    const { items: fresh, projects: folders } = await api.conversations();
     setItems(fresh);
-    setProjects(папки ?? []);
+    setProjects(folders ?? []);
     return fresh;
   }, []);
 
@@ -136,16 +139,16 @@ export function useRooms(where: Address): Rooms {
    * и пустая папка появляется в ней.
    */
   const addProject = useCallback(
-    async (title: string, вид?: Вид) => {
-      await api.addProject(title, вид);
+    async (title: string, look?: Look) => {
+      await api.addProject(title, look);
       await reload();
     },
     [reload],
   );
 
   const renameProject = useCallback(
-    async (id: string, правка: { title?: string } & Вид) => {
-      await api.renameProject(id, правка);
+    async (id: string, edit: { title?: string } & Look) => {
+      await api.renameProject(id, edit);
       await reload();
     },
     [reload],
@@ -167,10 +170,10 @@ export function useRooms(where: Address): Rooms {
   );
 
   const pin = useCallback(
-    async (что: { conversationId: string } | { projectId: string }, pinned: boolean) => {
-      await ("conversationId" in что
-        ? api.pinConversation(что.conversationId, pinned)
-        : api.pinProject(что.projectId, pinned));
+    async (target: { conversationId: string } | { projectId: string }, pinned: boolean) => {
+      await ("conversationId" in target
+        ? api.pinConversation(target.conversationId, pinned)
+        : api.pinProject(target.projectId, pinned));
       // Порядок пересчитывает сервер — перечитываем панель целиком,
       // а не переставляем строки здесь (иначе про порядок знают двое).
       await reload();

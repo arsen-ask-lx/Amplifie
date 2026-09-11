@@ -1,5 +1,5 @@
 import { PencilSimple, X } from "@phosphor-icons/react";
-import type { Message, Quote as Цитата } from "../../data/api.js";
+import type { Message, Quote as QuoteData } from "../../data/api.js";
 import { Quote } from "./Quote.js";
 
 /**
@@ -15,7 +15,7 @@ export function Above({
   editing,
   onCancel,
 }: {
-  replying: Цитата | null;
+  replying: QuoteData | null;
   editing: Message | null;
   onCancel: () => void;
 }) {

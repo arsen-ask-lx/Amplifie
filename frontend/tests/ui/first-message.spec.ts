@@ -33,18 +33,18 @@ interface Removals {
  */
 const WATCH = () => {
   const seen: Removals = { texts: [] };
-  (window as unknown as { __удалено: Removals }).__удалено = seen;
+  (window as unknown as { amplifieRemovals: Removals }).amplifieRemovals = seen;
 
   // Считаем только реплики: пропажа приглашения «здесь пока пусто» —
   // нормальная смена состояния, а не пересоздание реплики. `closest`
   // ловит и сам узел реплики, и её обёртку, снятую вместе с ней.
-  const реплика = (node: Node): HTMLElement | null =>
+  const messageOf = (node: Node): HTMLElement | null =>
     node instanceof HTMLElement ? (node.closest("article") ?? node.querySelector("article")) : null;
 
   new MutationObserver((records) => {
     for (const record of records) {
       for (const gone of record.removedNodes) {
-        const article = реплика(gone);
+        const article = messageOf(gone);
         if (article) seen.texts.push(article.textContent ?? "");
       }
     }
@@ -63,23 +63,23 @@ test("первая реплика в новом канале не пересоз
   // секунды, за которые тест не успел бы ничего опросить.
   await page.evaluate(WATCH);
 
-  const текст = "первая строка в пустом канале";
-  await typeInto(page, текст, "Отправить");
+  const body = "первая строка в пустом канале";
+  await typeInto(page, body, "Отправить");
 
   // Ждём подтверждения сервером: до него временный номер ещё жив, и
   // проверять нечего. Значок «доставлено» — то же, что видит человек.
-  await expect(bubble(page, текст).getByLabel("доставлено")).toBeVisible();
+  await expect(bubble(page, body).getByLabel("доставлено")).toBeVisible();
 
-  const удалено = await page.evaluate(
-    () => (window as unknown as { __удалено: Removals }).__удалено.texts,
+  const removed = await page.evaluate(
+    () => (window as unknown as { amplifieRemovals: Removals }).amplifieRemovals.texts,
   );
   expect(
-    удалено.filter((text) => text.includes(текст)),
+    removed.filter((text) => text.includes(body)),
     "узел реплики удалялся — значит React пересоздал его, и появление проиграется заново",
   ).toEqual([]);
 
   await expect(
-    bubble(page, текст),
+    bubble(page, body),
     "на свою реплику повешено появление: в Телеграме своя реплика не всплывает",
   ).not.toHaveClass(/msg-fresh/);
 });

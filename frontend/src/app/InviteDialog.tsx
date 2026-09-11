@@ -32,13 +32,13 @@ import { Input } from "../shared/ui/input.js";
  * писать «30 дней» словами значит завести вторую копию знания, которая
  * соврёт при первой же правке порога на сервере.
  */
-function дней(до: string): number {
-  return Math.max(1, Math.round((new Date(до).getTime() - Date.now()) / 86_400_000));
+function daysLeft(until: string): number {
+  return Math.max(1, Math.round((new Date(until).getTime() - Date.now()) / 86_400_000));
 }
 
 export function InviteDialog({ onClose }: { onClose: () => void }) {
   const [link, setLink] = useState<string | null>(null);
-  const [срок, setСрок] = useState<{ дней: number; людей: number } | null>(null);
+  const [limits, setLimits] = useState<{ daysLeft: number; people: number } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -51,7 +51,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
         // Адрес собирается ЗДЕСЬ, а не на сервере: сервер не знает, по
         // какому имени к нему пришли, и подставил бы своё внутреннее.
         setLink(`${window.location.origin}/join/${made.token}`);
-        setСрок({ дней: дней(made.expiresAt), людей: made.maxUses });
+        setLimits({ daysLeft: daysLeft(made.expiresAt), people: made.maxUses });
       })
       .catch(() => {
         if (alive) setFailure("Не вышло сделать ссылку. Попробуйте ещё раз.");
@@ -80,7 +80,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
      * здесь был бы вторым ответом на вопрос, на который уже отвечает
      * наличие узла.
      */
-    <Dialog open onOpenChange={(открыто) => !открыто && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-[30rem]">
         <DialogHeader>
           <DialogTitle>Пригласить в пространство</DialogTitle>
@@ -121,9 +121,9 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
           </div>
         ) : null}
 
-        {срок ? (
+        {limits ? (
           <p className="text-aside text-muted">
-            Ссылка живёт {срок.дней} дней, по ней может войти до {срок.людей} человек.
+            Ссылка живёт {limits.daysLeft} дней, по ней может войти до {limits.people} человек.
           </p>
         ) : null}
 

@@ -111,7 +111,7 @@ import {
  */
 
 /** Значок по имени. Порядок задаёт список в общем пакете, а не этот. */
-const ЗНАЧКИ: Record<ProjectIcon, React.ComponentType<{ className?: string }>> = {
+const ICONS: Record<ProjectIcon, React.ComponentType<{ className?: string }>> = {
   folder: FolderSimple,
   house: House,
   buildings: Buildings,
@@ -227,14 +227,11 @@ export function ЗначокПроекта({
   color: string | null | undefined;
   className?: string;
 }) {
-  const Икс = icon && icon in ЗНАЧКИ ? ЗНАЧКИ[icon as ProjectIcon] : FolderSimple;
-  const оттенок = цветМетки(color);
+  const Glyph = icon && icon in ICONS ? ICONS[icon as ProjectIcon] : FolderSimple;
+  const tint = цветМетки(color);
   return (
-    <span
-      className="grid shrink-0 place-items-center"
-      style={оттенок ? { color: оттенок } : undefined}
-    >
-      <Икс className={className ?? "size-4"} />
+    <span className="grid shrink-0 place-items-center" style={tint ? { color: tint } : undefined}>
+      <Glyph className={className ?? "size-4"} />
     </span>
   );
 }
@@ -249,5 +246,5 @@ export function ЗначокПроекта({
  * пакета, опечатка в миграции); ни одна из них не стоит белого экрана.
  */
 export function значокПоИмени(icon: string) {
-  return icon in ЗНАЧКИ ? ЗНАЧКИ[icon as ProjectIcon] : FolderSimple;
+  return icon in ICONS ? ICONS[icon as ProjectIcon] : FolderSimple;
 }

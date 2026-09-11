@@ -22,20 +22,20 @@ test("владелец зовёт по ссылке, коллега входит
   await page.getByLabel("Профиль и настройки").click();
   await page.getByRole("menuitem", { name: "Пригласить в пространство" }).click();
 
-  const поле = page.getByLabel("Ссылка-приглашение");
-  await expect(поле).toBeVisible();
-  const ссылка = await поле.inputValue();
-  expect(ссылка, "в ссылке нет пути входа").toContain("/join/");
+  const linkField = page.getByLabel("Ссылка-приглашение");
+  await expect(linkField).toBeVisible();
+  const link = await linkField.inputValue();
+  expect(link, "в ссылке нет пути входа").toContain("/join/");
 
   // Коллега — ДРУГОЙ браузерный контекст: своя печенька, своё хранилище.
-  const гость = await browser.newContext();
-  const другой = await гость.newPage();
-  await другой.goto(ссылка);
+  const guestContext = await browser.newContext();
+  const guestPage = await guestContext.newPage();
+  await guestPage.goto(link);
 
-  await другой.getByLabel("Почта").fill(`guest-${Date.now()}@example.test`);
-  await другой.getByLabel("Пароль").fill("очень-длинный-пароль-для-теста");
-  await другой.getByLabel("Как вас зовут").fill("Приглашённый");
-  await другой.getByRole("button", { name: "Войти" }).click();
+  await guestPage.getByLabel("Почта").fill(`guest-${Date.now()}@example.test`);
+  await guestPage.getByLabel("Пароль").fill("очень-длинный-пароль-для-теста");
+  await guestPage.getByLabel("Как вас зовут").fill("Приглашённый");
+  await guestPage.getByRole("button", { name: "Войти" }).click();
 
   // ⚠️ ТОКЕН УБРАН ИЗ АДРЕСА, И ПРОВЕРЯТЬ ЭТО НАДО ЗДЕСЬ — до того, как
   // мы куда-либо перешли. Сначала проверка стояла в конце, после открытия
@@ -43,19 +43,19 @@ test("владелец зовёт по ссылке, коллега входит
   // зелёным даже со снятой очисткой. Поймано обратной проверкой, а не
   // чтением — из кода это не видно.
   await expect
-    .poll(() => new URL(другой.url()).pathname, { timeout: 5_000 })
+    .poll(() => new URL(guestPage.url()).pathname, { timeout: 5_000 })
     .not.toContain("/join/");
 
   // Попал в ТУ ЖЕ компанию: видит канал и уже сказанное в нём.
-  await openChannel(другой, "Общий");
+  await openChannel(guestPage, "Общий");
   await expect(
-    bubble(другой, "первое слово хозяина"),
+    bubble(guestPage, "первое слово хозяина"),
     "вошедший не видит переписки — значит попал не в ту компанию",
   ).toBeVisible();
 
   // И обратно: сказанное гостем видно хозяину.
-  await say(другой, "здравствуйте, я по ссылке");
+  await say(guestPage, "здравствуйте, я по ссылке");
   await expect(bubble(page, "здравствуйте, я по ссылке")).toBeVisible();
 
-  await гость.close();
+  await guestContext.close();
 });

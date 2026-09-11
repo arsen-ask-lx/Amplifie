@@ -77,7 +77,14 @@
       }
     },
     {
-      "includes": ["backend/**", "packages/**", "bridge/**"],
+      "includes": [
+        "backend/**",
+        "packages/**",
+        "bridge/**",
+        "frontend/**",
+        "tools/**",
+        "playwright.config.ts"
+      ],
       "linter": {
         "rules": {
           "style": {
@@ -111,6 +118,36 @@
         "backend/src/agent/answering/envelope.ts",
         "backend/src/agent/answering/envelope.test.ts",
         "backend/tests/task-from-chat.e2e.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "frontend/src/app/InviteDialog.tsx",
+        "frontend/src/app/ProjectDialog.tsx",
+        "frontend/src/app/ProjectRow.tsx",
+        "frontend/src/app/RoomList.tsx",
+        "frontend/src/screens/AuthScreen.tsx",
+        "frontend/src/screens/JoinScreen.tsx",
+        "frontend/src/screens/agents/KeyPanel.tsx",
+        "frontend/src/screens/agents/ModelScreen.tsx",
+        "frontend/src/screens/entry/EntryFrame.tsx",
+        "frontend/src/screens/entry/pictures.ts",
+        "frontend/src/screens/talk/Corner.tsx",
+        "frontend/src/shared/Icon.tsx",
+        "frontend/src/shared/clipboard.ts",
+        "frontend/src/shared/projectLook.tsx",
+        "frontend/src/shared/projectLookNames.ts",
+        "frontend/src/shared/theme.ts",
+        "frontend/src/shared/when.ts",
+        "frontend/tests/ui/projects.spec.ts",
+        "tools/checks/check-contrast.mjs"
       ],
       "linter": {
         "rules": {

@@ -24,10 +24,10 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 /** Имя мастер-ключа. Одно на всю программу — второй копии строки не заводим. */
-export const КЛЮЧ = "AMPLIFIE_SECRET_KEY";
+export const KEY_NAME = "AMPLIFIE_SECRET_KEY";
 
 /** 32 байта в base64 — столько требует AES-256-GCM (Р-016). */
-export function секрет() {
+export function secret() {
   return randomBytes(32).toString("base64");
 }
 
@@ -38,7 +38,7 @@ export function секрет() {
  * в строке подключения значат другое. Тихо испорченный адрес базы —
  * это «приложение не стартует» без единой подсказки почему.
  */
-export function пароль() {
+export function password() {
   return randomBytes(24).toString("base64url");
 }
 
@@ -53,7 +53,7 @@ export function пароль() {
  * Порт Postgres наружу не публикуется, поэтому и переменной для него нет:
  * внутри сети база слушает 5432, и адрес собран под это.
  */
-export function настройкиКоробки({ пароль: pwd, ключ, порт = 8477, база = "amplifie" }) {
+export function boxSettings({ password: pwd, key, port = 8477, database = "amplifie" }) {
   return `# Настройки установки Amplifie. Рождены \`make env-box\`.
 #
 # ⚠️ ЭТОТ ФАЙЛ — ЕДИНСТВЕННАЯ КОПИЯ МАСТЕР-КЛЮЧА. Потеряете его — потеряете
@@ -61,19 +61,19 @@ export function настройкиКоробки({ пароль: pwd, ключ, 
 # Храните копию отдельно от сервера и отдельно от резервных копий базы:
 # укравший и то и другое получает и замок, и ключ.
 
-POSTGRES_USER=${база}
+POSTGRES_USER=${database}
 POSTGRES_PASSWORD=${pwd}
-POSTGRES_DB=${база}
-DATABASE_URL=postgres://${база}:${pwd}@postgres:5432/${база}
+POSTGRES_DB=${database}
+DATABASE_URL=postgres://${database}:${pwd}@postgres:5432/${database}
 
 API_PORT=3000
 LOG_LEVEL=info
 NODE_ENV=production
 
 # Что слушает установка снаружи.
-HTTP_PORT=${порт}
+HTTP_PORT=${port}
 
-${КЛЮЧ}=${ключ}
+${KEY_NAME}=${key}
 `;
 }
 
@@ -87,31 +87,31 @@ ${КЛЮЧ}=${ключ}
  * Идемпотентно: заполненный ключ не трогается. Иначе второй `make env`
  * молча обесценил бы всё, что зашифровано первым.
  */
-export function дополнитьКлючом(текст, ключ) {
-  const заполнен = new RegExp(`^${КЛЮЧ}=.+$`, "mu");
-  if (заполнен.test(текст)) return текст;
+export function withKey(text, key) {
+  const filled = new RegExp(`^${KEY_NAME}=.+$`, "mu");
+  if (filled.test(text)) return text;
 
-  const пустой = new RegExp(`^${КЛЮЧ}=\\s*$`, "mu");
-  const строка = `${КЛЮЧ}=${ключ}`;
-  return пустой.test(текст) ? текст.replace(пустой, строка) : `${текст.trimEnd()}\n${строка}\n`;
+  const empty = new RegExp(`^${KEY_NAME}=\\s*$`, "mu");
+  const line = `${KEY_NAME}=${key}`;
+  return empty.test(text) ? text.replace(empty, line) : `${text.trimEnd()}\n${line}\n`;
 }
 
 /** Профиль стенда: образец плюс свой мастер-ключ. */
-function профильDev(файл, образец) {
-  if (!existsSync(файл)) {
-    if (!existsSync(образец)) {
-      throw new Error(`нет ни ${файл}, ни ${образец} — копировать не из чего`);
+function devProfile(file, template) {
+  if (!existsSync(file)) {
+    if (!existsSync(template)) {
+      throw new Error(`нет ни ${file}, ни ${template} — копировать не из чего`);
     }
-    writeFileSync(файл, readFileSync(образец, "utf8"));
-    console.log(`создан ${файл} из ${образец}`);
+    writeFileSync(file, readFileSync(template, "utf8"));
+    console.log(`создан ${file} из ${template}`);
   }
 
-  const было = readFileSync(файл, "utf8");
-  const стало = дополнитьКлючом(было, секрет());
-  if (было === стало) return;
+  const before = readFileSync(file, "utf8");
+  const after = withKey(before, secret());
+  if (before === after) return;
 
-  writeFileSync(файл, стало);
-  console.log(`создан мастер-ключ шифрования в ${файл}.`);
+  writeFileSync(file, after);
+  console.log(`создан мастер-ключ шифрования в ${file}.`);
   console.log("БЕЗ НЕГО КЛЮЧИ УЧАСТНИКОВ НЕ ЧИТАЮТСЯ — не теряйте этот файл.");
 }
 
@@ -121,35 +121,35 @@ function профильDev(файл, образец) {
  * Порт можно назвать вторым доводом — это нужно арбитру поставки, который
  * поднимает настоящую установку рядом с уже работающим стендом.
  */
-function профильBox(файл, порт = 8477) {
-  if (existsSync(файл)) {
+function boxProfile(file, port = 8477) {
+  if (existsSync(file)) {
     throw new Error(
-      `${файл} уже есть — отказываюсь перезаписать.\n` +
+      `${file} уже есть — отказываюсь перезаписать.\n` +
         `  ПОЧЕМУ: перезапись выдаст НОВЫЙ мастер-ключ, и все сохранённые ключи\n` +
         `  моделей станут нечитаемыми навсегда (Р-016). Восстановления нет.\n` +
-        `  ЕСЛИ ЭТО НУЖНО: уберите ${файл} сами, осознанно и с копией.`,
+        `  ЕСЛИ ЭТО НУЖНО: уберите ${file} сами, осознанно и с копией.`,
     );
   }
 
-  writeFileSync(файл, настройкиКоробки({ пароль: пароль(), ключ: секрет(), порт }));
-  console.log(`создан ${файл} для настоящей установки.`);
+  writeFileSync(file, boxSettings({ password: password(), key: secret(), port: port }));
+  console.log(`создан ${file} для настоящей установки.`);
   console.log("В НЁМ ЕДИНСТВЕННАЯ КОПИЯ МАСТЕР-КЛЮЧА — сделайте копию отдельно от сервера.");
 }
 
-const ПРОФИЛИ = { dev: профильDev, box: профильBox };
+const PROFILES = { dev: devProfile, box: boxProfile };
 
 // Запуск как программы, а не как модуля: тесты берут функции выше напрямую.
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replaceAll("\\", "/"))) {
-  const профиль = process.argv[2] ?? "dev";
-  const выбран = ПРОФИЛИ[профиль];
-  if (!выбран) {
-    console.error(`неизвестный профиль «${профиль}»; есть: ${Object.keys(ПРОФИЛИ).join(", ")}`);
+  const profile = process.argv[2] ?? "dev";
+  const chosen = PROFILES[profile];
+  if (!chosen) {
+    console.error(`неизвестный профиль «${profile}»; есть: ${Object.keys(PROFILES).join(", ")}`);
     process.exit(1);
   }
   try {
-    выбран(".env", профиль === "box" ? Number(process.argv[3] ?? 8477) : ".env.example");
-  } catch (ошибка) {
-    console.error(ошибка instanceof Error ? ошибка.message : ошибка);
+    chosen(".env", profile === "box" ? Number(process.argv[3] ?? 8477) : ".env.example");
+  } catch (failure) {
+    console.error(failure instanceof Error ? failure.message : failure);
     process.exit(1);
   }
 }

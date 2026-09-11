@@ -45,7 +45,7 @@ import { $fillFromMarkup, toMarkup } from "./markupNodes.js";
  * Имя делает решение видимым: `onError: тихо` читается как выбор.
  * Когда у нас появится приёмник происшествий, отказ поедет туда.
  */
-function тихо(): void {
+function ignoreFailure(): void {
   // Тело намеренно пустое, и это сказано словами выше.
 }
 
@@ -137,7 +137,7 @@ export function RichField({
         // Узлы ссылки объявляются заранее: редактор отказывается работать
         // с узлом, о котором его не предупредили при создании.
         nodes: [LinkNode, AutoLinkNode],
-        onError: тихо,
+        onError: ignoreFailure,
       }}
     >
       <div className="relative min-w-0 flex-1">

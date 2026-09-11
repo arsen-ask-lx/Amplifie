@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "../../shared/ui/select.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../shared/ui/tooltip.js";
-import { день } from "../../shared/when.js";
+import { dayFormat } from "../../shared/when.js";
 
 /**
  * Карточка задачи и всё, что делается прямо на ней.
@@ -43,6 +43,7 @@ function neighbours(stage: string): { back: string | null; next: string | null }
 
 /** Почему прогон не удался — словами доски. Причину считает общий слой. */
 const SAYS: Record<string, string> = {
+  // biome-ignore lint/style/useNamingConvention: код причины приходит с сервера как есть
   размыкатель: "Два отказа подряд — дальше нужен человек.",
   "нет-модели": "Нейросеть не подключена: раздел «Агенты».",
   "мост-молчит": "Мост взял работу и не ответил вовремя.",
@@ -232,7 +233,7 @@ export function Card({
       </div>
 
       <p className="mt-2 text-mark text-muted">
-        <time dateTime={task.createdAt}>{день.format(new Date(task.createdAt))}</time>
+        <time dateTime={task.createdAt}>{dayFormat.format(new Date(task.createdAt))}</time>
       </p>
     </article>
   );

@@ -59,7 +59,7 @@ export function merge(current: Message[], incoming: SyncLine[], keep?: number): 
     if (line.clientMsgId && line.clientMsgId !== line.id) byId.delete(line.clientMsgId);
     byId.set(line.id, line);
   }
-  const все = [...byId.values()].sort((a, b) => a.seq - b.seq);
+  const all = [...byId.values()].sort((a, b) => a.seq - b.seq);
 
   /**
    * ⚠️ ОКНО РЕЖЕТ СВЕРХУ И ТОЛЬКО СВЕРХУ (Р-023). Рез снизу — потеря
@@ -71,7 +71,7 @@ export function merge(current: Message[], incoming: SyncLine[], keep?: number): 
    * не «настройка слияния», а решение зовущего: знает ли он, что
    * человек сейчас внизу.
    */
-  return keep === undefined || все.length <= keep ? все : все.slice(-keep);
+  return keep === undefined || all.length <= keep ? all : all.slice(-keep);
 }
 
 /**

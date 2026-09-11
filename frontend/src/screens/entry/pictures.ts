@@ -46,4 +46,4 @@ export interface Picture {
 export const МОСТ: Picture = { src: bridge, blur: 0, contrast: 1.4, bright: 0 };
 
 /** Затмение, перьевая гравюра. Первый шаг установки. */
-export const ЗАТМЕНИЕ: Picture = { src: eclipse, blur: 0.5, contrast: 1.3, bright: -16 };
+export const ECLIPSE_PICTURE: Picture = { src: eclipse, blur: 0.5, contrast: 1.3, bright: -16 };

@@ -12,16 +12,16 @@ import { bubbles, createChannel, feedBox, login, openChannel, register, say } fr
  */
 
 /** Сколько реплик держит лента. Должно совпадать с `ОКНО` в `useChat`. */
-const ОКНО = 300;
+const WINDOW_SIZE = 300;
 
 /** Заметно больше окна: иначе вытеснению нечего вытеснять. */
-const ПОСЕЯНО = 360;
+const SEEDED = 360;
 
 /** Адрес стенда — тот же, что у самой проверки. */
 const BASE = process.env.UI_URL ?? "http://localhost:8477";
 
 /** Сколько говорит один голос. Ниже порога в тридцать, с запасом. */
-const ЗА_ГОЛОС = 25;
+const PER_REQUEST = 25;
 
 /**
  * Насеять историю: много людей по многу реплик.
@@ -70,8 +70,8 @@ async function oneVoice(
   from: number,
   count: number,
 ): Promise<void> {
-  const гость = await requests.newContext({ baseURL: BASE });
-  const entered = await гость.post("/v1/auth/join", {
+  const guest = await requests.newContext({ baseURL: BASE });
+  const entered = await guest.post("/v1/auth/join", {
     data: {
       token,
       email: `seed-${Date.now()}-${from}@example.test`,
@@ -86,20 +86,20 @@ async function oneVoice(
   // не от поломки, а от собственной медлительности — худший вид красного.
   // Один голос говорит меньше, чем ему позволено в минуту (25 из 30),
   // поэтому порог отправки это не задевает.
-  const сказанное = Array.from({ length: count }, (_, n) => {
-    const номер = from + n;
+  const posts = Array.from({ length: count }, (_, n) => {
+    const index = from + n;
     // ⚠️ ПЕРВАЯ — С ОСОБЫМ ТЕКСТОМ. Искать «строка номер 1» нельзя:
     // то же вхождение есть у десятой, сотой и ещё сотни других,
     // и проверка «осталась одна» насчитала сто одиннадцать.
-    const body = номер === 1 ? "самая первая строка" : `строка номер ${номер}`;
-    return гость.post(`/v1/conversations/${room}/messages`, {
+    const body = index === 1 ? "самая первая строка" : `строка номер ${index}`;
+    return guest.post(`/v1/conversations/${room}/messages`, {
       data: { body, clientMsgId: crypto.randomUUID() },
     });
   });
-  for (const said of await Promise.all(сказанное)) {
+  for (const said of await Promise.all(posts)) {
     if (!said.ok()) throw new Error(`посев: реплика не ушла (${said.status()})`);
   }
-  await гость.dispose();
+  await guest.dispose();
 }
 
 async function seed(page: Page, requests: Requests, count: number): Promise<void> {
@@ -107,8 +107,8 @@ async function seed(page: Page, requests: Requests, count: number): Promise<void
   if (!room) throw new Error("не понял, какой канал открыт");
 
   const token = await inviteToken(page);
-  for (let сказано = 0; сказано < count; сказано += ЗА_ГОЛОС) {
-    await oneVoice(requests, room, token, сказано + 1, Math.min(ЗА_ГОЛОС, count - сказано));
+  for (let sent = 0; sent < count; sent += PER_REQUEST) {
+    await oneVoice(requests, room, token, sent + 1, Math.min(PER_REQUEST, count - sent));
   }
 
   await page.reload();
@@ -160,27 +160,27 @@ test("листающий назад ничего не теряет, а верн�
 }) => {
   const person = await register(page);
   await createChannel(page, "Много");
-  await seed(page, playwright.request, ПОСЕЯНО);
+  await seed(page, playwright.request, SEEDED);
 
   // Начальная загрузка отдаёт одну страницу: полное окно лента набирает
   // только листанием назад. Это само по себе стоит проверить.
-  expect(await bubbles(page).count()).toBeLessThan(ОКНО);
-  await toTheTop(page, ПОСЕЯНО);
+  expect(await bubbles(page).count()).toBeLessThan(WINDOW_SIZE);
+  await toTheTop(page, SEEDED);
 
   // Человек стоит наверху и читает самое старое.
-  const самаяСтарая = "самая первая строка";
-  await expect(bubbles(page).filter({ hasText: самаяСтарая })).toHaveCount(1);
+  const oldest = "самая первая строка";
+  await expect(bubbles(page).filter({ hasText: oldest })).toHaveCount(1);
 
   // Вторая вкладка говорит что-то новое.
-  const вторая = await browser.newContext();
-  const другая = await вторая.newPage();
-  await login(другая, person);
-  await openChannel(другая, "Много");
-  await say(другая, "свежая реплика сверху не режет");
+  const secondContext = await browser.newContext();
+  const otherPage = await secondContext.newPage();
+  await login(otherPage, person);
+  await openChannel(otherPage, "Много");
+  await say(otherPage, "свежая реплика сверху не режет");
 
   await expect(bubbles(page).filter({ hasText: "свежая реплика" })).toHaveCount(1);
   await expect(
-    bubbles(page).filter({ hasText: самаяСтарая }),
+    bubbles(page).filter({ hasText: oldest }),
     "у листающего назад вытеснили то, что он читает",
   ).toHaveCount(1);
 
@@ -199,14 +199,16 @@ test("листающий назад ничего не теряет, а верн�
   // совпал с низом видимой части.
   await page.getByLabel("В конец ленты").click();
   await expect.poll(() => atTheBottom(page), { timeout: 10_000 }).toBe(true);
-  await say(другая, "вторая свежая реплика");
+  await say(otherPage, "вторая свежая реплика");
   await expect(bubbles(page).filter({ hasText: "вторая свежая" })).toHaveCount(1);
 
-  await expect.poll(() => bubbles(page).count(), { timeout: 5_000 }).toBeLessThanOrEqual(ОКНО);
+  await expect
+    .poll(() => bubbles(page).count(), { timeout: 5_000 })
+    .toBeLessThanOrEqual(WINDOW_SIZE);
   await expect(
-    bubbles(page).filter({ hasText: самаяСтарая }),
+    bubbles(page).filter({ hasText: oldest }),
     "окно не вытеснило самое старое",
   ).toHaveCount(0);
 
-  await вторая.close();
+  await secondContext.close();
 });

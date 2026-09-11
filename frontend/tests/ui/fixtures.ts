@@ -16,7 +16,7 @@ import { expect, type Page } from "@playwright/test";
  */
 
 /** У каждого прогона свой человек: общего состояния между сценариями нет. */
-let счётчик = 0;
+let counter = 0;
 
 export interface Person {
   name: string;
@@ -31,16 +31,16 @@ export interface Person {
  */
 function newPerson(role: string): Person {
   counterUp();
-  const mark = `${Date.now()}-${счётчик}`;
+  const mark = `${Date.now()}-${counter}`;
   return {
-    name: `${role} ${счётчик}`,
+    name: `${role} ${counter}`,
     email: `ui-${mark}@example.test`,
     password: "очень-длинный-пароль-для-теста",
   };
 }
 
 function counterUp() {
-  счётчик += 1;
+  counter += 1;
 }
 
 /**
@@ -109,22 +109,22 @@ export async function login(page: Page, person: Person): Promise<void> {
  *
  * `хозяин` — вкладка того, кто зовёт; `гость` — чистая вкладка новичка.
  */
-export async function invited(гость: Page, хозяин: Page, name: string): Promise<void> {
-  await хозяин.getByLabel("Профиль и настройки").click();
-  await хозяин.getByRole("menuitem", { name: "Пригласить в пространство" }).click();
+export async function invited(guest: Page, owner: Page, name: string): Promise<void> {
+  await owner.getByLabel("Профиль и настройки").click();
+  await owner.getByRole("menuitem", { name: "Пригласить в пространство" }).click();
 
-  const поле = хозяин.getByLabel("Ссылка-приглашение");
-  await expect(поле).toBeVisible();
-  const ссылка = await поле.inputValue();
-  await хозяин.getByRole("button", { name: "Закрыть" }).click();
+  const linkField = owner.getByLabel("Ссылка-приглашение");
+  await expect(linkField).toBeVisible();
+  const link = await linkField.inputValue();
+  await owner.getByRole("button", { name: "Закрыть" }).click();
 
   counterUp();
-  await гость.goto(ссылка);
-  await гость.getByLabel("Почта").fill(`ui-guest-${Date.now()}-${счётчик}@example.test`);
-  await гость.getByLabel("Пароль").fill("очень-длинный-пароль-для-теста");
-  await гость.getByLabel("Как вас зовут").fill(name);
-  await гость.getByRole("button", { name: "Войти" }).click();
-  await expect(гость.getByRole("button", { name: "Новый чат", exact: true })).toBeVisible();
+  await guest.goto(link);
+  await guest.getByLabel("Почта").fill(`ui-guest-${Date.now()}-${counter}@example.test`);
+  await guest.getByLabel("Пароль").fill("очень-длинный-пароль-для-теста");
+  await guest.getByLabel("Как вас зовут").fill(name);
+  await guest.getByRole("button", { name: "Войти" }).click();
+  await expect(guest.getByRole("button", { name: "Новый чат", exact: true })).toBeVisible();
 }
 
 /**
@@ -150,8 +150,8 @@ export async function openChannel(page: Page, title: string): Promise<void> {
   // имя кнопки длиннее названия: в него входит число со словом для чтения
   // с экрана (task-024). Точное совпадение перестало бы открывать ровно
   // те каналы, куда человек и идёт.
-  const строка = page.getByRole("button", { name: new RegExp(`^${title}`) });
-  await строка.click();
+  const row = page.getByRole("button", { name: new RegExp(`^${title}`) });
+  await row.click();
 
   /**
    * ⚠️ ЖДЁМ, ЧТО КАНАЛ СТАЛ ОТКРЫТЫМ, А НЕ ЧТО ВИДНО ПОЛЕ ВВОДА.
@@ -169,7 +169,7 @@ export async function openChannel(page: Page, title: string): Promise<void> {
    * `aria-current="page"` — тот самый признак «этот канал открыт»,
    * который видит и человек, и программа чтения экрана.
    */
-  await expect(строка).toHaveAttribute("aria-current", "page");
+  await expect(row).toHaveAttribute("aria-current", "page");
   await expect(field(page)).toBeVisible();
 }
 
@@ -192,7 +192,7 @@ export function field(page: Page) {
  * Ждём событие браузера, а не миллисекунды: сон лечит симптом и врёт
  * на медленной машине ровно так же.
  */
-export async function шрифтыГотовы(page: Page): Promise<void> {
+export async function fontsReady(page: Page): Promise<void> {
   await page.evaluate(() => document.fonts.ready);
 }
 

@@ -47,7 +47,7 @@ export function JoinScreen({ token, onEntered }: { token: string; onEntered: (me
             onEmail={setEmail}
             onPassword={setPassword}
             problem={problem}
-            придумывает
+            newPassword
           />
           <Field
             label="Как вас зовут"

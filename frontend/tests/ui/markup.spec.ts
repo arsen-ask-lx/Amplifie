@@ -16,13 +16,13 @@ import { bubble, createChannel, field, menu, register, say, typeInto } from "./f
  */
 
 /** Выделить всё в поле и наложить вид сочетанием клавиш. */
-async function пометить(
+async function applyFormat(
   page: import("@playwright/test").Page,
-  ...сочетания: string[]
+  ...shortcuts: string[]
 ): Promise<void> {
   await field(page).click();
   await page.keyboard.press("ControlOrMeta+a");
-  for (const сочетание of сочетания) await page.keyboard.press(сочетание);
+  for (const shortcut of shortcuts) await page.keyboard.press(shortcut);
 }
 
 test("два вида на одном слове показываются оба, и ни одной звёздочки", async ({ page }) => {
@@ -36,15 +36,15 @@ test("два вида на одном слове показываются оба
   // работало: пометка схлопывала выделение, и второй вид ложиться было
   // некуда. Повтори здесь выделение между нажатиями — и сценарий
   // перестанет стеречь то, ради чего написан.
-  await пометить(page, "ControlOrMeta+b", "ControlOrMeta+i");
+  await applyFormat(page, "ControlOrMeta+b", "ControlOrMeta+i");
 
   await expect(page.getByLabel("Отправить", { exact: true })).toBeEnabled();
   await field(page).press("Enter");
 
-  const реплика = bubble(page, "вперемешку");
-  await expect(реплика.locator("strong em")).toHaveText("вперемешку");
+  const message = bubble(page, "вперемешку");
+  await expect(message.locator("strong em")).toHaveText("вперемешку");
   // Звёздочки в ленте — тот самый видимый признак поломки.
-  await expect(реплика).not.toContainText("*");
+  await expect(message).not.toContainText("*");
 });
 
 /**
@@ -56,13 +56,13 @@ test("два вида на одном слове показываются оба
  * Толщина и гарнитура классами не являются: это итог, а не способ его
  * добиться, и смена оформления их не сдвинет.
  */
-async function видВПоле(page: import("@playwright/test").Page, слово: string) {
-  return field(page).evaluate((узел, искомое) => {
-    const все = [...узел.querySelectorAll("*")].filter((one) => one.textContent === искомое);
-    const глубже = все.at(-1) ?? узел;
-    const вид = getComputedStyle(глубже);
-    return { вес: Number(вид.fontWeight), шрифт: вид.fontFamily.toLowerCase() };
-  }, слово);
+async function styleInField(page: import("@playwright/test").Page, word: string) {
+  return field(page).evaluate((node, needle) => {
+    const all = [...node.querySelectorAll("*")].filter((one) => one.textContent === needle);
+    const deepest = all.at(-1) ?? node;
+    const style = getComputedStyle(deepest);
+    return { weight: Number(style.fontWeight), font: style.fontFamily.toLowerCase() };
+  }, word);
 }
 
 test("моноширинный снимает жирный прямо в поле", async ({ page }) => {
@@ -71,8 +71,8 @@ test("моноширинный снимает жирный прямо в пол�
 
   await field(page).click();
   await field(page).pressSequentially("двойка");
-  await пометить(page, "ControlOrMeta+b");
-  await пометить(page, "ControlOrMeta+Shift+m");
+  await applyFormat(page, "ControlOrMeta+b");
+  await applyFormat(page, "ControlOrMeta+Shift+m");
 
   /**
    * ⚠️ СМОТРИМ В ПОЛЕ, А НЕ ТОЛЬКО В ЛЕНТУ, И ЭТО ИСПРАВЛЕНИЕ САМОГО
@@ -82,18 +82,18 @@ test("моноширинный снимает жирный прямо в пол�
    * и лента выглядела правильно в обоих случаях. Проверялся исход, а не
    * обещание Р-028: жирный снимается НА ГЛАЗАХ, в поле.
    */
-  const вид = await видВПоле(page, "двойка");
-  expect(вид.вес).toBeLessThan(600);
-  expect(вид.шрифт).toContain("mono");
+  const style = await styleInField(page, "двойка");
+  expect(style.weight).toBeLessThan(600);
+  expect(style.font).toContain("mono");
 
   await expect(page.getByLabel("Отправить", { exact: true })).toBeEnabled();
   await field(page).press("Enter");
 
-  const реплика = bubble(page, "двойка");
-  await expect(реплика.locator("code")).toHaveText("двойка");
+  const message = bubble(page, "двойка");
+  await expect(message.locator("code")).toHaveText("двойка");
   // Жирного не осталось — совмещения нет по Р-028.
-  await expect(реплика.locator("strong")).toHaveCount(0);
-  await expect(реплика).not.toContainText("`");
+  await expect(message.locator("strong")).toHaveCount(0);
+  await expect(message).not.toContainText("`");
 });
 
 test("скопировал текст реплики — увидел плашку, и она ушла сама", async ({ page, context }) => {
@@ -107,10 +107,10 @@ test("скопировал текст реплики — увидел плашк
 
   await menu(page, "строка для буфера", "Копировать текст");
 
-  const плашка = page.getByText("Текст скопирован в буфер обмена.");
-  await expect(плашка).toBeVisible();
+  const toast = page.getByText("Текст скопирован в буфер обмена.");
+  await expect(toast).toBeVisible();
   // Живёт 1500 и гаснет ещё 1000 — к четырём секундам её быть не должно.
-  await expect(плашка).toBeHidden({ timeout: 4000 });
+  await expect(toast).toBeHidden({ timeout: 4000 });
 });
 
 test("нажатие на моноширинный кусок копирует его — как в Телеграме", async ({ page, context }) => {
@@ -133,6 +133,6 @@ test("нажатие на моноширинный кусок копирует �
 
   await expect(page.getByText("Текст скопирован в буфер обмена.")).toBeVisible();
 
-  const вбуфере = await page.evaluate(() => navigator.clipboard.readText());
-  expect(вбуфере).toBe("make check");
+  const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboardText).toBe("make check");
 });

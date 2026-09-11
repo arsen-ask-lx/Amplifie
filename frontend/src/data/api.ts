@@ -129,10 +129,10 @@ export const api = {
   conversations: () => request<{ items: Conversation[]; projects: Project[] }>("/v1/conversations"),
 
   /** Завести проект. Прав он не несёт, поэтому заводить может любой. */
-  addProject: (title: string, вид?: { icon?: string | null; color?: string | null }) =>
+  addProject: (title: string, look?: { icon?: string | null; color?: string | null }) =>
     request<Project>("/v1/projects", {
       method: "POST",
-      body: JSON.stringify({ title, ...вид }),
+      body: JSON.stringify({ title, ...look }),
     }),
 
   /**
@@ -152,8 +152,8 @@ export const api = {
   /** Поправить папку: имя и/или вид. Не переданное не меняется. */
   renameProject: (
     id: string,
-    правка: { title?: string; icon?: string | null; color?: string | null },
-  ) => request<Project>(`/v1/projects/${id}`, { method: "PATCH", body: JSON.stringify(правка) }),
+    edit: { title?: string; icon?: string | null; color?: string | null },
+  ) => request<Project>(`/v1/projects/${id}`, { method: "PATCH", body: JSON.stringify(edit) }),
 
   /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
   removeProject: (id: string) => request<void>(`/v1/projects/${id}`, { method: "DELETE" }),

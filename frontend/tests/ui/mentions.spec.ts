@@ -4,10 +4,10 @@ import {
   bubbles,
   createChannel,
   field,
+  fontsReady,
   invited,
   openChannel,
   register,
-  шрифтыГотовы,
 } from "./fixtures.js";
 
 /**
@@ -31,7 +31,7 @@ import {
  * Точное совпадение перестало бы находить ровно те каналы, ради которых
  * сценарий и написан.
  */
-function канал(page: Page, title: string) {
+function channelRow(page: Page, title: string) {
   return page.getByRole("button", { name: new RegExp(`^${title}`) });
 }
 
@@ -47,14 +47,12 @@ function канал(page: Page, title: string) {
  * её стерегут другие сценарии, — а переход к зову. Это просто фон,
  * и набирать его руками незачем.
  */
-async function наговорить(page: Page, сколько: number): Promise<void> {
+async function sayMany(page: Page, count: number): Promise<void> {
   await page.evaluate(async (n) => {
-    const список = await fetch("/v1/conversations", { credentials: "include" }).then((r) =>
-      r.json(),
-    );
-    const свежий = список.items[0].id;
+    const list = await fetch("/v1/conversations", { credentials: "include" }).then((r) => r.json());
+    const freshId = list.items[0].id;
     for (let i = 0; i < n; i++) {
-      await fetch(`/v1/conversations/${свежий}/messages`, {
+      await fetch(`/v1/conversations/${freshId}/messages`, {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
@@ -64,21 +62,21 @@ async function наговорить(page: Page, сколько: number): Promise
         }),
       });
     }
-  }, сколько);
-  await expect(page.getByText(`обычная реплика номер ${сколько - 1}`)).toBeVisible();
+  }, count);
+  await expect(page.getByText(`обычная реплика номер ${count - 1}`)).toBeVisible();
 }
 
 /** Позвать через подсказку: набрать собачку и выбрать первого из списка. */
-async function позвать(page: Page, кого: string): Promise<void> {
+async function mentionPerson(page: Page, who: string): Promise<void> {
   await field(page).click();
   await field(page).pressSequentially("@", { delay: 15 });
 
-  const список = page.getByRole("listbox", { name: "Кого позвать" });
-  await expect(список, "подсказка не открылась на собачку").toBeVisible();
+  const list = page.getByRole("listbox", { name: "Кого позвать" });
+  await expect(list, "подсказка не открылась на собачку").toBeVisible();
 
-  const строка = список.getByRole("option", { name: кого });
-  await expect(строка, `в подсказке нет «${кого}»`).toBeVisible();
-  await строка.click();
+  const option = list.getByRole("option", { name: who });
+  await expect(option, `в подсказке нет «${who}»`).toBeVisible();
+  await option.click();
 }
 
 test("подсказка ставит упоминание, и у позванного загорается свой значок", async ({
@@ -88,22 +86,22 @@ test("подсказка ставит упоминание, и у позванн
   await register(page, "Хозяин");
   await createChannel(page, "Совещание");
 
-  const другой = await browser.newPage();
-  await invited(другой, page, "Коллега");
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Коллега");
 
   // Позванный уходит из канала: иначе три условия отметки прочтения
   // выполнены, всё гаснет сразу и проверять становится нечего.
-  await openChannel(другой, "Общий");
+  await openChannel(otherPage, "Общий");
   await openChannel(page, "Совещание");
 
-  await позвать(page, "Коллега");
+  await mentionPerson(page, "Коллега");
   await field(page).pressSequentially("глянь, пожалуйста", { delay: 10 });
   await page.getByRole("button", { name: "Отправить" }).click();
 
   // В ленте — имя человека, а не скобочная запись с номером.
-  const реплика = bubble(page, "глянь, пожалуйста");
-  await expect(реплика).toContainText("@Коллега");
-  await expect(реплика, "в ленте видна внутренняя запись упоминания").not.toContainText("](@");
+  const message = bubble(page, "глянь, пожалуйста");
+  await expect(message).toContainText("@Коллега");
+  await expect(message, "в ленте видна внутренняя запись упоминания").not.toContainText("](@");
 
   /**
    * ⚠️ ПРОВЕРЯЕМ ДОСТУПНОЕ ИМЯ КНОПКИ, А НЕ КАРТИНКУ. Значок с собачкой
@@ -111,7 +109,7 @@ test("подсказка ставит упоминание, и у позванн
    * единственное, что говорит, какое из двух чисел загорелось.
    */
   await expect(
-    канал(другой, "Совещание"),
+    channelRow(otherPage, "Совещание"),
     "у позванного не загорелся отдельный значок упоминания",
   ).toHaveAccessibleName(/упоминаний:/u);
 });
@@ -120,8 +118,8 @@ test("Enter выбирает из подсказки, а не отправляе
   await register(page, "Хозяин");
   await createChannel(page, "Выбор");
 
-  const другой = await browser.newPage();
-  await invited(другой, page, "Мария Петрова");
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Мария Петрова");
   await openChannel(page, "Выбор");
 
   /**
@@ -165,8 +163,8 @@ test("Escape закрывает подсказку, но не выбивает �
   await register(page, "Хозяин");
   await createChannel(page, "Отказ");
 
-  const другой = await browser.newPage();
-  await invited(другой, page, "Мария Петрова");
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Мария Петрова");
   await openChannel(page, "Отказ");
 
   /**
@@ -211,8 +209,8 @@ test("подсказка не растягивает страницу и не д
   await register(page, "Хозяин");
   await createChannel(page, "Ширина");
 
-  const другой = await browser.newPage();
-  await invited(другой, page, "Коллега");
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Коллега");
   await openChannel(page, "Ширина");
 
   /**
@@ -223,39 +221,41 @@ test("подсказка не растягивает страницу и не д
    * Свойство, которое надо стеречь, — «страница не выросла», и увидеть
    * его можно только по самой странице.
    */
-  const ширина = () =>
+  const sizes = () =>
     page.evaluate(() => ({
-      прокрутка: document.documentElement.scrollWidth,
-      окно: document.documentElement.clientWidth,
-      высота: document.documentElement.scrollHeight,
-      экран: document.documentElement.clientHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+      clientHeight: document.documentElement.clientHeight,
     }));
 
   // Ширину страницы меряем после доезда шрифта: пока он едет, вёрстка
   // считается по запасному, и числа «до» и «после» окажутся про разное.
-  await шрифтыГотовы(page);
-  const до = await ширина();
-  expect(до.прокрутка, "страница уже шире окна до всякой подсказки").toBeLessThanOrEqual(до.окно);
+  await fontsReady(page);
+  const before = await sizes();
+  expect(before.scrollWidth, "страница уже шире окна до всякой подсказки").toBeLessThanOrEqual(
+    before.clientWidth,
+  );
 
   await field(page).click();
   await field(page).pressSequentially("@", { delay: 15 });
   await expect(page.getByRole("listbox", { name: "Кого позвать" })).toBeVisible();
 
-  const после = await ширина();
-  expect(после.прокрутка, "подсказка растянула страницу вбок — вернулась боковая полоса").toBe(
-    до.прокрутка,
+  const after = await sizes();
+  expect(after.scrollWidth, "подсказка растянула страницу вбок — вернулась боковая полоса").toBe(
+    before.scrollWidth,
   );
-  expect(после.высота, "подсказка растянула страницу вниз").toBe(до.высота);
-  expect(после.прокрутка).toBeLessThanOrEqual(после.окно);
+  expect(after.scrollHeight, "подсказка растянула страницу вниз").toBe(before.scrollHeight);
+  expect(after.scrollWidth).toBeLessThanOrEqual(after.clientWidth);
 });
 
 test("набранное руками имя упоминанием не становится", async ({ page, browser }) => {
   await register(page, "Хозяин");
   await createChannel(page, "Планёрка");
 
-  const другой = await browser.newPage();
-  await invited(другой, page, "Соседка");
-  await openChannel(другой, "Общий");
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Соседка");
+  await openChannel(otherPage, "Общий");
   await openChannel(page, "Планёрка");
 
   // Набираем имя целиком и НЕ выбираем из списка: закрываем подсказку
@@ -267,12 +267,12 @@ test("набранное руками имя упоминанием не ста�
   await page.getByRole("button", { name: "Отправить" }).click();
   await expect(bubble(page, "глянь").getByLabel("доставлено")).toBeVisible();
 
-  const строка = канал(другой, "Планёрка");
-  await expect(строка, "сообщение должно быть просто непрочитанным").toHaveAccessibleName(
+  const option = channelRow(otherPage, "Планёрка");
+  await expect(option, "сообщение должно быть просто непрочитанным").toHaveAccessibleName(
     /непрочитанных:/u,
   );
   await expect(
-    строка,
+    option,
     "поиск имени по тексту вернулся: набранное руками посчиталось зовом",
   ).not.toHaveAccessibleName(/упоминаний:/u);
 });
@@ -281,12 +281,12 @@ test("кнопка ведёт к самому раннему зову", async ({
   await register(page, "Хозяин");
   await createChannel(page, "Стройка");
 
-  const другой = await browser.newPage();
-  await invited(другой, page, "Прораб");
-  await openChannel(другой, "Общий");
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Прораб");
+  await openChannel(otherPage, "Общий");
   await openChannel(page, "Стройка");
 
-  await позвать(page, "Прораб");
+  await mentionPerson(page, "Прораб");
   await field(page).pressSequentially("первый зов", { delay: 10 });
   await page.getByRole("button", { name: "Отправить" }).click();
   await expect(bubble(page, "первый зов").getByLabel("доставлено")).toBeVisible();
@@ -301,7 +301,7 @@ test("кнопка ведёт к самому раннему зову", async ({
    * а до него там не был», и проверяется оно только на ленте, которая
    * не помещается целиком.
    */
-  await наговорить(page, 15);
+  await sayMany(page, 15);
 
   /**
    * ⚠️ ВКЛАДКА ПОЗВАННОГО — В ФОНЕ, И БЕЗ ЭТОГО ПРОВЕРЯТЬ БЫЛО БЫ НЕЧЕГО.
@@ -311,7 +311,7 @@ test("кнопка ведёт к самому раннему зову", async ({
    * `visibilityState` — тот же приём, что в проверке непрочитанного,
    * и она проверяет ровно то свойство, на которое смотрит код.
    */
-  await другой.evaluate(() => {
+  await otherPage.evaluate(() => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       get: () => "hidden",
@@ -319,17 +319,17 @@ test("кнопка ведёт к самому раннему зову", async ({
     document.dispatchEvent(new Event("visibilitychange"));
   });
 
-  await openChannel(другой, "Стройка");
+  await openChannel(otherPage, "Стройка");
 
-  const зов = bubble(другой, "первый зов");
+  const mentionBubble = bubble(otherPage, "первый зов");
   await expect(
-    зов,
+    mentionBubble,
     "лента открылась не в конце — проверять переход не на чем",
   ).not.toBeInViewport();
 
-  const кнопка = другой.getByRole("button", { name: /Перейти к упоминанию/u });
-  await expect(кнопка, "кнопки перехода к упоминанию нет").toBeVisible();
-  await кнопка.click();
+  const button = otherPage.getByRole("button", { name: /Перейти к упоминанию/u });
+  await expect(button, "кнопки перехода к упоминанию нет").toBeVisible();
+  await button.click();
 
-  await expect(зов, "переход не привёл к зову").toBeInViewport();
+  await expect(mentionBubble, "переход не привёл к зову").toBeInViewport();
 });

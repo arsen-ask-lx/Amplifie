@@ -47,9 +47,9 @@ export const NOT_COPIED = "Браузер не дал скопировать. В
  * Возвращает исход: местам, у которых есть свой знак (галочка на блоке
  * кода), он всё ещё нужен.
  */
-export async function copyAndTell(text: string, сообщение: string): Promise<boolean> {
+export async function copyAndTell(text: string, message: string): Promise<boolean> {
   const ok = await copy(text);
-  toast(ok ? сообщение : NOT_COPIED);
+  toast(ok ? message : NOT_COPIED);
   return ok;
 }
 

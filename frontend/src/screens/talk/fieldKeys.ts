@@ -40,7 +40,7 @@ const KEYS: Record<string, { shift: boolean; format: TextFormatType }> = {
  * contain and can be part of any other entities, **except pre and code**».
  * Мы копируем чат — значит копируем и это.
  */
-const НЕ_С_МОНОШИРИННЫМ: TextFormatType[] = [
+const NOT_WITH_CODE: TextFormatType[] = [
   "bold",
   "italic",
   "underline",
@@ -66,13 +66,13 @@ const НЕ_С_МОНОШИРИННЫМ: TextFormatType[] = [
  * он говорит «нет» — половина осталась бы жирной. Узлы к этому моменту
  * уже разрезаны по границам выделения самой `formatText`.
  */
-function $развести(selection: ReturnType<typeof $getSelection>, format: TextFormatType): void {
+function $separate(selection: ReturnType<typeof $getSelection>, format: TextFormatType): void {
   if (!$isRangeSelection(selection)) return;
-  const лишние = format === "code" ? НЕ_С_МОНОШИРИННЫМ : (["code"] as TextFormatType[]);
+  const conflicting = format === "code" ? NOT_WITH_CODE : (["code"] as TextFormatType[]);
   for (const node of selection.getNodes()) {
     if (!$isTextNode(node)) continue;
-    for (const лишний of лишние) {
-      if (node.hasFormat(лишний)) node.toggleFormat(лишний);
+    for (const conflict of conflicting) {
+      if (node.hasFormat(conflict)) node.toggleFormat(conflict);
     }
   }
 }
@@ -106,7 +106,7 @@ export function markSelection(editor: LexicalEditor, format: TextFormatType): vo
     if (!$isRangeSelection(selection) || selection.isCollapsed()) return;
 
     selection.formatText(format);
-    $развести(selection, format);
+    $separate(selection, format);
 
     /**
      * ⚠️ ВЫДЕЛЕНИЕ ОСТАЁТСЯ, А НЕ СХЛОПЫВАЕТСЯ, И ЭТО ПЕРЕМЕНА (task-021).
@@ -201,11 +201,11 @@ export function Keys({ onSend }: { onSend: () => void }) {
      * поля или ушёл в другое окно. Возвращать фокус в таких случаях
      * значило бы не отпускать человека из поля вовсе.
      */
-    let изЗаEscape = false;
+    let byEscape = false;
     const offEscape = editor.registerCommand(
       KEY_ESCAPE_COMMAND,
       () => {
-        изЗаEscape = true;
+        byEscape = true;
         // Возвращаем `false`: клавишу себе не забираем — отмену ответа
         // и правки слушает то же нажатие выше по дереву.
         return false;
@@ -213,14 +213,14 @@ export function Keys({ onSend }: { onSend: () => void }) {
       COMMAND_PRIORITY_LOW,
     );
 
-    const вернуть = () => {
-      if (!изЗаEscape) return;
-      изЗаEscape = false;
+    const restore = () => {
+      if (!byEscape) return;
+      byEscape = false;
       editor.focus();
     };
     const offBlur = editor.registerRootListener((root, prev) => {
-      prev?.removeEventListener("blur", вернуть);
-      root?.addEventListener("blur", вернуть);
+      prev?.removeEventListener("blur", restore);
+      root?.addEventListener("blur", restore);
     });
 
     return () => {

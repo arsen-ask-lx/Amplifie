@@ -44,18 +44,18 @@ test("П-2: правка в одной вкладке доезжает до вт
   await createChannel(page, "Смета");
   await say(page, "смета на сто рублей");
 
-  const вторая = await secondTab(browser, person, "Смета", "смета на сто рублей");
+  const secondPage = await secondTab(browser, person, "Смета", "смета на сто рублей");
 
   await menu(page, "смета на сто рублей", "Изменить");
   await saveEdit(page, "смета на двести рублей");
 
   await expect(
-    bubble(вторая, "смета на двести рублей"),
+    bubble(secondPage, "смета на двести рублей"),
     "правка не доехала до второй вкладки — догон не отдал изменённую реплику или клиент её не применил",
   ).toBeVisible();
-  await expect(bubble(вторая, "смета на сто рублей")).toHaveCount(0);
+  await expect(bubble(secondPage, "смета на сто рублей")).toHaveCount(0);
 
-  await вторая.context().close();
+  await secondPage.context().close();
 });
 
 /** Сказать реплику, ответить на неё и открыть вторую вкладку. */
@@ -69,17 +69,17 @@ async function saidAndAnswered(page: Page, browser: Browser) {
 }
 
 test("П-3: удалённая реплика уходит из второй вкладки", async ({ page, browser }) => {
-  const вторая = await saidAndAnswered(page, browser);
+  const secondPage = await saidAndAnswered(page, browser);
 
   await menu(page, "подрядчик подтвердил срок", "Удалить");
 
   await expect(
-    bubble(вторая, "подрядчик подтвердил срок").filter({ hasNotText: "тогда закладываем" }),
+    bubble(secondPage, "подрядчик подтвердил срок").filter({ hasNotText: "тогда закладываем" }),
     "удалённая реплика осталась во второй вкладке — надгробие не доехало",
   ).toHaveCount(0);
-  await expect(bubble(вторая, "тогда закладываем в план")).toBeVisible();
+  await expect(bubble(secondPage, "тогда закладываем в план")).toBeVisible();
 
-  await вторая.context().close();
+  await secondPage.context().close();
 });
 
 /**
@@ -95,19 +95,19 @@ test("П-3: удалённая реплика уходит из второй в�
  * после починки он покраснел как «прошёл, хотя не должен был».
  */
 test("П-3б: цитата на удалённую реплику уходит из открытой вкладки", async ({ page, browser }) => {
-  const вторая = await saidAndAnswered(page, browser);
+  const secondPage = await saidAndAnswered(page, browser);
   await expect(
-    bubble(вторая, "тогда закладываем в план").getByTitle("Перейти к сообщению"),
+    bubble(secondPage, "тогда закладываем в план").getByTitle("Перейти к сообщению"),
   ).toBeVisible();
 
   await menu(page, "подрядчик подтвердил срок", "Удалить");
 
   await expect(
-    bubble(вторая, "тогда закладываем в план").getByTitle("Перейти к сообщению"),
+    bubble(secondPage, "тогда закладываем в план").getByTitle("Перейти к сообщению"),
     "цитата на удалённую реплику осталась на экране",
   ).toHaveCount(0);
 
-  await вторая.context().close();
+  await secondPage.context().close();
 });
 
 test("П-4: закрепление доезжает до второй вкладки", async ({ page, browser }) => {
@@ -115,18 +115,18 @@ test("П-4: закрепление доезжает до второй вклад
   await createChannel(page, "Смета");
   await say(page, "встреча переносится на четверг");
 
-  const вторая = await secondTab(browser, person, "Смета", "встреча переносится на четверг");
-  await expect(вторая.getByText("Закреплённое сообщение")).toHaveCount(0);
+  const secondPage = await secondTab(browser, person, "Смета", "встреча переносится на четверг");
+  await expect(secondPage.getByText("Закреплённое сообщение")).toHaveCount(0);
 
   await menu(page, "встреча переносится на четверг", "Закрепить");
 
   await expect(
-    вторая.getByText("Закреплённое сообщение"),
+    secondPage.getByText("Закреплённое сообщение"),
     "полоска закреплённого не появилась во второй вкладке",
   ).toBeVisible();
-  await expect(вторая.getByTitle("Перейти к закреплённому")).toContainText(
+  await expect(secondPage.getByTitle("Перейти к закреплённому")).toContainText(
     "встреча переносится на четверг",
   );
 
-  await вторая.context().close();
+  await secondPage.context().close();
 });

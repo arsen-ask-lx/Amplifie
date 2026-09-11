@@ -2,7 +2,7 @@ import { At, CaretDown } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
 import type { Message } from "../../data/api.js";
 import type { Focus } from "../../data/useChat.js";
-import { день as dayOf } from "../../shared/when.js";
+import { dayFormat as dayOf } from "../../shared/when.js";
 import type { Deeds, Picking } from "./Actions.js";
 import { useFeedScroll } from "./feedScroll.js";
 import { Group } from "./Group.js";
@@ -43,11 +43,11 @@ function Empty() {
  * строки делятся ПО НОМЕРУ, и каждая половина группируется сама.
  * У Телеграма черта тоже разрывает склейку.
  */
-function надвое(rows: Row[], boundary: number | null) {
-  if (boundary === null) return { доЧерты: rows, послеЧерты: [] as Row[] };
+function splitAtLine(rows: Row[], boundary: number | null) {
+  if (boundary === null) return { beforeLine: rows, afterLine: [] as Row[] };
   return {
-    доЧерты: rows.filter((one) => one.message.seq <= boundary),
-    послеЧерты: rows.filter((one) => one.message.seq > boundary),
+    beforeLine: rows.filter((one) => one.message.seq <= boundary),
+    afterLine: rows.filter((one) => one.message.seq > boundary),
   };
 }
 
@@ -93,7 +93,7 @@ function Groups({
  * оно должно в одном месте — иначе разъедется на первой же правке
  * отступов.
  */
-function Углы({
+function Corners({
   atBottom,
   toBottom,
   mentions,
@@ -217,7 +217,7 @@ export function Feed({
 
   const rows = rowsOf(messages, meId, wasThereAtFirst.current);
 
-  const { доЧерты, послеЧерты } = надвое(rows, boundary);
+  const { beforeLine, afterLine } = splitAtLine(rows, boundary);
 
   return (
     // Обёртка нужна кнопке «вниз»: она висит НАД лентой и не должна
@@ -251,12 +251,12 @@ export function Feed({
             </p>
           )}
 
-          <Groups rows={доЧерты} deeds={deeds} onGo={onGo} picking={picking} />
+          <Groups rows={beforeLine} deeds={deeds} onGo={onGo} picking={picking} />
 
           {/* ⚠️ НАДПИСЬ БЕЗ ЧИСЛА — как `lng_unread_bar_some` у них.
               Сколько именно, человек уже прочёл у канала в панели;
               повторять число здесь значит сказать одно и то же дважды. */}
-          {послеЧерты.length > 0 ? (
+          {afterLine.length > 0 ? (
             <p className="my-3 flex items-center gap-3 text-mark text-muted">
               <span className="h-px flex-1 bg-line" />
               Непрочитанные сообщения
@@ -264,11 +264,11 @@ export function Feed({
             </p>
           ) : null}
 
-          <Groups rows={послеЧерты} deeds={deeds} onGo={onGo} picking={picking} />
+          <Groups rows={afterLine} deeds={deeds} onGo={onGo} picking={picking} />
         </div>
       </div>
 
-      <Углы
+      <Corners
         atBottom={atBottom}
         toBottom={toBottom}
         mentions={mentions}

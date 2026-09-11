@@ -64,11 +64,11 @@ test.describe("вид входа", () => {
     // внутри формы отправляет её: нажатие меняло дверь И слало пустую
     // форму разом, а человек видел ошибки полей там, где ничего
     // не отправлял. Молчаливо — потому и проверяется машиной.
-    const вторая = page.getByRole("button", {
+    const secondButton = page.getByRole("button", {
       name: /У меня уже есть вход|Создать новое пространство/u,
     });
-    await expect(вторая).toBeVisible();
-    await вторая.click();
+    await expect(secondButton).toBeVisible();
+    await secondButton.click();
 
     // Дверь сменилась…
     await expect(

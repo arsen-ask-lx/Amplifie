@@ -18,15 +18,15 @@ import { field, skipSetup } from "./fixtures.js";
  * Перед запуском: make up
  */
 
-let счётчик = 0;
+let counter = 0;
 
 function newPerson() {
-  счётчик += 1;
-  const mark = `${Date.now()}-${счётчик}`;
+  counter += 1;
+  const mark = `${Date.now()}-${counter}`;
   return {
     email: `setup-${mark}@example.test`,
     password: "очень-длинный-пароль-для-теста",
-    name: `Устанавливающий ${счётчик}`,
+    name: `Устанавливающий ${counter}`,
   };
 }
 

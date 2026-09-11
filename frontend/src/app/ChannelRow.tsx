@@ -76,7 +76,7 @@ function Mentions({ count }: { count: number }) {
  * канала; вписанное в строку, оно добавляло ей два ветвления, и линтер
  * сложности был прав.
  */
-function Значки({ unread, mentions }: { unread: number; mentions: number }) {
+function Badges({ unread, mentions }: { unread: number; mentions: number }) {
   if (mentions <= 0 && unread <= 0) return null;
   return (
     <span className="ml-auto flex shrink-0 items-center gap-1">
@@ -217,7 +217,7 @@ export function ChannelRow({
             канал, и нажатие по нему обязано открывать его же — как
             и нажатие по названию. Отдельный узел снаружи означал бы
             мёртвую зону в строке. */}
-        <Значки unread={unread} mentions={mentions} />
+        <Badges unread={unread} mentions={mentions} />
       </button>
 
       <DropdownMenu open={open} onOpenChange={setOpen}>

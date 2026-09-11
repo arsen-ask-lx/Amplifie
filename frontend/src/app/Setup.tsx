@@ -3,7 +3,7 @@ import { api, type Bridge } from "../data/api.js";
 import { KeyPanel } from "../screens/agents/KeyPanel.js";
 import { ModelScreen } from "../screens/agents/ModelScreen.js";
 import { EntryFrame } from "../screens/entry/EntryFrame.js";
-import { ЗАТМЕНИЕ } from "../screens/entry/pictures.js";
+import { ECLIPSE_PICTURE } from "../screens/entry/pictures.js";
 import { Button } from "../shared/ui/button.js";
 import {
   Dialog,
@@ -52,12 +52,12 @@ import { usePolling } from "../shared/usePolling.js";
 const REFRESH_MS = 3000;
 
 /** Чем человек решил думать. Ключ и подписка живут в разных местах. */
-type Choice = "подписка" | "ключ" | null;
+type Choice = "subscription" | "key" | null;
 
 /** Что написано в окне у каждого способа. */
-const ОКНО = {
-  подписка: { title: "Своя подписка", about: null },
-  ключ: { title: "Ключ API", about: null },
+const DIALOG_TEXT = {
+  subscription: { title: "Своя подписка", about: null },
+  key: { title: "Ключ API", about: null },
 } as const;
 
 /** Выбор способа. Две карточки, и обе объясняют условие словами. */
@@ -66,7 +66,7 @@ function Choose({ onPick }: { onPick: (choice: Choice) => void }) {
     <div className="grid gap-3">
       <button
         type="button"
-        onClick={() => onPick("подписка")}
+        onClick={() => onPick("subscription")}
         className="rounded-xl border border-line bg-card p-4 text-left hover:border-edge"
       >
         <span className="block text-body font-medium text-ink">Своя подписка</span>
@@ -78,7 +78,7 @@ function Choose({ onPick }: { onPick: (choice: Choice) => void }) {
 
       <button
         type="button"
-        onClick={() => onPick("ключ")}
+        onClick={() => onPick("key")}
         className="rounded-xl border border-line bg-card p-4 text-left hover:border-edge"
       >
         <span className="block text-body font-medium text-ink">Ключ API</span>
@@ -114,7 +114,7 @@ export function Setup({ onDone }: { onDone: () => void }) {
   const [choice, setChoice] = useState<Choice>(null);
   const [bridges, setBridges] = useState<Bridge[]>([]);
   /** Ключ сохранён в этом окне. Мост виден опросом, ключ — только так. */
-  const [сохранён, setСохранён] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -126,16 +126,16 @@ export function Setup({ onDone }: { onDone: () => void }) {
   }, []);
   usePolling(refresh, REFRESH_MS);
 
-  const подключено = bridges.some((one) => one.online) || сохранён;
-  const окно = choice ? ОКНО[choice] : null;
+  const connected = bridges.some((one) => one.online) || saved;
+  const dialogText = choice ? DIALOG_TEXT[choice] : null;
 
   return (
-    <EntryFrame picture={ЗАТМЕНИЕ}>
+    <EntryFrame picture={ECLIPSE_PICTURE}>
       <h1 className="mb-6 text-brand leading-tight text-ink">Подключение модели</h1>
 
       <Choose onPick={setChoice} />
 
-      <Exit connected={подключено} onDone={onDone} />
+      <Exit connected={connected} onDone={onDone} />
 
       {/* ⚠️ ПАНЕЛЬ ЖИВЁТ В ОКНЕ, А НЕ РАЗВОРАЧИВАЕТСЯ НА МЕСТЕ. Внутри
         колонки шириной в двадцать шесть знаков ей тесно: кнопки уезжают
@@ -143,22 +143,22 @@ export function Setup({ onDone }: { onDone: () => void }) {
         Окно шире и не двигает то, что под ним. */}
       <Dialog open={choice !== null} onOpenChange={(open) => !open && setChoice(null)}>
         <DialogContent
-          className={`max-h-[80dvh] overflow-y-auto ${choice === "подписка" ? "sm:max-w-2xl" : "sm:max-w-lg"}`}
+          className={`max-h-[80dvh] overflow-y-auto ${choice === "subscription" ? "sm:max-w-2xl" : "sm:max-w-lg"}`}
         >
-          {окно ? (
+          {dialogText ? (
             <DialogHeader>
-              <DialogTitle>{окно.title}</DialogTitle>
-              {окно.about ? <DialogDescription>{окно.about}</DialogDescription> : null}
+              <DialogTitle>{dialogText.title}</DialogTitle>
+              {dialogText.about ? <DialogDescription>{dialogText.about}</DialogDescription> : null}
             </DialogHeader>
           ) : null}
 
-          {choice === "подписка" ? (
+          {choice === "subscription" ? (
             <ModelScreen bridges={bridges} onChanged={refresh} issueAtOnce />
           ) : null}
-          {choice === "ключ" ? (
+          {choice === "key" ? (
             <KeyPanel
               onChange={() => {
-                setСохранён(true);
+                setSaved(true);
                 void refresh();
               }}
             />
