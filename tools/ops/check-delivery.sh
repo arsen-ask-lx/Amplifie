@@ -45,6 +45,10 @@ cd "$ROOT"
 step "Собираем образы"
 AMPLIFIE_VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo "")" \
   docker compose -f compose.yml -f compose.dev.yml build >/dev/null
+# Чужие образы (Postgres) сборка не приносит. На стенде они лежат с прошлого
+# подъёма, на чистой машине CI их нет — и `docker save` падал «reference
+# does not exist» на первом же прогоне конвейера.
+docker compose -f compose.yml pull --ignore-buildable --quiet
 
 # ⚠️ СПИСОК БЕРЁТСЯ ИЗ РАЗОБРАННОГО БАЗОВОГО ФАЙЛА, А НЕ ПИШЕТСЯ РУКАМИ.
 # «Образы» здесь значит ВСЕ рантаймовые образы установки, включая postgres.

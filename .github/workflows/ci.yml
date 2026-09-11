@@ -54,6 +54,11 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    # На запросе слияния gitleaks берёт список его коммитов через API,
+    # а токен нового репозитория по умолчанию читает только код.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v5
         with:
@@ -112,15 +117,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # Тем же `make up`, что и руками: своя копия этих строк отстала,
+      # когда стенд переехал в compose.dev.yml (Р-030), и голый
+      # `docker compose up` искал образ веба в реестре вместо сборки.
       - name: Поднять стек
-        run: |
-          cp .env.example .env
-          docker compose up -d --build
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8477/health >/dev/null; then echo "стек живой"; exit 0; fi
-            sleep 2
-          done
-          echo "стек не поднялся"; exit 1
+        run: make up
       - name: Миграции
         run: make migrate
       # Цена горячего запроса. Стоит ДО приёмочных: он сеет объём
