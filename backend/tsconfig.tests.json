@@ -1,0 +1,12 @@
+{
+  // Приёмочные тесты бека. Основной tsconfig берёт только src/ — и тесты
+  // не проверялись типами вовсе: две ошибки в ask.e2e жили незамеченными.
+  "extends": "../tools/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "types": ["node"]
+  },
+  "include": ["tests/**/*.ts"]
+}

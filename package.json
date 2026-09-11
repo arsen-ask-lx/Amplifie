@@ -12,7 +12,7 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc --build && tsc -p frontend --noEmit && tsc -p frontend/tsconfig.node.json --noEmit && tsc -p frontend/tsconfig.ui.json --noEmit",
+    "typecheck": "tsc --build && tsc -p backend/tsconfig.tests.json && tsc -p frontend --noEmit && tsc -p frontend/tsconfig.node.json --noEmit && tsc -p frontend/tsconfig.ui.json --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
     "arch": "node tools/checks/check-arch.mjs",

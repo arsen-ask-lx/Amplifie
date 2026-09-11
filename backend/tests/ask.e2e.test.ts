@@ -289,7 +289,7 @@ describe("агент отвечает в чате", () => {
 
       const response = await askAgent(person, channel.id);
       expect(response.status).toBe(503);
-      expect((await response.json()).error).toBe("model_unavailable");
+      expect(((await response.json()) as { error: string }).error).toBe("model_unavailable");
 
       expect(await feedOf(person, channel.id)).toHaveLength(before);
     });
@@ -328,7 +328,7 @@ describe("агент отвечает в чате", () => {
 
       const response = await askAgent(stranger, channel.id);
       expect(response.status).toBe(404);
-      expect((await response.json()).error).toBe("not_found");
+      expect(((await response.json()) as { error: string }).error).toBe("not_found");
     });
   });
 });
