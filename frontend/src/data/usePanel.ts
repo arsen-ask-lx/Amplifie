@@ -28,6 +28,7 @@ export interface Panel
   extends Pick<
     Rooms,
     | "projects"
+    | "loaded"
     | "addChannel"
     | "addProject"
     | "renameProject"
@@ -63,6 +64,7 @@ export function usePanel(input: {
        */
       items: rooms.items.filter((room) => room.parentId === null),
       projects: rooms.projects,
+      loaded: rooms.loaded,
       currentId,
       unreadOf: reading.unreadOf,
       mentionsOf: reading.mentionsOf,

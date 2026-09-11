@@ -1,5 +1,5 @@
 import { mentionedIds } from "@amplifie/contract";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Conversation, type Message } from "./api.js";
 
 /**
@@ -73,13 +73,20 @@ export function useReading({
   const [boundary, setBoundary] = useState<number | null>(null);
   const openRef = useRef<string | null>(null);
 
-  const roomsRef = useRef(rooms);
-  roomsRef.current = rooms;
+  /**
+   * ⚠️ РАЗГОВОР ИЩЕТСЯ ПО СЛОВАРЮ, А НЕ ПЕРЕБОРОМ. Свёрнутый проект
+   * складывает числа всех своих чатов, и с перебором каждое перечитывание
+   * списка на 5 000 чатов стоило десятков миллионов сравнений — замер
+   * 11.09: четверть секунды занятой вкладки на каждое сообщение.
+   */
+  const byId = useMemo(() => new Map(rooms.map((one) => [one.id, one])), [rooms]);
+  const roomsRef = useRef(byId);
+  roomsRef.current = byId;
 
   useEffect(() => {
     if (openRef.current === currentId) return;
     openRef.current = currentId;
-    const room = currentId ? roomsRef.current.find((one) => one.id === currentId) : undefined;
+    const room = currentId ? roomsRef.current.get(currentId) : undefined;
     // Ноль значит «не читал ничего»: черта встанет перед самой первой
     // чужой репликой. Отсутствие непрочитанного — черты нет вовсе.
     setBoundary(room && room.unread > 0 ? room.readSeq : null);
@@ -116,7 +123,7 @@ export function useReading({
   const schedule = useCallback(
     (id: string, lastSeq: number) => {
       if (!following.current || !isWatching()) return;
-      const room = roomsRef.current.find((one) => one.id === id);
+      const room = roomsRef.current.get(id);
       const already = readUpTo[id] ?? room?.readSeq ?? 0;
       if (lastSeq <= already) return;
 
@@ -185,7 +192,7 @@ export function useReading({
       serverCount: (room: Conversation) => number,
       counts: (one: Message) => boolean,
     ) => {
-      const room = roomsRef.current.find((one) => one.id === conversationId);
+      const room = roomsRef.current.get(conversationId);
       if (!room) return 0;
       const ourSeq = readUpTo[conversationId];
       if (ourSeq === undefined) return serverCount(room);

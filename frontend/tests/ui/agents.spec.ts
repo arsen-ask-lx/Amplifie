@@ -58,11 +58,14 @@ test("выбранный пункт тихого списка повторяет
   await page.goto("/settings/agents");
 
   const trigger = page.getByRole("combobox", { name: "Кому" });
+  const radius = async (locator: typeof trigger) =>
+    locator.evaluate((element) => getComputedStyle(element).borderTopLeftRadius);
+  // Поле меряем ДО раскрытия: открытый список прячет остальную страницу
+  // от чтения экрана (aria-hidden), и по роли поле уже не найти.
+  const fieldRadius = await radius(trigger);
+
   await trigger.click();
   const selected = page.getByRole("option", { name: "Только мой", exact: true });
   await expect(selected).toBeVisible();
-
-  const radius = async (locator: typeof trigger) =>
-    locator.evaluate((element) => getComputedStyle(element).borderTopLeftRadius);
-  expect(await radius(selected)).toBe(await radius(trigger));
+  expect(await radius(selected)).toBe(fieldRadius);
 });

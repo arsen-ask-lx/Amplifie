@@ -1,14 +1,9 @@
-import { DotsThree, Gear, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { Gear, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import { ProjectGlyph } from "../shared/projectLook.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../shared/ui/dropdown-menu.js";
+import { DropdownMenuItem, DropdownMenuSeparator } from "../shared/ui/dropdown-menu.js";
+import { RowMenu } from "./RowMenu.js";
 
 /**
  * Проект в боковой панели: заголовок и его чаты (Р-032).
@@ -69,38 +64,25 @@ function ProjectMenu({
   onRename: () => void;
   onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Что сделать с проектом «${project.title}»`}
-          className={[
-            "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
-            "hover:bg-selected hover:text-ink focus-visible:opacity-100",
-            open ? "opacity-100" : "opacity-0 group-hover/project:opacity-100",
-          ].join(" ")}
-        >
-          <DotsThree className="size-4" weight="bold" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
-        <DropdownMenuItem onSelect={() => void onPin(!project.pinned)}>
-          {project.pinned ? <PushPinSlash /> : <PushPin />}
-          {project.pinned ? "Открепить" : "Закрепить"}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onRename}>
-          <Gear />
-          Редактировать проект
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-          Убрать проект
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <RowMenu
+      label={`Что сделать с проектом «${project.title}»`}
+      reveal="group-hover/project:opacity-100"
+    >
+      <DropdownMenuItem onSelect={() => void onPin(!project.pinned)}>
+        {project.pinned ? <PushPinSlash /> : <PushPin />}
+        {project.pinned ? "Открепить" : "Закрепить"}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onSelect={onRename}>
+        <Gear />
+        Редактировать проект
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+        Убрать проект
+      </DropdownMenuItem>
+    </RowMenu>
   );
 }
 
@@ -134,11 +116,25 @@ export function ProjectRow({
   // Тело остаётся в потоке лишь на время закрытия. Открытию не нужна
   // вторая React-фаза: первый кадр задаёт CSS `@starting-style`.
   const [bodyInFlow, setBodyInFlow] = useState(!collapsed);
+  const body = useRef<HTMLDivElement>(null);
   const sum = (countOf: (id: string) => number) =>
     channels.reduce((total, one) => total + countOf(one.id), 0);
 
+  /**
+   * ⚠️ ЗАКРЫТИЕ БЕЗ ДВИЖЕНИЯ КОНЦА ПЕРЕХОДА НЕ ДАЁТ, И ТЕЛО ОСТАВАЛОСЬ.
+   * `transitionend` приходит, только если переход был: при запрете анимации
+   * его нет вовсе, а свёрнутый в первом же кадре не успевает начать. Замер
+   * 11.09: 100 свёрнутых проектов держали на странице 51 600 невидимых
+   * элементов, и каждое сообщение перерисовывало их почти секунду.
+   * Нечему двигаться — тело уходит сразу; есть чему — ждём конца перехода.
+   */
   useEffect(() => {
-    if (!collapsed) setBodyInFlow(true);
+    if (!collapsed) {
+      setBodyInFlow(true);
+      return;
+    }
+    const moving = body.current?.getAnimations().some((one) => one.playState === "running");
+    if (!moving) setBodyInFlow(false);
   }, [collapsed]);
 
   return (
@@ -180,6 +176,7 @@ export function ProjectRow({
           нечего — значит и места занимать нечем. */}
       {channels.length === 0 || !bodyInFlow ? null : (
         <div
+          ref={body}
           aria-hidden={collapsed}
           data-slot="project-chats"
           data-state={collapsed ? "closed" : "open"}

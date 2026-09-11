@@ -1,16 +1,13 @@
-import { DotsThree, FolderSimple, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
-import { useState } from "react";
+import { FolderSimple, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
 import type { Conversation, Project } from "../data/api.js";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
 } from "../shared/ui/dropdown-menu.js";
+import { RowMenu } from "./RowMenu.js";
 
 /**
  * Строка канала в боковой панели.
@@ -86,24 +83,6 @@ function Badges({ unread, mentions }: { unread: number; mentions: number }) {
   );
 }
 
-/**
- * Строка канала: название и три точки справа.
- *
- * ⚠️ ТРИ ТОЧКИ, А НЕ ПРАВАЯ КНОПКА. Сначала действия висели на правой
- * кнопке — как у реплики в ленте. Владелец сказал прямо: неудобно, и он
- * прав. Правая кнопка не видна: о ней надо ЗНАТЬ. В ленте это терпимо —
- * там так у Телеграма, и человек приходит с этой привычкой; в боковой
- * панели привычка другая, её задали ChatGPT и Claude, и там действия
- * живут на трёх точках.
- *
- * ⚠️ ТОЧКИ ПОЯВЛЯЮТСЯ ПО НАВЕДЕНИЮ, но остаются видимыми, пока меню
- * открыто или на них фокус. Иначе меню открывалось бы и тут же теряло
- * свою кнопку, а с клавиатуры до неё было бы не добраться вовсе.
- *
- * ⚠️ ДВЕ КНОПКИ РЯДОМ, А НЕ КНОПКА В КНОПКЕ. Вложенная кнопка — неверная
- * разметка: браузер её распрямляет, и нажатие на точки выбирало бы канал
- * заодно.
- */
 /**
  * Подменю «В проект»: куда переложить этот чат (Р-032).
  *
@@ -201,39 +180,40 @@ function LooseChannelMenu({
   onMove: (conversationId: string, projectId: string | null) => Promise<void>;
   onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Что сделать с каналом «${channel.title}»`}
-          className={[
-            "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
-            "hover:bg-selected hover:text-ink focus-visible:opacity-100",
-            open ? "opacity-100" : "opacity-0 group-hover/room:opacity-100",
-          ].join(" ")}
-        >
-          <DotsThree className="size-4" weight="bold" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
-        <DropdownMenuItem onSelect={() => void onPin(!channel.pinned)}>
-          {channel.pinned ? <PushPinSlash /> : <PushPin />}
-          {channel.pinned ? "Открепить" : "Закрепить"}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <ToProject channel={channel} projects={projects} onMove={onMove} />
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-          <Trash />
-          Удалить канал
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <RowMenu
+      label={`Что сделать с каналом «${channel.title}»`}
+      reveal="group-hover/room:opacity-100"
+    >
+      <DropdownMenuItem onSelect={() => void onPin(!channel.pinned)}>
+        {channel.pinned ? <PushPinSlash /> : <PushPin />}
+        {channel.pinned ? "Открепить" : "Закрепить"}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <ToProject channel={channel} projects={projects} onMove={onMove} />
+      <DropdownMenuSeparator />
+      <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+        <Trash />
+        Удалить канал
+      </DropdownMenuItem>
+    </RowMenu>
   );
 }
 
+/**
+ * Строка канала: название и три точки справа.
+ *
+ * ⚠️ ТРИ ТОЧКИ, А НЕ ПРАВАЯ КНОПКА. Сначала действия висели на правой
+ * кнопке — как у реплики в ленте. Владелец сказал прямо: неудобно, и он
+ * прав. Правая кнопка не видна: о ней надо ЗНАТЬ. В ленте это терпимо —
+ * там так у Телеграма, и человек приходит с этой привычкой; в боковой
+ * панели привычка другая, её задали ChatGPT и Claude, и там действия
+ * живут на трёх точках.
+ *
+ * ⚠️ ДВЕ КНОПКИ РЯДОМ, А НЕ КНОПКА В КНОПКЕ. Вложенная кнопка — неверная
+ * разметка: браузер её распрямляет, и нажатие на точки выбирало бы канал
+ * заодно.
+ */
 export function ChannelRow({
   channel,
   projects,

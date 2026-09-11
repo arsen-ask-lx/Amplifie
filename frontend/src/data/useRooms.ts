@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { api, type Conversation, type Project } from "./api.js";
 import type { Address } from "./useAddress.js";
 
@@ -32,6 +32,8 @@ export interface Rooms {
   items: Conversation[];
   /** Проекты, в которых человеку виден хоть один чат (Р-032). */
   projects: Project[];
+  /** Первый ответ сервера пришёл: до него пустой список — «ещё не знаем», а не «нет ничего». */
+  loaded: boolean;
   /** Перечитать. Возвращает то же, что положил в состояние. */
   reload: () => Promise<Conversation[]>;
   /**
@@ -69,14 +71,49 @@ export interface Rooms {
 export function useRooms(where: Address): Rooms {
   const [items, setItems] = useState<Conversation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const { currentId, currentIdRef, navigate } = where;
 
-  const reload = useCallback(async () => {
+  const fetchNow = useCallback(async () => {
     const { items: fresh, projects: folders } = await api.conversations();
     setItems(fresh);
     setProjects(folders ?? []);
+    setLoaded(true);
     return fresh;
   }, []);
+
+  /**
+   * Перечитать — один запрос в пути и не больше одного в очереди (task-064).
+   *
+   * ⚠️ ЗВОНКИ СКЛЕИВАЮТСЯ, И БЕЗ ЭТОГО ПАНЕЛЬ ВИСЛА. Перечитывают трое:
+   * звонок, догон чужой комнаты и смена разговора, — и на 5 000 чатах
+   * каждое сообщение давало два полных ответа по 1,4 МБ. Замер 11.09:
+   * пять сообщений — десять перечитываний. Теперь всё, что пришло, пока
+   * ответ в пути, ждёт ОДНО следующее перечитывание: начатое до звонка
+   * могло его не увидеть, а начатое после — увидит всё сразу.
+   */
+  const inFlight = useRef<Promise<Conversation[]> | null>(null);
+  const queued = useRef<Promise<Conversation[]> | null>(null);
+  const reload = useCallback((): Promise<Conversation[]> => {
+    const start = () => {
+      const running = fetchNow().finally(() => {
+        if (inFlight.current === running) inFlight.current = null;
+      });
+      inFlight.current = running;
+      return running;
+    };
+    const busy = inFlight.current;
+    if (!busy) return start();
+    queued.current ??= busy
+      // Отказ предыдущего — не повод не спросить заново: его ждущий
+      // получил свой отказ сам, очереди нужен свежий ответ.
+      .catch(() => undefined)
+      .then(() => {
+        queued.current = null;
+        return start();
+      });
+    return queued.current;
+  }, [fetchNow]);
 
   /**
    * Завести разговор и открыть его.
@@ -192,6 +229,7 @@ export function useRooms(where: Address): Rooms {
   return {
     items,
     projects,
+    loaded,
     reload,
     addChannel,
     removeChannel,

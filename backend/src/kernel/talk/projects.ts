@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, type SQL, sql } from "drizzle-orm";
 import { change } from "../../platform/change.js";
 import { db, type Executor } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
@@ -16,7 +16,12 @@ import { conversation, pin, project } from "./schema.js";
  * ни один чат, — имя папки «Зарплаты» уже сведения. Пустой виден всем:
  * скрывать нечего, а заводящий должен увидеть свою папку.
  */
-export async function listProjectsFor(tx: Executor, participantId: string, workspaceId: string) {
+/**
+ * Правило «проект виден человеку» — одно на панель и на дверь порций.
+ * Двумя копиями оно однажды разошлось бы, и дверь выдала бы папку,
+ * которой нет в панели.
+ */
+function shownTo(participantId: string): SQL {
   const hasChats = sql`EXISTS (
     SELECT 1 FROM ${conversation}
     WHERE ${conversation.projectId} = ${project.id}
@@ -27,7 +32,10 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
     WHERE ${conversation.projectId} = ${project.id}
       AND ${repo.visibleTo(participantId)}
   )`;
+  return sql`(NOT ${hasChats} OR ${hasVisible})`;
+}
 
+export async function listProjectsFor(tx: Executor, participantId: string, workspaceId: string) {
   const pinned = sql<boolean>`EXISTS (
     SELECT 1 FROM ${pin}
     WHERE ${pin.projectId} = ${project.id}
@@ -48,7 +56,7 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
         and(
           eq(project.workspaceId, workspaceId),
           isNull(project.deletedAt),
-          sql`(NOT ${hasChats} OR ${hasVisible})`,
+          shownTo(participantId),
         ),
       )
       // Закреплённые сверху, остальные по алфавиту; порядок задаёт сервер.
@@ -60,35 +68,13 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
  * Проект виден ровно тогда, когда он попал бы в панель этого человека.
  * Отдельная дверь порций не должна выдавать существование скрытой папки.
  */
-export async function requireVisibleProject(
+export function requireVisibleProject(
   tx: Executor,
   participantId: string,
   workspaceId: string,
   projectId: string,
 ): Promise<void> {
-  const hasChats = sql`EXISTS (
-    SELECT 1 FROM ${conversation}
-    WHERE ${conversation.projectId} = ${project.id}
-      AND ${conversation.deletedAt} IS NULL
-  )`;
-  const hasVisible = sql`EXISTS (
-    SELECT 1 FROM ${conversation}
-    WHERE ${conversation.projectId} = ${project.id}
-      AND ${repo.visibleTo(participantId)}
-  )`;
-  const found = await tx
-    .select({ id: project.id })
-    .from(project)
-    .where(
-      and(
-        eq(project.id, projectId),
-        eq(project.workspaceId, workspaceId),
-        isNull(project.deletedAt),
-        sql`(NOT ${hasChats} OR ${hasVisible})`,
-      ),
-    )
-    .limit(1);
-  if (!found[0]) throw new ConversationNotVisibleError();
+  return requireProject(tx, workspaceId, projectId, shownTo(participantId));
 }
 
 /** Завести проект — любому: прав он не несёт. */
@@ -129,6 +115,8 @@ export async function requireProject(
   tx: Executor,
   workspaceId: string,
   projectId: string,
+  /** Ещё условие к «жив и свой» — например, виден ли он человеку. */
+  also?: SQL,
 ): Promise<void> {
   const found = await tx
     .select({ id: project.id })
@@ -138,6 +126,7 @@ export async function requireProject(
         eq(project.id, projectId),
         eq(project.workspaceId, workspaceId),
         isNull(project.deletedAt),
+        also,
       ),
     )
     .limit(1);

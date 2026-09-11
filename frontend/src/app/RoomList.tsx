@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import type { Panel } from "../data/usePanel.js";
 import { ConfirmRemoval } from "./ChannelAsks.js";
@@ -38,59 +38,40 @@ import { SidebarSection } from "./SidebarSection.js";
  */
 
 /**
- * Какие проекты свёрнуты. Переживает перезагрузку страницы.
+ * Какие проекты свёрнуты.
  *
- * ⚠️ ЛИЧНОЕ И ТОЛЬКО ЛИЧНОЕ, поэтому в браузере, а не на сервере.
- * «Свернул папку» — это про мой сегодняшний взгляд, а не про устройство
- * пространства; уехав на сервер, оно свернуло бы папку всем сразу.
+ * ⚠️ ПРИ ВХОДЕ СВЁРНУТО ВСЁ, КРОМЕ ПРОЕКТА ОТКРЫТОГО ЧАТА (Р-037), И
+ * РЕШАЕТСЯ ЭТО В ТОМ ЖЕ КАДРЕ, ГДЕ ПРИШЛИ ПРОЕКТЫ. Прежде решал эффект —
+ * уже после того, как сто проектов успевали раскрыться и смонтировать
+ * пять тысяч строк; замер 11.09 — 4 секунды до первого экрана. Теперь
+ * первое же состояние после ответа сервера свёрнуто.
  *
- * ⚠️ ЧТЕНИЕ И ЗАПИСЬ В `try`. Хранилище бывает закрыто настройками
- * приватности, и это выбор человека, а не поломка: не прочлось — все
- * папки, кроме открытого проекта, свёрнуты, и панель работает.
+ * ⚠️ ПОЯВИВШИЙСЯ ПОСЛЕ ВХОДА ПРОЕКТ РАСКРЫТ. Его только что завёл человек
+ * или коллега, в нём — то, что сейчас произошло; прятать новое значит
+ * заставить его искать.
+ *
+ * ⚠️ ЛИЧНОЕ И ТОЛЬКО В ПАМЯТИ ВКЛАДКИ. На сервере оно свернуло бы папку
+ * всем сразу; в хранилище браузера — пережило бы вход, а вход всё равно
+ * сворачивает всё.
  */
-const COLLAPSED_KEY = "amplifie:свёрнутые-проекты:v2";
+function useCollapsed(loaded: boolean, projects: Project[], currentProjectId: string | null) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [started, setStarted] = useState(false);
 
-function useCollapsed(projects: Project[], currentId: string | null, items: Conversation[]) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]") as string[]);
-    } catch {
-      return new Set();
-    }
-  });
-  const initialized = useRef(new Set<string>());
-
-  useEffect(() => {
-    const currentProjectId = items.find((item) => item.id === currentId)?.projectId ?? null;
-    const fresh = projects.filter((project) => !initialized.current.has(project.id));
-    if (fresh.length === 0) return;
-
-    setCollapsed((before) => {
-      const after = new Set(before);
-      for (const project of fresh) {
-        initialized.current.add(project.id);
-        if (project.id !== currentProjectId) after.add(project.id);
-      }
-      try {
-        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...after]));
-      } catch {
-        // Браузер без localStorage всё равно получает безопасный первый кадр.
-      }
-      return after;
-    });
-  }, [projects, currentId, items]);
+  // Правка состояния прямо при отрисовке — приём React «запомнить из
+  // прошлой отрисовки»: он перерисует список ДО того, как тот попадёт на экран.
+  if (loaded && !started) {
+    setStarted(true);
+    setCollapsed(
+      new Set(projects.filter((one) => one.id !== currentProjectId).map((one) => one.id)),
+    );
+  }
 
   const toggle = (id: string) => {
     setCollapsed((before) => {
       const after = new Set(before);
       if (after.has(id)) after.delete(id);
       else after.add(id);
-      try {
-        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...after]));
-      } catch {
-        // Не сохранилось — папка свернётся снова после перезагрузки.
-        // Это неудобство, а не поломка, и молчать о нём здесь уместно.
-      }
       return after;
     });
   };
@@ -100,17 +81,15 @@ function useCollapsed(projects: Project[], currentId: string | null, items: Conv
       if (!before.has(id)) return before;
       const after = new Set(before);
       after.delete(id);
-      try {
-        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...after]));
-      } catch {
-        // Не сохранилось — список всё равно раскроется до перезагрузки.
-      }
       return after;
     });
   }, []);
 
-  return { collapsed: collapsed, toggle: toggle, expand: expand };
+  return { collapsed, toggle, expand };
 }
+
+/** Пустой проект — один и тот же пустой список, а не новый на каждый кадр. */
+const NO_CHANNELS: Conversation[] = [];
 
 /**
  * ⚠️ ОДНО СВОЙСТВО, А НЕ ДЕВЯТЬ (task-035, шаг 0). Панель принимает свой
@@ -130,7 +109,8 @@ export function RoomList({
   projectToReveal: { id: string; revision: number } | null;
 }) {
   const { items, projects, currentId, unreadOf, mentionsOf } = panel;
-  const { collapsed, toggle, expand } = useCollapsed(projects, currentId, items);
+  const currentProjectId = items.find((item) => item.id === currentId)?.projectId ?? null;
+  const { collapsed, toggle, expand } = useCollapsed(panel.loaded, projects, currentProjectId);
 
   useEffect(() => {
     if (projectToReveal) expand(projectToReveal.id);
@@ -162,7 +142,24 @@ export function RoomList({
 
   // Что панель показывает, решено при её сборке (`usePanel`): сюда
   // приезжают уже только корневые разговоры.
-  const loose = items.filter((one) => one.projectId === null);
+  //
+  // ⚠️ РАСКЛАДКА ПО ПРОЕКТАМ — ОДИН ПРОХОД, А НЕ ОТБОР НА КАЖДЫЙ ПРОЕКТ.
+  // Сто проектов × пять тысяч чатов — полмиллиона сравнений на каждое
+  // перечитывание списка, то есть на каждое сообщение в пространстве.
+  const { loose, byProject } = useMemo(() => {
+    const outside: Conversation[] = [];
+    const inside = new Map<string, Conversation[]>();
+    for (const one of items) {
+      if (one.projectId === null) {
+        outside.push(one);
+        continue;
+      }
+      const same = inside.get(one.projectId);
+      if (same) same.push(one);
+      else inside.set(one.projectId, [one]);
+    }
+    return { loose: outside, byProject: inside };
+  }, [items]);
 
   /**
    * Строка канала одна и та же внутри проекта и снаружи.
@@ -181,7 +178,12 @@ export function RoomList({
       unread={unreadOf(channel.id)}
       mentions={mentionsOf(channel.id)}
       onSelect={panel.select}
-      onMove={panel.moveToProject}
+      onMove={async (conversationId, projectId) => {
+        await panel.moveToProject(conversationId, projectId);
+        // Итог действия — на виду: перенесённый в свёрнутый проект чат
+        // иначе исчезал из панели, будто его не стало.
+        if (projectId) expand(projectId);
+      }}
       onPin={(pinned) => panel.pin({ conversationId: channel.id }, pinned)}
       onRemove={() => setRemoving(channel)}
     />
@@ -207,7 +209,7 @@ export function RoomList({
               <ProjectRow
                 key={project.id}
                 project={project}
-                channels={items.filter((one) => one.projectId === project.id)}
+                channels={byProject.get(project.id) ?? NO_CHANNELS}
                 collapsed={collapsed.has(project.id)}
                 onToggle={() => toggle(project.id)}
                 onAddChannel={() => onAddChannel(project)}
