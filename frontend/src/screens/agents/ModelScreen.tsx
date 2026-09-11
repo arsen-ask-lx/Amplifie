@@ -5,6 +5,14 @@ import { CHECKMARK_MS, copyQuietly, NOT_COPIED } from "../../shared/clipboard.js
 import { detailOf } from "../../shared/failure.js";
 import { troubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../shared/ui/dialog.js";
 import { Input } from "../../shared/ui/input.js";
 import { QUIET_FIELD } from "../../shared/ui/quiet-field.js";
 import { timeFormat } from "../../shared/when.js";
@@ -160,6 +168,7 @@ export function ModelScreen({
   const [copied, setCopied] = useState(false);
   const [answer, setAnswer] = useState<{ text: string; ms: number } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [resultOpen, setResultOpen] = useState(false);
 
   // Обёрнуто, чтобы следствие ниже могло честно назвать его в зависимостях:
   // без этого выдача пересоздавалась на каждой отрисовке.
@@ -174,6 +183,7 @@ export function ModelScreen({
       setFailure("Не удалось выдать код подключения");
     } finally {
       setIssuing(false);
+      setResultOpen(true);
     }
   }, [onChanged]);
 
@@ -205,6 +215,7 @@ export function ModelScreen({
     setChecking(true);
     setFailure(null);
     setAnswer(null);
+    setResultOpen(true);
     try {
       setAnswer(await api.checkModel("Назови столицу Португалии одним словом."));
     } catch (error) {
@@ -212,6 +223,14 @@ export function ModelScreen({
     } finally {
       setChecking(false);
     }
+  }
+
+  function showOrIssue(): void {
+    if (command) {
+      setResultOpen(true);
+      return;
+    }
+    void issue();
   }
 
   const machines = bridges.filter((one) => one.joined);
@@ -250,20 +269,40 @@ export function ModelScreen({
         </div>
       ) : null}
 
-      {command ? <Command command={command} copied={copied} onCopy={() => void copy()} /> : null}
-
-      <Outcome answer={answer} failure={failure} />
-
       {/* Действия прижаты вправо, главное — крайнее справа: взгляд
         заканчивает чтение там же, где его встречает кнопка. */}
       <div className="flex flex-wrap items-center justify-end gap-2 border-line border-t pt-4">
-        <Button variant="outline" disabled={issuing} onClick={() => void issue()}>
-          {command ? "Новый код" : "Подключить"}
+        <Button variant="outline" disabled={issuing} onClick={showOrIssue}>
+          {command ? "Показать код" : "Подключить"}
         </Button>
         <Button disabled={checking} onClick={() => void check()}>
           {checking ? "Спрашиваем…" : "Проверить"}
         </Button>
       </div>
+
+      <Dialog open={resultOpen} onOpenChange={setResultOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{command ? "Подключение нейросети" : "Проверка нейросети"}</DialogTitle>
+          </DialogHeader>
+
+          {command ? (
+            <Command command={command} copied={copied} onCopy={() => void copy()} />
+          ) : null}
+          <Outcome answer={answer} failure={failure} />
+
+          <DialogFooter>
+            {command ? (
+              <Button variant="outline" disabled={issuing} onClick={() => void issue()}>
+                Новый код
+              </Button>
+            ) : null}
+            <DialogClose asChild>
+              <Button variant="outline">Готово</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
