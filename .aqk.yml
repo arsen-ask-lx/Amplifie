@@ -18,6 +18,12 @@ entry:
 
 # AQK-1 — свод правил и проверки командами.
 rules: .temper/rules
+# Методички живут рядом со стандартами, в .temper, а не в .aqk/docs.
+docs: .temper/references
+# Что наш lint (Biome) уже держит из каталога — машиночитаемо, а не только
+# комментарием ниже: без этого doctor советовал ставить их вторым арбитром.
+covers:
+  lint: [no-print-in-prod, complexity-limit, swallowed-error]
 gates:
   # Наши, были раньше AQK. Все до одной проверены подсаженным нарушением.
   # lint держит сразу три записи каталога AQK: no-print-in-prod (noConsole),

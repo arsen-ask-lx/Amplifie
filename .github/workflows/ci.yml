@@ -48,7 +48,7 @@ jobs:
       # (rhythm, failure-map, stages, duplicates) объявлены давно и НИ РАЗУ
       # не гонялись конвейером.
       - name: Все объявленные проверки
-        run: npx --yes agent-quality-kit@0.7.0 doctor --run
+        run: npx --yes agent-quality-kit@0.12.0 doctor --run
       - name: Счётчик согласия арбитра К2
         run: npm run arbiter:check
 

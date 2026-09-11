@@ -247,7 +247,7 @@ ci-gates: ## гейты каталога AQK, поставленные паке�
 > bash tools/gates/personal-config-not-shared/check.sh .
 
 aqk: ## ступень соответствия AQK и что до следующей
-> npx --yes agent-quality-kit@0.7.0 doctor
+> npx --yes agent-quality-kit@0.12.0 doctor
 
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
