@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { config } from "./config.js";
@@ -15,7 +16,35 @@ export const pool = new pg.Pool({
   connectionTimeoutMillis: 5_000,
 });
 
-export const db = drizzle(pool);
+/**
+ * Счёт запросов к базе в пределах одного запроса HTTP (task-039, шаг 5).
+ *
+ * N+1 не виден ни в типах, ни на трёх строках — только числом запросов,
+ * растущим вместе с данными. Счёт живёт в `AsyncLocalStorage`: так
+ * запросы одного обращения не смешиваются с соседними, идущими разом.
+ * Готового детектора N+1 для Node нет; это тот же приём, что
+ * `assertNumQueries` у Django, собранный из штатных частей.
+ */
+const counting = new AsyncLocalStorage<{ queries: number }>();
+
+/** Выполнить `work` со своим счётом запросов; счёт — в `queriesSoFar`. */
+export function countQueries(work: () => void): void {
+  counting.run({ queries: 0 }, work);
+}
+
+/** Сколько запросов к базе сделано в текущем обращении. `null` — счёт не ведётся. */
+export function queriesSoFar(): number | null {
+  return counting.getStore()?.queries ?? null;
+}
+
+export const db = drizzle(pool, {
+  logger: {
+    logQuery() {
+      const store = counting.getStore();
+      if (store) store.queries += 1;
+    },
+  },
+});
 
 type Db = NodePgDatabase;
 

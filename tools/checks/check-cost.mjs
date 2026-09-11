@@ -143,7 +143,7 @@ async function main() {
        VALUES ($1, $2, $3, 'owner')`,
       [cid, pid, wid],
     );
-    const { sql, params } = listConversationsFor(db, pid).toSQL();
+    const { sql, params } = listConversationsFor(db, pid, wid).toSQL();
 
     /** Досеять переписку до нужного объёма и померить панель. */
     const померить = async (от, до) => {

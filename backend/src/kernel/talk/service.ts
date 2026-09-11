@@ -105,7 +105,7 @@ function isDuplicateClientMsgId(error: unknown): boolean {
  */
 export async function listConversations(viewer: Viewer) {
   const [rows, projects] = await Promise.all([
-    repo.listConversationsFor(db, viewer.participantId),
+    repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId),
     listProjectsFor(db, viewer.participantId, viewer.workspaceId),
   ]);
   return {

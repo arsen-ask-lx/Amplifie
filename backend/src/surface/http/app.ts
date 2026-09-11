@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
 import { setBusFailureReporter } from "../../platform/bus.js";
 import { config } from "../../platform/config.js";
+import { countQueries, queriesSoFar } from "../../platform/db.js";
 import { answerKnownFailures } from "./failures.js";
 import { OVERALL } from "./limits.js";
 import { registerAgentRoutes } from "./routes/agents.js";
@@ -81,6 +82,20 @@ export async function buildApp(): Promise<FastifyInstance> {
   setBusFailureReporter((error) => {
     app.log.warn({ err: error }, "слушатель живых обновлений упал");
   });
+
+  /**
+   * Счёт запросов к базе на каждое обращение (task-039, шаг 5). Стенд
+   * отдаёт его заголовком `x-db-queries`, и приёмочные ловят по нему N+1:
+   * число, растущее вместе с данными. В коробке заголовка нет — наружу
+   * устройство базы не рассказываем.
+   */
+  app.addHook("onRequest", (_request, _reply, done) => countQueries(done));
+  if (config.multiWorkspace) {
+    app.addHook("onSend", async (_request, reply) => {
+      const queries = queriesSoFar();
+      if (queries !== null) reply.header("x-db-queries", String(queries));
+    });
+  }
 
   // Схемы дверей — zod (Р-034): одна схема проверяет вход и режет выход.
   app.setValidatorCompiler(validatorCompiler);

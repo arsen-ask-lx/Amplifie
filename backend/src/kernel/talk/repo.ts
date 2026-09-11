@@ -189,7 +189,7 @@ const ЭТОТ_РАЗГОВОР = sql.raw('"conversation"."id"');
  * панели, а не его копию. Копия рассохлась бы в первый же день, и гейт
  * стерёг бы запрос, которого в продукте нет.
  */
-export function listConversationsFor(tx: Executor, participantId: string) {
+export function listConversationsFor(tx: Executor, participantId: string, workspaceId: string) {
   /**
    * Закреплён ли разговор ЭТИМ человеком (task-038).
    *
@@ -267,7 +267,20 @@ export function listConversationsFor(tx: Executor, participantId: string) {
         pinned: закреплён,
       })
       .from(conversation)
-      .where(visibleTo(participantId))
+      /**
+       * ⚠️ СВОЁ ПРОСТРАНСТВО — ОТДЕЛЬНЫМ УСЛОВИЕМ, хотя видимость и так
+       * его отсекает. Видимость — проверка на строку, а не отбор: без этого
+       * условия запрос обходил разговоры ВСЕХ пространств базы и проверял
+       * каждый (на стенде — пятнадцать тысяч строк на один показ панели).
+       * Условие по пространству берёт индекс `conversation_workspace_alive_idx`.
+       */
+      .where(
+        and(
+          eq(conversation.workspaceId, workspaceId),
+          isNull(conversation.deletedAt),
+          visibleTo(participantId),
+        ),
+      )
       /**
        * ⚠️ ЗАКРЕПЛЁННОЕ ПОДНИМАЕТ СЕРВЕР, А НЕ КЛИЕНТ (task-038). Порядок
        * в панели — одно знание; посчитай его ещё и клиент, они однажды
