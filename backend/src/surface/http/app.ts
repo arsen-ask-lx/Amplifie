@@ -1,5 +1,6 @@
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
+import { serializerCompiler, validatorCompiler } from "@fastify/type-provider-zod";
 import Fastify, { type FastifyInstance } from "fastify";
 import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
 import { setBusFailureReporter } from "../../platform/bus.js";
@@ -81,6 +82,9 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.warn({ err: error }, "слушатель живых обновлений упал");
   });
 
+  // Схемы дверей — zod (Р-034): одна схема проверяет вход и режет выход.
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
   answerKnownFailures(app);
 
   // Открытые двери: здоровье, вход и машина моста со своим удостоверением.

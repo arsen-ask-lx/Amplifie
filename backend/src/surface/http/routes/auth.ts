@@ -1,3 +1,5 @@
+import { idParams } from "@amplifie/contract/api";
+import type { ZodTypeProvider } from "@fastify/type-provider-zod";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { signUp } from "../../../app/signUp.js";
@@ -12,7 +14,6 @@ import {
 } from "../../../kernel/identity/index.js";
 import { config } from "../../../platform/config.js";
 import { INVITE, JOIN, LOGIN, REGISTER } from "../limits.js";
-import { parse } from "./parse.js";
 import { actorOf, SESSION_COOKIE } from "./viewer.js";
 
 const registerSchema = z.object({
@@ -82,7 +83,8 @@ function present(actor: Actor) {
   };
 }
 
-export function registerAuthRoutes(app: FastifyInstance): void {
+export function registerAuthRoutes(scope: FastifyInstance): void {
+  const app = scope.withTypeProvider<ZodTypeProvider>();
   /**
    * Что за дверью, ДО входа: можно ли здесь завести компанию (task-023).
    *
@@ -96,27 +98,33 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return { registrationOpen: await registrationOpen() };
   });
 
-  app.post("/v1/auth/register", { config: { rateLimit: REGISTER } }, async (request, reply) => {
-    const input = parse(registerSchema, request.body, reply);
-    if (!input) return reply;
+  app.post(
+    "/v1/auth/register",
+    { config: { rateLimit: REGISTER }, schema: { body: registerSchema } },
+    async (request, reply) => {
+      const input = request.body;
 
-    // Закрытая регистрация отвечает 403 прямо (`failures.ts`): скрывать
-    // нечего, а человек узнаёт, что просить надо ссылку, а не пароль.
-    const { actor, token } = await signUp(input);
-    setSessionCookie(reply, token);
-    return reply.code(201).send(present(actor));
-  });
+      // Закрытая регистрация отвечает 403 прямо (`failures.ts`): скрывать
+      // нечего, а человек узнаёт, что просить надо ссылку, а не пароль.
+      const { actor, token } = await signUp(input);
+      setSessionCookie(reply, token);
+      return reply.code(201).send(present(actor));
+    },
+  );
 
-  app.post("/v1/auth/login", { config: { rateLimit: LOGIN } }, async (request, reply) => {
-    const input = parse(loginSchema, request.body, reply);
-    if (!input) return reply;
+  app.post(
+    "/v1/auth/login",
+    { config: { rateLimit: LOGIN }, schema: { body: loginSchema } },
+    async (request, reply) => {
+      const input = request.body;
 
-    // «Нет такой почты» и «неверный пароль» — один отказ 401: иначе
-    // по ответу перебирают, кто зарегистрирован.
-    const { actor, token } = await login(input.email, input.password);
-    setSessionCookie(reply, token);
-    return reply.code(200).send(present(actor));
-  });
+      // «Нет такой почты» и «неверный пароль» — один отказ 401: иначе
+      // по ответу перебирают, кто зарегистрирован.
+      const { actor, token } = await login(input.email, input.password);
+      setSessionCookie(reply, token);
+      return reply.code(200).send(present(actor));
+    },
+  );
 
   app.post("/v1/auth/logout", async (request, reply) => {
     const token = request.cookies[SESSION_COOKIE];
@@ -130,38 +138,45 @@ export function registerAuthRoutes(app: FastifyInstance): void {
    * исчерпано, нет такого. Разница в ответе — это способ перебрать живые
    * приглашения, и он бесплатен для того, кто перебирает.
    */
-  app.post("/v1/auth/join", { config: { rateLimit: JOIN } }, async (request, reply) => {
-    const input = parse(joinSchema, request.body, reply);
-    if (!input) return reply;
+  app.post(
+    "/v1/auth/join",
+    { config: { rateLimit: JOIN }, schema: { body: joinSchema } },
+    async (request, reply) => {
+      const input = request.body;
 
-    const { actor, token } = await joinByInvite(input);
-    setSessionCookie(reply, token);
-    return reply.code(201).send(present(actor));
-  });
+      const { actor, token } = await joinByInvite(input);
+      setSessionCookie(reply, token);
+      return reply.code(201).send(present(actor));
+    },
+  );
 }
 
 /** Двери того, кто уже вошёл: приглашения и «кто я». Сессию проверяет область. */
-export function registerAccountRoutes(app: FastifyInstance): void {
-  app.post("/v1/invites", { config: { rateLimit: INVITE } }, async (request, reply) => {
+export function registerAccountRoutes(scope: FastifyInstance): void {
+  const app = scope.withTypeProvider<ZodTypeProvider>();
+  app.post(
+    "/v1/invites",
+    { config: { rateLimit: INVITE }, schema: { body: inviteSchema.optional() } },
+    async (request, reply) => {
+      const who = actorOf(request);
+      const input = request.body ?? {};
+
+      const created = await createInvite(who, input);
+      return reply.code(201).send({
+        id: created.id,
+        // Токен виден ОДИН раз, здесь. В базе только его хеш.
+        token: created.token,
+        expiresAt: created.expiresAt.toISOString(),
+        maxUses: created.maxUses,
+        used: created.used,
+      });
+    },
+  );
+
+  app.delete("/v1/invites/:id", { schema: { params: idParams } }, async (request, reply) => {
     const who = actorOf(request);
-    const input = parse(inviteSchema, request.body ?? {}, reply);
-    if (!input) return reply;
 
-    const created = await createInvite(who, input);
-    return reply.code(201).send({
-      id: created.id,
-      // Токен виден ОДИН раз, здесь. В базе только его хеш.
-      token: created.token,
-      expiresAt: created.expiresAt.toISOString(),
-      maxUses: created.maxUses,
-      used: created.used,
-    });
-  });
-
-  app.delete("/v1/invites/:id", async (request, reply) => {
-    const who = actorOf(request);
-
-    const { id } = request.params as { id: string };
+    const { id } = request.params;
     // Чужое приглашение не находится — ровно как несуществующее.
     const revoked = await revokeInvite(who, id);
     return revoked ? reply.code(204).send() : reply.code(404).send({ error: "not_found" });

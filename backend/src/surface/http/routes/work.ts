@@ -1,3 +1,5 @@
+import { idParams } from "@amplifie/contract/api";
+import type { ZodTypeProvider } from "@fastify/type-provider-zod";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { runTask } from "../../../app/working.js";
@@ -8,7 +10,6 @@ import {
   patchTask,
   STAGES,
 } from "../../../kernel/work/index.js";
-import { parse } from "./parse.js";
 import { actorOf } from "./viewer.js";
 
 /** Ядро продукта наружу: разбор разговора, договорённости, задачи. */
@@ -30,26 +31,23 @@ const patchTaskSchema = z
   })
   .refine((one) => Object.keys(one).length > 0, "нечего менять");
 
-export function registerWorkRoutes(app: FastifyInstance): void {
-  app.get("/v1/tasks", async (request, _reply) => {
+export function registerWorkRoutes(scope: FastifyInstance): void {
+  const app = scope.withTypeProvider<ZodTypeProvider>();
+
+  app.get("/v1/tasks", async (request) => {
     const actor = actorOf(request);
     return { items: await listTasks(actor.workspaceId) };
   });
 
   /** Участники пространства: кого можно назначить исполнителем. */
-  app.get("/v1/participants", async (request, _reply) => {
+  app.get("/v1/participants", async (request) => {
     const actor = actorOf(request);
     return { items: await listParticipants(actor.workspaceId) };
   });
 
   /** Завести задачу руками — без договорённости (task-010). */
-  app.post("/v1/tasks", async (request, reply) => {
-    const actor = actorOf(request);
-
-    const input = parse(newTaskSchema, request.body, reply);
-    if (!input) return reply;
-
-    return reply.code(201).send(await createTask(actor, input));
+  app.post("/v1/tasks", { schema: { body: newTaskSchema } }, async (request, reply) => {
+    return reply.code(201).send(await createTask(actorOf(request), request.body));
   });
 
   /**
@@ -59,19 +57,18 @@ export function registerWorkRoutes(app: FastifyInstance): void {
    * запускает: иначе доска стала бы счётчиком расходов, который никто
    * не заводил.
    */
-  app.post<{ Params: { id: string } }>("/v1/tasks/:id/run", async (request, reply) => {
+  app.post("/v1/tasks/:id/run", { schema: { params: idParams } }, async (request, reply) => {
     const actor = actorOf(request);
 
     return reply.send(await runTask(actor, request.params.id));
   });
 
   /** Подвинуть по доске, назначить исполнителя, сменить ответственного. */
-  app.patch<{ Params: { id: string } }>("/v1/tasks/:id", async (request, reply) => {
-    const actor = actorOf(request);
-
-    const input = parse(patchTaskSchema, request.body, reply);
-    if (!input) return reply;
-
-    return reply.send(await patchTask(actor, request.params.id, input));
-  });
+  app.patch(
+    "/v1/tasks/:id",
+    { schema: { params: idParams, body: patchTaskSchema } },
+    async (request, reply) => {
+      return reply.send(await patchTask(actorOf(request), request.params.id, request.body));
+    },
+  );
 }

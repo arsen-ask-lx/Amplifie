@@ -1,8 +1,9 @@
+import { idParams } from "@amplifie/contract/api";
+import type { ZodTypeProvider } from "@fastify/type-provider-zod";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agentsFor } from "../../../app/agents.js";
 import { listKeys, revokeKey, saveKey } from "../../../kernel/identity/index.js";
-import { parse } from "./parse.js";
 import { actorOf } from "./viewer.js";
 
 const keySchema = z.object({
@@ -20,7 +21,8 @@ const keySchema = z.object({
  * а не при взгляде на список. `GET`, который пишет, однажды заведёт
  * участника от чужого запроса, и журнал получит событие без причины.
  */
-export function registerAgentRoutes(app: FastifyInstance): void {
+export function registerAgentRoutes(scope: FastifyInstance): void {
+  const app = scope.withTypeProvider<ZodTypeProvider>();
   app.get("/v1/agents", async (request, _reply) => {
     const actor = actorOf(request);
 
@@ -37,13 +39,8 @@ export function registerAgentRoutes(app: FastifyInstance): void {
    * знаков: узнать свой ключ по ней можно, воспользоваться — нет.
    * Это проверяется приёмочным тестом, который ищет ключ во всех ответах.
    */
-  app.post("/v1/model-keys", async (request, reply) => {
-    const actor = actorOf(request);
-
-    const input = parse(keySchema, request.body, reply);
-    if (!input) return reply;
-
-    return reply.code(201).send(await saveKey(actor, input));
+  app.post("/v1/model-keys", { schema: { body: keySchema } }, async (request, reply) => {
+    return reply.code(201).send(await saveKey(actorOf(request), request.body));
   });
 
   /** Свои ключи и ключи пространства. Чужих личных здесь не бывает. */
@@ -53,7 +50,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
   });
 
   /** Убрать ключ. Чужой личный неотличим от несуществующего — так и надо. */
-  app.delete<{ Params: { id: string } }>("/v1/model-keys/:id", async (request, reply) => {
+  app.delete("/v1/model-keys/:id", { schema: { params: idParams } }, async (request, reply) => {
     const actor = actorOf(request);
 
     const gone = await revokeKey(actor, request.params.id);

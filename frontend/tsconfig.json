@@ -15,6 +15,7 @@
     // обязаны видеть один и тот же файл, иначе разойдутся молча.
     "paths": {
       "@amplifie/contract": ["../packages/contract/src/index.ts"],
+      "@amplifie/contract/api": ["../packages/contract/src/api.ts"],
       "@/*": ["./src/*"]
     }
   },

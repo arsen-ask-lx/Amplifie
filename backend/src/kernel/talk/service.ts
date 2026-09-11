@@ -1,3 +1,4 @@
+import type { Message, SyncLine } from "@amplifie/contract/api";
 import { publish } from "../../platform/bus.js";
 import { change } from "../../platform/change.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
@@ -7,58 +8,12 @@ import { setMentions, зовущиеся } from "./mentions.js";
 import { listProjectsFor, требуетсяПроект } from "./projects.js";
 import * as repo from "./repo.js";
 
-interface MessageView {
-  id: string;
-  /** Ключ, выданный клиентом при наборе. Связывает черновик с записанным. */
-  clientMsgId: string;
-  conversationId: string;
-  body: string;
-  kind: string;
-  seq: number;
-  createdAt: Date;
-  editedAt: Date | null;
-  /** Когда закреплено. `null` — не закреплено. */
-  pinnedAt: Date | null;
-  author: { id: string; name: string; kind: string };
-  /**
-   * На что это ответ. `null` — ответа нет ЛИБО исходную реплику удалили:
-   * снаружи это одно и то же, и правильно, что одно и то же — цитата
-   * на удалённое не должна показывать ни текст, ни пустую рамку.
-   */
-  replyTo: { id: string; seq: number; author: string; excerpt: string } | null;
-  /** От кого переслано. `null` — не пересылка. */
-  forwardedFrom: string | null;
-}
-
 /**
- * Надгробие: реплику удалили.
- *
- * ⚠️ БЕЗ ТЕКСТА, И ЭТО ГЛАВНОЕ В НЁМ. Удаление означает, что содержимое
- * больше не отдаётся никому — включая тех, кто уже видел его на экране.
- * Отдать текст с пометкой «не показывай» значило бы понадеяться на чужой
- * клиент. Матрица (redaction) вычищает содержимое ровно так же —
- * на сервере, а не на клиенте.
- *
- * ⚠️ ОТДЕЛЬНЫЙ ТИП, А НЕ ПОЛЕ `deleted` У ВИДА СООБЩЕНИЯ. С полем `body`
- * пришлось бы сделать необязательным ВЕЗДЕ, и каждое место, где он
- * рисуется, получило бы случай «а вдруг его нет» — включая те, где его
- * не может не быть. Разделение переносит проверку в одно место.
+ * Вид реплики и надгробия — формы из общего контракта (Р-034), а не свои
+ * копии. Надгробие без текста: удалённое не отдаётся никому, включая тех,
+ * кто уже видел его на экране (как redaction у Matrix).
  */
-/**
- * ⚠️ НЕ ЭКСПОРТИРУЕТСЯ. Наружу уезжает готовый ответ догона, а не его
- * тип: имя нужно только здесь, где собирается вид. Экспорт, которым
- * никто не пользуется, — это обещание, данное на всякий случай;
- * гейт мёртвого кода поймал оба, как только снова заработал.
- */
-interface Tombstone {
-  id: string;
-  conversationId: string;
-  seq: number;
-  deleted: true;
-}
-
-/** Что приезжает догоном: живая реплика или надгробие. */
-type SyncLine = MessageView | Tombstone;
+type MessageView = Message;
 
 /**
  * Сколько текста цитаты уезжает в ленту.
@@ -97,9 +52,9 @@ function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[numbe
     body: row.body,
     kind: row.kind,
     seq: Number(row.seq),
-    createdAt: row.createdAt,
-    editedAt: row.editedAt,
-    pinnedAt: row.pinnedAt,
+    createdAt: row.createdAt.toISOString(),
+    editedAt: row.editedAt?.toISOString() ?? null,
+    pinnedAt: row.pinnedAt?.toISOString() ?? null,
     author: { id: row.authorId, name: row.authorName, kind: row.authorKind },
     /**
      * На что это ответ. `null` — ответа не было ЛИБО исходную реплику
@@ -164,7 +119,7 @@ export async function listConversations(viewer: Viewer) {
       projectId: r.projectId,
       // Время последней активности отдаём наружу: по нему клиент показывает
       // «когда тут в последний раз говорили», не запрашивая ленту.
-      lastAt: r.lastAt,
+      lastAt: new Date(r.lastAt).toISOString(),
       // Сколько чужих реплик человек ещё не видел (Р-029). Едет вместе
       // со списком, а не отдельной дверью: панель каналов и так его
       // перечитывает, и второй запрос был бы ровно тем же обходом.

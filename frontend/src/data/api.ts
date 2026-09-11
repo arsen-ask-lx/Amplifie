@@ -1,4 +1,20 @@
+import type {
+  Conversation,
+  Message,
+  Person,
+  Project,
+  Quote,
+  SyncLine,
+  Tombstone,
+} from "@amplifie/contract/api";
 import { ApiError, type FieldErrors } from "../shared/failure.js";
+
+/**
+ * Формы ответов чата — из общего контракта (Р-034), а не своими копиями:
+ * сменился ответ сервера — фронт перестаёт собираться там, где читает
+ * старое поле. Только типы: zod в сборку фронта не едет.
+ */
+export type { Conversation, Message, Person, Project, Quote, SyncLine, Tombstone };
 
 /**
  * Единственное место, где фронт ходит на сервер.
@@ -56,122 +72,6 @@ export interface ModelKey {
   scope: "участник" | "пространство";
   createdAt: string;
 }
-
-/** Проект — папка чатов и область чтения агента (Р-032). */
-export interface Project {
-  id: string;
-  title: string;
-  /** Как папка выглядит в панели (task-038). Пусто — вид по умолчанию. */
-  icon?: string | null;
-  color?: string | null;
-  /** Закреплён ли МНОЙ в панели (task-038). У коллеги своё. */
-  pinned?: boolean;
-}
-
-/** Человек или агент — тот, кого можно позвать. */
-export interface Person {
-  id: string;
-  name: string;
-  /** `human` или `agent`. Агента в списке видно подписью. */
-  kind: string;
-}
-
-export interface Conversation {
-  id: string;
-  kind: string;
-  title: string;
-  parentId: string | null;
-  /**
-   * К какому проекту относится. `null` — вне проектов, и это законно
-   * (Р-032): «Общий», курилка и личка не про проект.
-   */
-  projectId: string | null;
-  /** Закреплён ли МНОЙ в панели (task-038). У коллеги своё. */
-  pinned?: boolean;
-  /** Когда тут в последний раз говорили. По нему сервер и сортирует. */
-  lastAt?: string;
-  /**
-   * Сколько ЧУЖИХ реплик человек ещё не видел (Р-029).
-   *
-   * Считает сервер: клиент держит окно в 300 реплик (Р-023) и про
-   * остальное не знает.
-   */
-  unread: number;
-  /**
-   * Сколько раз в разговоре позвали ИМЕННО ЭТОГО человека и он этого
-   * ещё не видел (Р-031).
-   *
-   * ⚠️ ОТДЕЛЬНОЕ ЧИСЛО, А НЕ ЧАСТЬ НЕПРОЧИТАННОГО. «Тебя звали» и «тут
-   * что-то написали» — разные новости, и вторая не заменяет первую:
-   * в канале с сотней непрочитанных зов иначе не найти. Так же устроен
-   * Телеграм — `unread_mentions_count` рядом с `unread_count`.
-   */
-  mentions: number;
-  /**
-   * Докуда человек дочитал. Отвечает на «откуда черта», а `unread` —
-   * на «сколько». Одно из другого не выводится: у клиента только окно
-   * ленты в 300 реплик.
-   */
-  readSeq: number;
-}
-
-/** На что отвечает реплика. Кусок текста присылает сервер — здесь не режем. */
-export interface Quote {
-  id: string;
-  seq: number;
-  author: string;
-  excerpt: string;
-}
-
-export interface Message {
-  id: string;
-  /**
-   * Ключ, выданный этим клиентом при наборе; приходит и обратно с сервера.
-   *
-   * ⚠️ ЭТО ОПОЗНАВАТЕЛЬНЫЙ ЗНАК РЕПЛИКИ НА ВСЁМ ЕЁ ПУТИ, и он не тот же,
-   * что `id`. `id` рождается на сервере — то есть ПОЗЖЕ, чем реплика
-   * появляется на экране. Пока его нет, у показанной строки и записанной
-   * записи разные имена, и всё, что опирается на имя, считает их разными
-   * вещами.
-   */
-  clientMsgId: string;
-  conversationId: string;
-  body: string;
-  kind: string;
-  seq: number;
-  createdAt: string;
-  editedAt: string | null;
-  /** Когда закреплено. `null` — не закреплено. */
-  pinnedAt: string | null;
-  author: { id: string; name: string; kind: string };
-  /**
-   * Цитата. `null` — ответа не было ЛИБО исходную реплику удалили; снаружи
-   * это одно и то же намеренно: цитата на удалённое не должна показывать
-   * ни текст, ни пустую рамку.
-   */
-  replyTo: Quote | null;
-  /** Имя того, от кого переслано. `null` — не пересылка. */
-  forwardedFrom: string | null;
-}
-
-/**
- * Надгробие: реплику удалили.
- *
- * ⚠️ ПРИХОДИТ ТОЛЬКО ДОГОНОМ И ТОЛЬКО ТОМУ, У КОГО РЕПЛИКА УЖЕ ЕСТЬ.
- * Тому, кто открывает переписку впервые, ни реплики, ни надгробия не видно:
- * надгробие — это указание «убери со своего экрана», а не запись в ленте.
- *
- * Текста здесь нет и не будет: сервер его не отдаёт вовсе.
- */
-export interface Tombstone {
-  id: string;
-  conversationId: string;
-  seq: number;
-  deleted: true;
-}
-
-/** Что приезжает догоном. */
-export type SyncLine = Message | Tombstone;
 
 /** Надгробие ли это. Разбор в одном месте, а не по «if» у каждого читателя. */
 export function isTombstone(line: SyncLine): line is Tombstone {

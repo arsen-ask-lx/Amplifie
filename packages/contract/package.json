@@ -11,9 +11,18 @@
       "import": "./dist/index.js",
       "source": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js",
+      "source": "./src/api.ts",
+      "default": "./dist/api.js"
     }
   },
   "scripts": {
     "build": "tsc --build"
+  },
+  "dependencies": {
+    "zod": "4.5.4"
   }
 }
