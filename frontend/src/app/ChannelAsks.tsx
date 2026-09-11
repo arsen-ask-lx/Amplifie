@@ -28,12 +28,12 @@ import { Input } from "../shared/ui/input.js";
 export function NewChatDialog({
   open,
   /** Название папки, если чат заводят внутри неё. Для заголовка окна. */
-  folderTitle,
+  внутри,
   onCreate,
   onClose,
 }: {
   open: boolean;
-  folderTitle?: string | undefined;
+  внутри?: string | undefined;
   onCreate: (title: string) => Promise<void>;
   onClose: () => void;
 }) {
@@ -42,7 +42,7 @@ export function NewChatDialog({
   return (
     <FormDialog
       open={open}
-      title={folderTitle ? `Новый чат в проекте «${folderTitle}»` : "Новый чат"}
+      title={внутри ? `Новый чат в проекте «${внутри}»` : "Новый чат"}
       submitLabel="Завести"
       canSubmit={title.trim() !== ""}
       onSubmit={async () => {

@@ -129,6 +129,7 @@
     },
     {
       "includes": [
+        "frontend/src/app/ChannelAsks.tsx",
         "frontend/src/app/InviteDialog.tsx",
         "frontend/src/app/ProjectDialog.tsx",
         "frontend/src/app/ProjectRow.tsx",
