@@ -1,12 +1,12 @@
 import { Check, Copy } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Bridge } from "../../data/api.js";
-import { copyQuietly, NOT_COPIED, ГАЛОЧКА_МС } from "../../shared/clipboard.js";
+import { CHECKMARK_MS, copyQuietly, NOT_COPIED } from "../../shared/clipboard.js";
 import { detailOf } from "../../shared/failure.js";
 import { troubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
 import { Input } from "../../shared/ui/input.js";
-import { часы } from "../../shared/when.js";
+import { timeFormat } from "../../shared/when.js";
 
 /**
  * «Подключить свою нейросеть» (task-001).
@@ -47,7 +47,7 @@ function State({ bridge }: { bridge: Bridge }) {
       <b>{bridge.name ?? "код выдан, машина ещё не подключалась"}</b>
       <span className="text-aside text-muted">
         {bridge.online ? "на связи" : bridge.joined ? "нет связи" : "ждёт запуска"}
-        {seen ? ` · последний раз в ${часы.format(seen)}` : ""}
+        {seen ? ` · последний раз в ${timeFormat.format(seen)}` : ""}
       </span>
     </p>
   );
@@ -179,16 +179,16 @@ export function ModelScreen({
   // Галочка гаснет сама: знак «скопировано» не должен пережить действие.
   useEffect(() => {
     if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), ГАЛОЧКА_МС);
+    const timer = setTimeout(() => setCopied(false), CHECKMARK_MS);
     return () => clearTimeout(timer);
   }, [copied]);
 
   // Один раз на открытие: в разработке следствия выполняются дважды,
   // и без этой отметки код выдавался бы парой.
-  const выдан = useRef(false);
+  const issued = useRef(false);
   useEffect(() => {
-    if (!issueAtOnce || выдан.current) return;
-    выдан.current = true;
+    if (!issueAtOnce || issued.current) return;
+    issued.current = true;
     void issue();
   }, [issueAtOnce, issue]);
 

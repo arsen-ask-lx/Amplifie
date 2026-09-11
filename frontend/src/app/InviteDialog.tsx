@@ -1,7 +1,7 @@
 import { Check, Copy } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { api } from "../data/api.js";
-import { copyQuietly, ГАЛОЧКА_МС } from "../shared/clipboard.js";
+import { CHECKMARK_MS, copyQuietly } from "../shared/clipboard.js";
 import { Button } from "../shared/ui/button.js";
 import {
   Dialog,
@@ -63,7 +63,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), ГАЛОЧКА_МС);
+    const timer = setTimeout(() => setCopied(false), CHECKMARK_MS);
     return () => clearTimeout(timer);
   }, [copied]);
 

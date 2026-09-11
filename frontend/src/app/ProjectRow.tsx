@@ -1,7 +1,7 @@
 import { DotsThree, Gear, PencilSimple, PushPin, PushPinSlash } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
-import { ЗначокПроекта } from "../shared/projectLook.js";
+import { ProjectGlyph } from "../shared/projectLook.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +31,7 @@ import {
  * и ослеп. Числа складываются по тем же правилам, что у канала, и берутся
  * у тех же счётчиков — второго способа считать непрочитанное здесь нет.
  */
-function Сводка({ unread, mentions }: { unread: number; mentions: number }) {
+function Summary({ unread, mentions }: { unread: number; mentions: number }) {
   if (mentions <= 0 && unread <= 0) return null;
   return (
     <span className="ml-auto flex shrink-0 items-center gap-1">
@@ -58,7 +58,7 @@ function Сводка({ unread, mentions }: { unread: number; mentions: number }
  * живут в одном и том же месте — иначе человеку приходится помнить,
  * у чего они справа, а у чего по правой кнопке.
  */
-function МенюПроекта({
+function ProjectMenu({
   project,
   onPin,
   onRename,
@@ -129,12 +129,12 @@ export function ProjectRow({
   mentionsOf: (conversationId: string) => number;
   renderChannel: (channel: Conversation) => React.ReactNode;
 }) {
-  const [телоВПотоке, setТелоВПотоке] = useState(!collapsed);
-  const сумма = (счёт: (id: string) => number) =>
-    channels.reduce((всего, one) => всего + счёт(one.id), 0);
+  const [bodyInFlow, setBodyInFlow] = useState(!collapsed);
+  const sum = (countOf: (id: string) => number) =>
+    channels.reduce((total, one) => total + countOf(one.id), 0);
 
   useEffect(() => {
-    if (!collapsed) setТелоВПотоке(true);
+    if (!collapsed) setBodyInFlow(true);
   }, [collapsed]);
 
   return (
@@ -151,11 +151,11 @@ export function ProjectRow({
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors hover:text-ink"
         >
-          <ЗначокПроекта icon={project.icon} color={project.color} className="size-4" />
+          <ProjectGlyph icon={project.icon} color={project.color} className="size-4" />
           <span className="truncate font-medium">{project.title}</span>
           {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
             на самих чатах, и повторять их сверху значит сказать дважды. */}
-          {collapsed ? <Сводка unread={сумма(unreadOf)} mentions={сумма(mentionsOf)} /> : null}
+          {collapsed ? <Summary unread={sum(unreadOf)} mentions={sum(mentionsOf)} /> : null}
         </button>
 
         <button
@@ -167,7 +167,7 @@ export function ProjectRow({
           <PencilSimple className="size-4" />
         </button>
 
-        <МенюПроекта project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
+        <ProjectMenu project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
       </div>
 
       {/* ⚠️ У ПУСТОЙ ПАПКИ ТЕЛА НЕТ ВОВСЕ, А НЕ «ПУСТОЕ ТЕЛО». Пустой
@@ -175,11 +175,11 @@ export function ProjectRow({
           и папка без чатов дёргалась на каждое нажатие, будто что-то
           раскрывается (владелец увидел это на экране). Показывать
           нечего — значит и места занимать нечем. */}
-      {channels.length === 0 || !телоВПотоке ? null : (
+      {channels.length === 0 || !bodyInFlow ? null : (
         <div
           aria-hidden={collapsed}
           onTransitionEnd={(event) => {
-            if (collapsed && event.target === event.currentTarget) setТелоВПотоке(false);
+            if (collapsed && event.target === event.currentTarget) setBodyInFlow(false);
           }}
           className={[
             "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",

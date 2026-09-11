@@ -155,12 +155,12 @@ export const THEMES = [
 export type Theme = (typeof THEMES)[number]["id"];
 
 /** Старые имена не становятся вечным публичным API: переводим разово при чтении. */
-const LEGACY: Readonly<Record<string, Theme>> = {
-  системная: "светлая",
-  "монохром светлая": "монохром",
-  алая: "ночь",
-  малина: "ночь",
-};
+const LEGACY: ReadonlyMap<string, Theme> = new Map<string, Theme>([
+  ["системная", "светлая"],
+  ["монохром светлая", "монохром"],
+  ["алая", "ночь"],
+  ["малина", "ночь"],
+]);
 
 function isTheme(value: string | null): value is Theme {
   return THEMES.some((theme) => theme.id === value);
@@ -171,7 +171,7 @@ export function chosen(): Theme {
   try {
     const saved = localStorage.getItem(KEY);
     if (isTheme(saved)) return saved;
-    const migrated = saved === null ? undefined : LEGACY[saved];
+    const migrated = saved === null ? undefined : LEGACY.get(saved);
     if (migrated !== undefined) {
       localStorage.setItem(KEY, migrated);
       return migrated;

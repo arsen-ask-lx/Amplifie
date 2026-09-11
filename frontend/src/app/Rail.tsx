@@ -48,8 +48,8 @@ const PARTS: Array<{
   id: Section;
   path: string;
   label: string;
-  icon: "хэш" | "работа" | "модель" | "точка";
-}> = [{ id: "board", path: "/board", label: "Доска", icon: "работа" }];
+  icon: "hash" | "tasks" | "model" | "dot";
+}> = [{ id: "board", path: "/board", label: "Доска", icon: "tasks" }];
 
 /**
  * Какой раздел открыт — по адресу.

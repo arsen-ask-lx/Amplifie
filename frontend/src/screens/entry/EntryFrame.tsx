@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import { Logo } from "../../shared/Logo.js";
 import { apply, chosen } from "../../shared/theme.js";
 import { Halftone } from "./Halftone.js";
-import { type Picture, МОСТ } from "./pictures.js";
+import { BRIDGE_PICTURE, type Picture } from "./pictures.js";
 
 /**
  * Рама входа: слева имя и форма, справа растровая картинка (task-022).
@@ -38,7 +38,7 @@ const FADE_MS = 200;
  * выключено в системе, тот получает мгновенную смену: для части людей
  * анимация — не «приятнее», а физически плохо.
  */
-function движение(): boolean {
+function motionAllowed(): boolean {
   return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
@@ -51,34 +51,34 @@ function движение(): boolean {
  * Переход отвечает на действие человека и показывает, что изменилось, —
  * ровно то, что свод разрешает. Эффектов на каждом блоке здесь нет.
  */
-function Картинка({ picture, className }: { picture: Picture; className: string }) {
-  const [уходит, setУходит] = useState<Picture | null>(null);
+function PictureLayer({ picture, className }: { picture: Picture; className: string }) {
+  const [leaving, setLeaving] = useState<Picture | null>(null);
   /** Проявилась ли приходящая. Ноль → единица и есть всё растворение. */
-  const [видна, setВидна] = useState(true);
-  const было = useRef(picture);
+  const [visible, setVisible] = useState(true);
+  const previousRef = useRef(picture);
 
   useEffect(() => {
-    if (было.current === picture) return;
-    const прошлая = было.current;
-    было.current = picture;
+    if (previousRef.current === picture) return;
+    const previous = previousRef.current;
+    previousRef.current = picture;
 
-    if (!движение()) return;
+    if (!motionAllowed()) return;
 
-    setУходит(прошлая);
-    setВидна(false);
+    setLeaving(previous);
+    setVisible(false);
     // Следующим кадром — иначе браузер увидит сразу конечное состояние
     // и переход не сыграет вовсе.
-    const кадр = requestAnimationFrame(() => setВидна(true));
-    const timer = setTimeout(() => setУходит(null), FADE_MS);
+    const frame = requestAnimationFrame(() => setVisible(true));
+    const timer = setTimeout(() => setLeaving(null), FADE_MS);
     return () => {
-      cancelAnimationFrame(кадр);
+      cancelAnimationFrame(frame);
       clearTimeout(timer);
     };
   }, [picture]);
 
   return (
     <div className={`relative ${className}`}>
-      {уходит ? <Halftone picture={уходит} className="absolute inset-0" /> : null}
+      {leaving ? <Halftone picture={leaving} className="absolute inset-0" /> : null}
       {/* ⚠️ ПЕРЕХОД ЗАДАН ЗДЕСЬ, А НЕ КЛЮЧЕВЫМ КАДРОМ В ОБЩЕМ СТИЛЕ.
         Ради одного растворения заводить правило в `styles.css` значило бы
         связать экран входа с общим файлом ради того, что дальше двери
@@ -87,7 +87,7 @@ function Картинка({ picture, className }: { picture: Picture; className:
         key={picture.src}
         picture={picture}
         className="absolute inset-0 transition-opacity duration-200 ease-out"
-        style={{ opacity: видна ? 1 : 0 }}
+        style={{ opacity: visible ? 1 : 0 }}
       />
     </div>
   );
@@ -95,7 +95,7 @@ function Картинка({ picture, className }: { picture: Picture; className:
 
 export function EntryFrame({
   children,
-  picture = МОСТ,
+  picture = BRIDGE_PICTURE,
 }: {
   children: ReactNode;
   /** Какая картинка справа. У каждого шага установки своя (task-026). */
@@ -139,7 +139,7 @@ export function EntryFrame({
 
       {/* Картинка объявлена скрытой на узком окне, а не убрана условием:
         холст должен пережить растягивание окна без пересборки дерева. */}
-      <Картинка picture={picture} className="hidden min-[800px]:block" />
+      <PictureLayer picture={picture} className="hidden min-[800px]:block" />
     </div>
   );
 }

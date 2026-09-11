@@ -16,7 +16,7 @@ import type { ProjectColor, ProjectIcon } from "@amplifie/contract";
  * подписей недоступен тому, кто цвета не различает: для него это семь
  * одинаковых серых точек. Название читается вслух и служит именем кнопки.
  */
-export const ЦВЕТА: Record<ProjectColor, string> = {
+export const COLOR_LABELS: Record<ProjectColor, string> = {
   red: "Красный",
   orange: "Оранжевый",
   yellow: "Жёлтый",
@@ -31,7 +31,7 @@ export const ЦВЕТА: Record<ProjectColor, string> = {
  * курсором. Без имени кнопка выбора остаётся картинкой без названия,
  * а в списке из девяноста это ещё и единственный способ искать словом.
  */
-export const ЗНАЧКИ_ВСЛУХ: Record<ProjectIcon, string> = {
+export const ICON_LABELS: Record<ProjectIcon, string> = {
   folder: "Папка",
   house: "Дом",
   buildings: "Здания",

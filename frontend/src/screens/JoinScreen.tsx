@@ -5,7 +5,7 @@ import { Button } from "../shared/ui/button.js";
 import { Credentials } from "./entry/Credentials.js";
 import { EntryFrame } from "./entry/EntryFrame.js";
 import { EntryHead } from "./entry/EntryHead.js";
-import { МОСТ } from "./entry/pictures.js";
+import { BRIDGE_PICTURE } from "./entry/pictures.js";
 import { useEntryForm } from "./entry/useEntryForm.js";
 
 /**
@@ -32,7 +32,7 @@ export function JoinScreen({ token, onEntered }: { token: string; onEntered: (me
   });
 
   return (
-    <EntryFrame picture={МОСТ}>
+    <EntryFrame picture={BRIDGE_PICTURE}>
       <form onSubmit={submit} noValidate>
         <EntryHead
           title="Вас пригласили"

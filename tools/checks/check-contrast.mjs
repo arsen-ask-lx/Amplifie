@@ -117,9 +117,9 @@ const PAIRS = [
     ["blue", "синяя"],
     ["violet", "фиолетовая"],
     ["pink", "розовая"],
-  ].flatMap(([имя, вслух]) => [
-    { fg: `--tag-${имя}`, bg: "--panel", need: EDGE, what: `метка ${вслух} на панели` },
-    { fg: `--tag-${имя}`, bg: "--bg", need: EDGE, what: `метка ${вслух} на фоне` },
+  ].flatMap(([name, label]) => [
+    { fg: `--tag-${name}`, bg: "--panel", need: EDGE, what: `метка ${label} на панели` },
+    { fg: `--tag-${name}`, bg: "--bg", need: EDGE, what: `метка ${label} на фоне` },
   ]),
 ];
 

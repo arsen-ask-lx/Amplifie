@@ -196,7 +196,7 @@ export function Mentions({ conversationId }: { conversationId: string | null }) 
        * в стиль узла, а стиль сильнее класса.
        */
       anchorClassName="fixed! top-0! left-0! h-0! w-0! overflow-hidden!"
-      menuRenderFn={(_якорь, { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) => {
+      menuRenderFn={(_anchor, { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }) => {
         if (matching.length === 0) return null;
         return (
           <div

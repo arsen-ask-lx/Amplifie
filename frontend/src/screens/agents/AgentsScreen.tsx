@@ -37,7 +37,7 @@ function AgentStatus({
 
   return (
     <p className="mb-8 flex flex-wrap items-center gap-x-2 gap-y-1 text-body text-ink">
-      <Icon name="модель" />
+      <Icon name="model" />
       <b>{agent.name}</b>
       <span className="text-muted">{state}</span>
       {payment ? <span className="text-muted">· отвечает через {payment}</span> : null}

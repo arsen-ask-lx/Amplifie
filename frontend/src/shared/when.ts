@@ -17,7 +17,7 @@
  */
 
 /** 14:05 */
-export const часы = new Intl.DateTimeFormat("ru", { hour: "2-digit", minute: "2-digit" });
+export const timeFormat = new Intl.DateTimeFormat("ru", { hour: "2-digit", minute: "2-digit" });
 
 /** 7 сентября */
 export const dayFormat = new Intl.DateTimeFormat("ru", { day: "numeric", month: "long" });

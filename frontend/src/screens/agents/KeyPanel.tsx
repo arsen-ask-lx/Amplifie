@@ -77,14 +77,14 @@ function Choice({
   // Подпись связана с кнопкой списка по имени: обернуть её `<label>`
   // нельзя — внутри не поле браузера, а свой узел, и подпись повисла бы
   // ни на чём. Это поймал сторож доступности, и он прав.
-  const подпись = useId();
+  const labelId = useId();
 
   return (
     <div className="flex flex-col gap-1 text-aside text-muted">
-      <span id={подпись}>{label}</span>
+      <span id={labelId}>{label}</span>
       <Select value={value} onValueChange={onPick}>
         <SelectTrigger
-          aria-labelledby={подпись}
+          aria-labelledby={labelId}
           className="field-baseline w-full !rounded-xl !border-0 !border-b !border-line !bg-raised text-ink focus-visible:!outline-none focus-visible:!shadow-none"
         >
           <SelectValue />
@@ -197,7 +197,7 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
 
         <div className="mt-6 flex justify-end">
           <Button type="submit" disabled={busy || key.trim().length === 0}>
-            <Icon name="плюс" />
+            <Icon name="plus" />
             {busy ? "Сохраняем…" : "Сохранить ключ"}
           </Button>
         </div>

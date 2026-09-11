@@ -207,7 +207,7 @@ const ICONS: Record<ProjectIcon, React.ComponentType<{ className?: string }>> = 
 export { PROJECT_ICONS };
 
 /** Цвет метки значением из темы. Пусто — приглушённый цвет темы. */
-export function цветМетки(color: string | null | undefined): string | undefined {
+export function labelColor(color: string | null | undefined): string | undefined {
   return color ? `var(--tag-${color})` : undefined;
 }
 
@@ -218,7 +218,7 @@ export function цветМетки(color: string | null | undefined): string | u
  * выбор в окне, будущая карточка. Три копии разъехались бы на первой же
  * правке — у одной появился бы новый значок, у другой нет.
  */
-export function ЗначокПроекта({
+export function ProjectGlyph({
   icon,
   color,
   className,
@@ -228,7 +228,7 @@ export function ЗначокПроекта({
   className?: string;
 }) {
   const Glyph = icon && icon in ICONS ? ICONS[icon as ProjectIcon] : FolderSimple;
-  const tint = цветМетки(color);
+  const tint = labelColor(color);
   return (
     <span className="grid shrink-0 place-items-center" style={tint ? { color: tint } : undefined}>
       <Glyph className={className ?? "size-4"} />
@@ -245,6 +245,6 @@ export function ЗначокПроекта({
  * Картинки может не быть по десятку причин (старый выбор, чужая версия
  * пакета, опечатка в миграции); ни одна из них не стоит белого экрана.
  */
-export function значокПоИмени(icon: string) {
+export function iconByName(icon: string) {
   return icon in ICONS ? ICONS[icon as ProjectIcon] : FolderSimple;
 }

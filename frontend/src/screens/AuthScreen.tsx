@@ -6,7 +6,7 @@ import { Button } from "../shared/ui/button.js";
 import { Credentials } from "./entry/Credentials.js";
 import { EntryFrame } from "./entry/EntryFrame.js";
 import { EntryHead } from "./entry/EntryHead.js";
-import { МОСТ } from "./entry/pictures.js";
+import { BRIDGE_PICTURE } from "./entry/pictures.js";
 import { useEntryForm } from "./entry/useEntryForm.js";
 
 /**
@@ -130,10 +130,10 @@ export function AuthScreen({
   }
 
   // Пока не знаем, какая дверь, — рама и знак уже на месте, а формы нет.
-  if (mode === null) return <EntryFrame picture={МОСТ}>{null}</EntryFrame>;
+  if (mode === null) return <EntryFrame picture={BRIDGE_PICTURE}>{null}</EntryFrame>;
 
   return (
-    <EntryFrame picture={МОСТ}>
+    <EntryFrame picture={BRIDGE_PICTURE}>
       <form onSubmit={submit} noValidate>
         <EntryHead
           title={isRegister ? "Создать пространство" : "С возвращением"}

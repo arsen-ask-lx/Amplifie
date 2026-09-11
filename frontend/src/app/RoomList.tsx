@@ -48,33 +48,33 @@ import { SidebarSection } from "./SidebarSection.js";
  * приватности, и это выбор человека, а не поломка: не прочлось — все
  * папки развёрнуты, и панель работает.
  */
-const ЯЩИК = "amplifie:свёрнутые-проекты";
+const COLLAPSED_KEY = "amplifie:свёрнутые-проекты";
 
-function useСвёрнутые() {
-  const [свёрнуты, setСвёрнуты] = useState<Set<string>>(() => {
+function useCollapsed() {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     try {
-      return new Set(JSON.parse(localStorage.getItem(ЯЩИК) ?? "[]") as string[]);
+      return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]") as string[]);
     } catch {
       return new Set();
     }
   });
 
-  const свернуть = (id: string) => {
-    setСвёрнуты((было) => {
-      const стало = new Set(было);
-      if (стало.has(id)) стало.delete(id);
-      else стало.add(id);
+  const toggle = (id: string) => {
+    setCollapsed((before) => {
+      const after = new Set(before);
+      if (after.has(id)) after.delete(id);
+      else after.add(id);
       try {
-        localStorage.setItem(ЯЩИК, JSON.stringify([...стало]));
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...after]));
       } catch {
         // Не сохранилось — папка свернётся снова после перезагрузки.
         // Это неудобство, а не поломка, и молчать о нём здесь уместно.
       }
-      return стало;
+      return after;
     });
   };
 
-  return { свёрнуты, свернуть };
+  return { collapsed: collapsed, toggle: toggle };
 }
 
 /**
@@ -86,7 +86,7 @@ function useСвёрнутые() {
  */
 export function RoomList({ panel }: { panel: Panel }) {
   const { items, projects, currentId, unreadOf, mentionsOf } = panel;
-  const { свёрнуты, свернуть } = useСвёрнутые();
+  const { collapsed, toggle } = useCollapsed();
 
   /**
    * Что спрашиваем про проекты прямо сейчас.
@@ -96,8 +96,11 @@ export function RoomList({ panel }: { panel: Panel }) {
    * разом. Тремя флажками это состояние однажды оказалось бы в двух
    * значениях сразу.
    */
-  const [спрашиваем, setСпрашиваем] = useState<
-    { вид: "новый" } | { вид: "имя"; project: Project } | { вид: "убрать"; project: Project } | null
+  const [asking, setAsking] = useState<
+    | { kind: "create" }
+    | { kind: "rename"; project: Project }
+    | { kind: "remove"; project: Project }
+    | null
   >(null);
   /**
    * Какой канал спрашиваем «точно удалить?».
@@ -111,7 +114,7 @@ export function RoomList({ panel }: { panel: Panel }) {
 
   // Что панель показывает, решено при её сборке (`usePanel`): сюда
   // приезжают уже только корневые разговоры.
-  const безПапки = items.filter((one) => one.projectId === null);
+  const loose = items.filter((one) => one.projectId === null);
 
   /**
    * Строка канала одна и та же внутри проекта и снаружи.
@@ -119,9 +122,9 @@ export function RoomList({ panel }: { panel: Panel }) {
    * ⚠️ ФУНКЦИЕЙ, А НЕ ДВУМЯ КУСКАМИ РАЗМЕТКИ. Два куска разъедутся
    * на первой же правке — у одного появится значок, у другого нет.
    */
-  const закрыть = () => setСпрашиваем(null);
+  const close = () => setAsking(null);
 
-  const строка = (channel: Conversation) => (
+  const row = (channel: Conversation) => (
     <ChannelRow
       key={channel.id}
       channel={channel}
@@ -149,7 +152,7 @@ export function RoomList({ panel }: { panel: Panel }) {
           title="Проекты"
           addLabel="Новый проект"
           addAlwaysVisible={projects.length === 0}
-          onAdd={() => setСпрашиваем({ вид: "новый" })}
+          onAdd={() => setAsking({ kind: "create" })}
         >
           <div className="flex flex-col gap-0.5">
             {projects.map((project) => (
@@ -157,14 +160,14 @@ export function RoomList({ panel }: { panel: Panel }) {
                 key={project.id}
                 project={project}
                 channels={items.filter((one) => one.projectId === project.id)}
-                collapsed={свёрнуты.has(project.id)}
-                onToggle={() => свернуть(project.id)}
+                collapsed={collapsed.has(project.id)}
+                onToggle={() => toggle(project.id)}
                 onPin={(pinned) => panel.pin({ projectId: project.id }, pinned)}
-                onRename={() => setСпрашиваем({ вид: "имя", project })}
-                onRemove={() => setСпрашиваем({ вид: "убрать", project })}
+                onRename={() => setAsking({ kind: "rename", project })}
+                onRemove={() => setAsking({ kind: "remove", project })}
                 unreadOf={unreadOf}
                 mentionsOf={mentionsOf}
-                renderChannel={строка}
+                renderChannel={row}
               />
             ))}
 
@@ -183,16 +186,14 @@ export function RoomList({ panel }: { panel: Panel }) {
 
             Пусто — подписи нет вовсе: заголовок над пустотой говорит
             только о том, что мы чего-то ждём от человека. */}
-        {безПапки.length > 0 ? (
+        {loose.length > 0 ? (
           <SidebarSection title="Недавние">
-            <div className="flex flex-col gap-0.5">
-              {безПапки.map((channel) => строка(channel))}
-            </div>
+            <div className="flex flex-col gap-0.5">{loose.map((channel) => row(channel))}</div>
           </SidebarSection>
         ) : null}
       </div>
 
-      <ProjectAsks спрашиваем={спрашиваем} panel={panel} onClose={закрыть} />
+      <ProjectAsks asking={asking} panel={panel} onClose={close} />
 
       <ConfirmRemoval
         channel={removing}

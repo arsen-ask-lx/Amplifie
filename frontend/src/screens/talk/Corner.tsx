@@ -1,5 +1,5 @@
 import { Check, Clock, WarningCircle } from "@phosphor-icons/react";
-import { часы } from "../../shared/when.js";
+import { timeFormat } from "../../shared/when.js";
 import type { Row } from "./rows.js";
 
 /**
@@ -86,7 +86,7 @@ const GAP = "pl-2";
  * в странице быть не должно.
  */
 function Marks({ row, shadow = false }: { row: Row; shadow?: boolean }) {
-  const text = часы.format(new Date(row.message.createdAt));
+  const text = timeFormat.format(new Date(row.message.createdAt));
   return (
     <>
       {row.message.editedAt ? <span title={shadow ? undefined : "изменено"}>изм.</span> : null}
