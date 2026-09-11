@@ -1,0 +1,37 @@
+name: Выпуск
+
+# Тег `v*` — и на странице выпуска архив образов, compose.yml, генератор
+# настроек и контрольные суммы (task-066, Р-030 ②).
+on:
+  push:
+    tags: ["v*"]
+
+# Заводить страницу выпуска и класть на неё файлы. Больше ничего.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # Полная история: версия берётся из тега (Р-030 ⑥).
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # ⚠️ ВЫПУСК — ЭТО ТОТ ЖЕ АРХИВ, ЧТО ПРОШЁЛ ПУТЬ КЛИЕНТА. Отдельной
+      # сборки для выпуска нет: проверено было бы одно, а уехало другое.
+      - name: Путь клиента и архив выпуска
+        run: RELEASE_DIR=release make delivery
+      - name: Страница выпуска
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" release/*
+          --verify-tag
+          --title "Amplifie $GITHUB_REF_NAME"
+          --notes-file tools/ops/release-notes.md

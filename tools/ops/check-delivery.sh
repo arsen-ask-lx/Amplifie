@@ -160,3 +160,16 @@ SECOND="$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$PORT
 ok_ "второму отказано — коробка осталась коробкой"
 
 printf '\n\033[32m════ путь клиента пройден целиком ════\033[0m\n'
+
+# ⚠️ В ВЫПУСК ИДЁТ ЭТОТ САМЫЙ АРХИВ, А НЕ СОБРАННЫЙ ЗАНОВО (task-066). Второй
+# сборкой проверено было бы одно, а уехало другое. Сюда доходит только
+# прошедший путь клиента: любой отказ выше уже вышел из скрипта.
+if [ -n "${RELEASE_DIR:-}" ]; then
+  step "Складываем выпуск в $RELEASE_DIR"
+  VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+  mkdir -p "$RELEASE_DIR"
+  gzip -c "$ARCHIVE" > "$RELEASE_DIR/amplifie-$VERSION-images.tar.gz"
+  cp compose.yml tools/ops/make-env.mjs "$RELEASE_DIR/"
+  ( cd "$RELEASE_DIR" && sha256sum -- * > SHA256SUMS )
+  ok_ "выпуск: $(ls "$RELEASE_DIR" | tr '\n' ' ')"
+fi
