@@ -1,10 +1,12 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
+  $getRoot,
   $getSelection,
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
   INSERT_LINE_BREAK_COMMAND,
+  KEY_ARROW_UP_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
@@ -133,8 +135,19 @@ export function Handle({ onReady }: { onReady: (editor: LexicalEditor) => void }
   return null;
 }
 
-/** Enter, Shift+Enter и сочетания разметки. */
-export function Keys({ onSend }: { onSend: () => void }) {
+/**
+ * Enter, Shift+Enter, сочетания разметки и `↑` в пустом поле.
+ *
+ * `onEditLast` — правка последнего своего, как в Telegram Desktop. Возвращает,
+ * нашлось ли что править: не нашлось — стрелка остаётся стрелкой.
+ */
+export function Keys({
+  onSend,
+  onEditLast,
+}: {
+  onSend: () => void;
+  onEditLast?: (() => boolean) | undefined;
+}) {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
@@ -223,13 +236,28 @@ export function Keys({ onSend }: { onSend: () => void }) {
       root?.addEventListener("blur", restore);
     });
 
+    const offUp = editor.registerCommand(
+      KEY_ARROW_UP_COMMAND,
+      (event) => {
+        if (!onEditLast || event?.shiftKey || event?.ctrlKey || event?.metaKey || event?.altKey) {
+          return false;
+        }
+        const empty = editor.getEditorState().read(() => $getRoot().getTextContent().trim() === "");
+        if (!empty || !onEditLast()) return false;
+        event?.preventDefault();
+        return true;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
     return () => {
+      offUp();
       offEnter();
       offKeys();
       offEscape();
       offBlur();
     };
-  }, [editor, onSend]);
+  }, [editor, onSend, onEditLast]);
 
   return null;
 }

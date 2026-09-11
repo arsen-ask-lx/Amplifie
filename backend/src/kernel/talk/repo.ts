@@ -71,6 +71,44 @@ export function canSee(
   )`;
 }
 
+/**
+ * Единственное правило «человек убирает здесь чужое» (Р-035): владелец
+ * пространства или владелец канала-корня. Им отвечает и проверка удаления,
+ * и признак в панели — один ответ о правах.
+ */
+export function moderates(
+  conversationId: SQLWrapper,
+  parentId: SQLWrapper,
+  participantId: SQLWrapper | string,
+): SQL<boolean> {
+  return sql<boolean>`(
+    EXISTS (
+      SELECT 1 FROM ${participant} AS boss
+      WHERE boss.id = ${participantId} AND boss.role = 'owner'
+    )
+    OR EXISTS (
+      SELECT 1 FROM ${conversationMember} AS keeper
+      WHERE keeper.conversation_id = COALESCE(${parentId}, ${conversationId})
+        AND keeper.participant_id = ${participantId}
+        AND keeper.role = 'owner'
+    )
+  )`;
+}
+
+/** Убирает ли человек чужое в этом разговоре. */
+export async function canModerate(
+  tx: Executor,
+  conversationId: string,
+  participantId: string,
+): Promise<boolean> {
+  const rows = await tx
+    .select({ yes: moderates(conversation.id, conversation.parentId, participantId) })
+    .from(conversation)
+    .where(eq(conversation.id, conversationId))
+    .limit(1);
+  return rows[0]?.yes === true;
+}
+
 /** Разговоры (строки `conversation` запроса), видимые этому человеку. */
 export function visibleTo(participantId: string): SQL {
   return canSee(conversation.id, conversation.parentId, participantId);
@@ -186,6 +224,8 @@ export function listConversationsFor(tx: Executor, participantId: string, worksp
           AND ${conversationRead.participantId} = ${participantId}
       ), 0)`,
         pinned: pinned,
+        // Убирает ли здесь чужое (Р-035) — фронт по нему показывает «Удалить».
+        moderator: moderates(conversation.id, conversation.parentId, participantId),
       })
       .from(conversation)
       // Пространство — отдельным условием, хотя видимость его отсекает:

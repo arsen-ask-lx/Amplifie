@@ -26,6 +26,8 @@ export interface Deeds {
   onPin: (message: Message, pinned: boolean) => void;
   onEdit: (message: Message) => void;
   onRemove: (message: Message) => void;
+  /** Можно ли удалить: своё или модерирую здесь (Р-035). */
+  canRemove: (message: Message) => boolean;
   /** Войти в режим выделения, начав с этой реплики. */
   onSelect: (message: Message) => void;
 }
@@ -45,7 +47,7 @@ export interface Picking {
  * и «Ответить» первым, а «Удалить» у самого низа — не вкус, а защита
  * от промаха.
  *
- * ⚠️ «ИЗМЕНИТЬ» И «УДАЛИТЬ» ЕСТЬ ТОЛЬКО У СВОИХ. Показать их у чужой
+ * ⚠️ «ИЗМЕНИТЬ» — ТОЛЬКО У СВОИХ, «УДАЛИТЬ» — ЕЩЁ И У МОДЕРАТОРА (Р-035). Показать их у чужой
  * реплики и получить отказ от сервера — худшее из решений: меню обещает
  * то, чего нельзя, и человек узнаёт об этом уже после нажатия. Рубеж стоит
  * на сервере, а здесь — честный вид того же правила.
@@ -98,7 +100,7 @@ export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
         Переслать
       </ContextMenuItem>
 
-      {row.mine ? (
+      {deeds.canRemove(message) ? (
         <ContextMenuItem variant="destructive" onSelect={() => deeds.onRemove(message)}>
           <Trash />
           Удалить

@@ -3,11 +3,12 @@ import { api, type Message } from "../../data/api.js";
 import type { Chat } from "../../data/useChat.js";
 import { copyAndTell } from "../../shared/clipboard.js";
 import { COPIED } from "../../shared/toast.js";
+import { ConfirmDialog } from "../../shared/ui/ask-dialog.js";
 import { Composer } from "./Composer.js";
 import { Feed } from "./Feed.js";
 import { ForwardPicker } from "./ForwardPicker.js";
 import { PinnedBar } from "./PinnedBar.js";
-import { SelectionBar } from "./SelectionBar.js";
+import { messagesWord, SelectionBar } from "./SelectionBar.js";
 
 /**
  * Разговор целиком: полоска закреплённого, лента, полоска выделения,
@@ -41,7 +42,14 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
    */
   const [picked, setPicked] = useState<Set<string> | null>(null);
 
+  /** Что удаляем — ждёт ответа на вопрос. `null` — вопроса нет. */
+  const [removing, setRemoving] = useState<Message[] | null>(null);
+
   const chosen = picked ? chat.messages.filter((one) => picked.has(one.id)) : [];
+
+  // Своё — всегда; чужое — если здесь модерирую (Р-035). Решает сервер,
+  // а это честный вид того же правила: меню не обещает недоступного.
+  const canRemove = removableBy(meId, chat.current?.moderator === true);
 
   function toggle(message: Message) {
     setPicked((was) => {
@@ -77,7 +85,8 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
     onForward: (message: Message) => setForwarding(message),
     onPin: (message: Message, pinned: boolean) => void chat.pin(message.id, pinned),
     onEdit: (message: Message) => setEditing(message),
-    onRemove: (message: Message) => void chat.remove(message.id),
+    onRemove: (message: Message) => setRemoving([message]),
+    canRemove,
     onSelect: (message: Message) => setPicked(new Set([message.id])),
   };
 
@@ -91,7 +100,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
   if (chat.conversations.length === 0) {
     return (
       <p className="p-8 text-center text-body text-muted">
-        В этом пространстве ещё нет каналов. Заведите первый — плюс в заголовке «Каналы» слева.
+        В этом пространстве ещё нет чатов. Заведите первый — «Новый чат» слева.
       </p>
     );
   }
@@ -127,7 +136,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
       {picked ? (
         <SelectionBar
           chosen={chosen}
-          meId={meId}
+          canRemove={canRemove}
           onCancel={() => setPicked(null)}
           // Копируется одним куском с именами: так выделенное и вставляется
           // потом — в письмо или в задачу, а не по одной строке.
@@ -142,15 +151,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
             const first = chosen[0];
             if (first) setForwarding(first);
           }}
-          onRemove={() => {
-            // Последовательно, а не пачкой: ручки «удалить много» на сервере
-            // нет, и выдумывать её на клиенте циклом с молчаливыми отказами
-            // нельзя. Первая же неудача остановит и скажет.
-            void (async () => {
-              for (const one of chosen) await chat.remove(one.id);
-              setPicked(null);
-            })();
-          }}
+          onRemove={() => setRemoving(chosen)}
         />
       ) : null}
 
@@ -161,11 +162,19 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
         onCancelReply={() => chat.reply(null)}
         editing={editing}
         onCancelEdit={() => setEditing(null)}
+        onEditLast={() => startEditing(lastOwnSent(chat.messages, meId), setEditing)}
         onSaveEdit={async (body) => {
           if (!editing) return;
           await chat.edit(editing.id, body);
           setEditing(null);
         }}
+      />
+
+      <RemoveConfirm
+        messages={removing}
+        remove={chat.remove}
+        onClose={() => setRemoving(null)}
+        onRemoved={() => setPicked(null)}
       />
 
       {forwarding ? (
@@ -180,6 +189,60 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Последнее своё отправленное — для `↑`, как в Telegram Desktop.
+ * Неотправленное носит дробный номер: править на сервере нечего.
+ */
+function lastOwnSent(messages: Message[], meId: string): Message | undefined {
+  return messages.findLast((one) => one.author.id === meId && Number.isInteger(one.seq));
+}
+
+/** Открыть правку, если есть что править. `false` — стрелка остаётся стрелкой. */
+function startEditing(message: Message | undefined, edit: (message: Message) => void): boolean {
+  if (!message) return false;
+  edit(message);
+  return true;
+}
+
+/** Можно ли удалить: своё — всегда, чужое — если модерирую здесь (Р-035). */
+function removableBy(meId: string, moderator: boolean) {
+  return (message: Message) => moderator || message.author.id === meId;
+}
+
+/** Вопрос перед удалением — как в Телеграме: удалённое исчезает у всех. */
+function RemoveConfirm({
+  messages,
+  remove,
+  onClose,
+  onRemoved,
+}: {
+  /** Что удаляем. `null` — вопроса нет, окно не показывается. */
+  messages: Message[] | null;
+  remove: (id: string) => Promise<void>;
+  onClose: () => void;
+  onRemoved: () => void;
+}) {
+  if (!messages) return null;
+  const count = messages.length;
+  const one = count === 1;
+  const confirm = async () => {
+    onClose();
+    // Последовательно, а не пачкой: ручки «удалить много» на сервере
+    // нет. Первая же неудача остановит и скажет.
+    for (const message of messages) await remove(message.id);
+    onRemoved();
+  };
+  return (
+    <ConfirmDialog
+      title={one ? "Удалить сообщение?" : `Удалить ${count} ${messagesWord(count)}?`}
+      description={one ? "Оно исчезнет у всех в чате." : "Они исчезнут у всех в чате."}
+      confirmLabel="Удалить"
+      onCancel={onClose}
+      onConfirm={() => void confirm()}
+    />
   );
 }
 

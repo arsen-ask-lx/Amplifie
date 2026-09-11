@@ -6,6 +6,7 @@ import {
   menu,
   openChannel,
   register,
+  removeMessage,
   saveEdit,
   say,
 } from "./fixtures.js";
@@ -71,7 +72,7 @@ async function saidAndAnswered(page: Page, browser: Browser) {
 test("П-3: удалённая реплика уходит из второй вкладки", async ({ page, browser }) => {
   const secondPage = await saidAndAnswered(page, browser);
 
-  await menu(page, "подрядчик подтвердил срок", "Удалить");
+  await removeMessage(page, "подрядчик подтвердил срок");
 
   await expect(
     bubble(secondPage, "подрядчик подтвердил срок").filter({ hasNotText: "тогда закладываем" }),
@@ -100,7 +101,7 @@ test("П-3б: цитата на удалённую реплику уходит �
     bubble(secondPage, "тогда закладываем в план").getByTitle("Перейти к сообщению"),
   ).toBeVisible();
 
-  await menu(page, "подрядчик подтвердил срок", "Удалить");
+  await removeMessage(page, "подрядчик подтвердил срок");
 
   await expect(
     bubble(secondPage, "тогда закладываем в план").getByTitle("Перейти к сообщению"),

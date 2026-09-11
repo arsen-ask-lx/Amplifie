@@ -237,6 +237,12 @@ export async function menu(page: Page, text: string, item: string): Promise<void
   await page.getByRole("menuitem", { name: item, exact: true }).click();
 }
 
+/** Удалить реплику так, как это делает человек: меню и подтверждение (task-061). */
+export async function removeMessage(page: Page, text: string): Promise<void> {
+  await menu(page, text, "Удалить");
+  await page.getByRole("dialog").getByRole("button", { name: "Удалить", exact: true }).click();
+}
+
 /**
  * Сказать реплику и дождаться, что она ДОШЛА ДО СЕРВЕРА.
  *

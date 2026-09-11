@@ -119,6 +119,7 @@ export function RichField({
   conversationId,
   onChange,
   onSend,
+  onEditLast,
   onReady,
 }: {
   placeholder: string;
@@ -127,6 +128,8 @@ export function RichField({
   /** Наружу уходит наша строка с разметкой, а не дерево редактора. */
   onChange: (markup: string) => void;
   onSend: () => void;
+  /** `↑` в пустом поле: править последнее своё. */
+  onEditLast?: (() => boolean) | undefined;
   onReady: (api: FieldApi) => void;
 }) {
   return (
@@ -172,7 +175,7 @@ export function RichField({
           onChange={(_, editor) => onChange(toMarkup(editor))}
         />
         <Mentions conversationId={conversationId} />
-        <Keys onSend={onSend} />
+        <Keys onSend={onSend} onEditLast={onEditLast} />
         <Handle
           onReady={(editor) =>
             onReady({

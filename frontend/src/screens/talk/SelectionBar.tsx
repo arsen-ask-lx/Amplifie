@@ -14,7 +14,7 @@ import type { Message } from "../../data/api.js";
  * это тот самый мелкий мусор, из которого складывается ощущение, что
  * продукт делали второпях.
  */
-function messagesWord(n: number): string {
+export function messagesWord(n: number): string {
   const last = n % 10;
   const teen = n % 100 >= 11 && n % 100 <= 14;
   if (!teen && last === 1) return "сообщение";
@@ -24,22 +24,22 @@ function messagesWord(n: number): string {
 
 export function SelectionBar({
   chosen,
-  meId,
+  canRemove,
   onCopy,
   onForward,
   onRemove,
   onCancel,
 }: {
   chosen: Message[];
-  /** Кто я. По нему и решается, показывать ли «Удалить». */
-  meId: string;
+  /** Можно ли удалить эту реплику: своё или модерирую здесь (Р-035). */
+  canRemove: (message: Message) => boolean;
   onCopy: () => void;
   onForward: () => void;
   onRemove: () => void;
   onCancel: () => void;
 }) {
   if (chosen.length === 0) return null;
-  const mineOnly = chosen.every((one) => one.author.id === meId);
+  const removable = chosen.every(canRemove);
 
   return (
     <div className="flex shrink-0 items-center gap-2 border-t border-line bg-card px-3 py-2">
@@ -73,7 +73,7 @@ export function SelectionBar({
         <ArrowBendUpRight className="size-4" />
         Переслать
       </button>
-      {mineOnly ? (
+      {removable ? (
         <button
           type="button"
           onClick={onRemove}

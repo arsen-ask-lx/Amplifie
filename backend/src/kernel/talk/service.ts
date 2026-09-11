@@ -97,6 +97,7 @@ export async function listConversations(viewer: Viewer) {
       mentions: r.mentions,
       readSeq: Number(r.readSeq),
       pinned: r.pinned,
+      moderator: r.moderator,
     })),
   };
 }
@@ -490,6 +491,21 @@ async function requireMine(tx: Executor, viewer: Viewer, messageId: string) {
 }
 
 /**
+ * Удалить можно своё — и чужое, если человек здесь модерирует (Р-035).
+ * Для остальных чужое — «нет такого», как и прежде.
+ */
+async function requireDeletable(tx: Executor, viewer: Viewer, messageId: string) {
+  const found = await repo.findMessage(tx, messageId);
+  if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
+  await requireVisible(tx, viewer, found.conversationId);
+  if (found.authorParticipantId === viewer.participantId) return { found, moderated: false };
+  if (await repo.canModerate(tx, found.conversationId, viewer.participantId)) {
+    return { found, moderated: true };
+  }
+  throw new ConversationNotVisibleError();
+}
+
+/**
  * Событие о реплике в журнал — без текста: журнал живёт дольше сообщения
  * и читается шире разговора.
  */
@@ -499,6 +515,7 @@ async function logMessageEvent(
   kind: string,
   messageId: string,
   found: { conversationId: string; seq: bigint | number | string },
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   await appendEvent(tx, {
     kind,
@@ -506,7 +523,7 @@ async function logMessageEvent(
     actorParticipantId: viewer.participantId,
     subjectType: "message",
     subjectId: messageId,
-    payload: { conversationId: found.conversationId, seq: Number(found.seq) },
+    payload: { conversationId: found.conversationId, seq: Number(found.seq), ...extra },
   });
 }
 
@@ -532,11 +549,19 @@ export async function editMessage(
 /** Удалить своё сообщение — мягко: на него ссылаются ответы и пересылки. */
 export async function deleteMessage(viewer: Viewer, messageId: string): Promise<void> {
   await change(viewer.workspaceId, async (tx) => {
-    const found = await requireMine(tx, viewer, messageId);
+    const { found, moderated } = await requireDeletable(tx, viewer, messageId);
     const gone = await repo.softDeleteMessage(tx, viewer.workspaceId, messageId);
     if (!gone) throw new ConversationNotVisibleError();
 
-    await logMessageEvent(tx, viewer, "message.deleted", messageId, found);
+    // Актор — удаливший; признак говорит, что сообщение было чужим (Р-035).
+    await logMessageEvent(
+      tx,
+      viewer,
+      "message.deleted",
+      messageId,
+      found,
+      moderated ? { moderated } : {},
+    );
   });
 }
 

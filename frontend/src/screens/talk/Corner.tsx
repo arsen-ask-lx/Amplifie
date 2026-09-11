@@ -1,5 +1,5 @@
 import { Check, Clock, WarningCircle } from "@phosphor-icons/react";
-import { timeFormat } from "../../shared/when.js";
+import { dayFormat, timeFormat } from "../../shared/when.js";
 import type { Row } from "./rows.js";
 
 /**
@@ -85,11 +85,21 @@ const GAP = "pl-2";
  * `тень` меняет только тег времени: двух `<time>` на одну реплику
  * в странице быть не должно.
  */
+/** «изменено 14:32» — а если не сегодня, то и день: «изменено 9 сентября, 14:32». */
+function editedTitle(editedAt: string): string {
+  const at = new Date(editedAt);
+  const today = new Date().toDateString() === at.toDateString();
+  const time = timeFormat.format(at);
+  return today ? `изменено ${time}` : `изменено ${dayFormat.format(at)}, ${time}`;
+}
+
 function Marks({ row, shadow = false }: { row: Row; shadow?: boolean }) {
   const text = timeFormat.format(new Date(row.message.createdAt));
   return (
     <>
-      {row.message.editedAt ? <span title={shadow ? undefined : "изменено"}>изм.</span> : null}
+      {row.message.editedAt ? (
+        <span title={shadow ? undefined : editedTitle(row.message.editedAt)}>изм.</span>
+      ) : null}
       {shadow ? <span>{text}</span> : <time dateTime={row.message.createdAt}>{text}</time>}
       <State row={row} shadow={shadow} />
     </>

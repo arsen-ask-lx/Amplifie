@@ -34,6 +34,7 @@ export function Composer({
   editing,
   onCancelEdit,
   onSaveEdit,
+  onEditLast,
 }: {
   /** Где пишем — нужно подсказке «кого позвать» (Р-031). */
   conversationId: string | null;
@@ -44,6 +45,8 @@ export function Composer({
   editing: Message | null;
   onCancelEdit: () => void;
   onSaveEdit: (body: string) => Promise<void>;
+  /** `↑` в пустом поле открывает правку последнего своего; `false` — нечего. */
+  onEditLast: () => boolean;
 }) {
   /**
    * Что сейчас в поле — НАШЕЙ строкой с разметкой.
@@ -186,6 +189,7 @@ export function Composer({
               setEmpty((was) => (was === nowEmpty ? was : nowEmpty));
             }}
             onSend={submit}
+            onEditLast={editing ? undefined : onEditLast}
             onReady={(api) => {
               field.current = api;
             }}
