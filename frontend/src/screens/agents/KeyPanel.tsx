@@ -5,6 +5,7 @@ import { Icon } from "../../shared/Icon.js";
 import { keyTroubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
 import { Input } from "../../shared/ui/input.js";
+import { QUIET_FIELD, QUIET_LIST } from "../../shared/ui/quiet-field.js";
 import {
   Select,
   SelectContent,
@@ -83,13 +84,10 @@ function Choice({
     <div className="flex flex-col gap-1 text-aside text-muted">
       <span id={labelId}>{label}</span>
       <Select value={value} onValueChange={onPick}>
-        <SelectTrigger
-          aria-labelledby={labelId}
-          className="field-baseline w-full !rounded-xl !border-0 !border-b !border-line !bg-raised text-ink focus-visible:!outline-none focus-visible:!shadow-none"
-        >
+        <SelectTrigger aria-labelledby={labelId} className={`${QUIET_FIELD} w-full text-ink`}>
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={QUIET_LIST}>
           {options.map((one) => (
             <SelectItem key={one.id} value={one.id}>
               {one.label}
@@ -185,7 +183,7 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
               type="password"
               value={key}
               placeholder={shape ? `${shape.prefix}…` : ""}
-              className="field-baseline !rounded-xl !border-0 !border-b !border-line !bg-raised focus-visible:!outline-none focus-visible:!shadow-none"
+              className={QUIET_FIELD}
               autoComplete="off"
               spellCheck={false}
               onChange={(event) => setKey(event.target.value)}

@@ -6,6 +6,7 @@ import { detailOf } from "../../shared/failure.js";
 import { troubleOf } from "../../shared/trouble.js";
 import { Button } from "../../shared/ui/button.js";
 import { Input } from "../../shared/ui/input.js";
+import { QUIET_FIELD } from "../../shared/ui/quiet-field.js";
 import { timeFormat } from "../../shared/when.js";
 
 /**
@@ -73,7 +74,7 @@ function Command({
   return (
     <div className="relative">
       <Input
-        className="field-baseline !rounded-xl !border-0 !border-b !border-line !bg-raised pr-11 text-aside focus-visible:!outline-none focus-visible:!shadow-none"
+        className={`${QUIET_FIELD} pr-11 text-aside`}
         readOnly
         value={command}
         onFocus={(event) => event.target.select()}

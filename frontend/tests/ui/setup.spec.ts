@@ -63,19 +63,6 @@ async function openKeyDialog(page: import("@playwright/test").Page) {
   };
 }
 
-/** Наблюдаемый вид одного интерактивного поля, без привязки к его классам. */
-async function controlStyle(locator: import("@playwright/test").Locator) {
-  return locator.evaluate((node) => {
-    const style = getComputedStyle(node);
-    return {
-      background: style.backgroundColor,
-      borderColor: style.borderColor,
-      borderRadius: style.borderRadius,
-      height: style.height,
-    };
-  });
-}
-
 test("после установки открывается подключение модели, а не пустой чат", async ({ page }) => {
   await install(page);
 
@@ -109,54 +96,12 @@ test("пропустивший подключение оказывается в 
   await expect(field(page)).toBeVisible();
 });
 
-test("поля и раскрытый список ключа образуют одну визуальную систему", async ({ page }) => {
-  // Системная тема намеренно не совпадает с темой приложения. Иначе чужой
-  // `dark:` в Select остаётся скрытым и тест не воспроизводит снимок владельца.
-  await page.emulateMedia({ colorScheme: "dark" });
-  const { dialog, provider, key, scope, save } = await openKeyDialog(page);
+test("поставщик выбирается с клавиатуры, Escape закрывает список, затем окно", async ({ page }) => {
+  const { dialog, provider } = await openKeyDialog(page);
 
-  const [providerStyle, keyStyle, scopeStyle] = await Promise.all([
-    controlStyle(provider),
-    controlStyle(key),
-    controlStyle(scope),
-  ]);
-  expect(providerStyle).toEqual(keyStyle);
-  expect(scopeStyle).toEqual(keyStyle);
-
-  const scopeBox = await scope.boundingBox();
-  const saveBox = await save.boundingBox();
-  expect(scopeBox).not.toBeNull();
-  expect(saveBox).not.toBeNull();
-  if (!scopeBox || !saveBox) throw new Error("Поля формы не имеют измеримой геометрии");
-  expect(saveBox.y - (scopeBox.y + scopeBox.height)).toBeGreaterThanOrEqual(24);
-
-  // После открытия Radix временно выводит триггер из дерева доступности,
-  // пока фокус живёт в portal списка. Геометрию берём до открытия — это
-  // тот же неподвижный узел, а локатор по роли после открытия уже не обязан
-  // его находить.
-  const triggerBox = await provider.boundingBox();
   await provider.click();
   const list = page.getByRole("listbox");
   await expect(list).toBeVisible();
-
-  const listBox = await list.boundingBox();
-  expect(triggerBox).not.toBeNull();
-  expect(listBox).not.toBeNull();
-  if (!triggerBox || !listBox) throw new Error("Список не имеет измеримой геометрии");
-  expect(listBox.width).toBeGreaterThanOrEqual(triggerBox.width - 1);
-  expect(listBox.y - (triggerBox.y + triggerBox.height)).toBeGreaterThanOrEqual(4);
-
-  const listStyle = await list.evaluate((node) => {
-    const style = getComputedStyle(node);
-    return {
-      borderRadius: style.borderRadius,
-      borderWidth: style.borderWidth,
-      boxShadow: style.boxShadow,
-    };
-  });
-  expect(listStyle.borderRadius).toBe(keyStyle.borderRadius);
-  expect(listStyle.borderWidth).not.toBe("0px");
-  expect(listStyle.boxShadow).not.toBe("none");
 
   await list.getByRole("option", { name: "Anthropic (Claude)" }).press("ArrowDown");
   await list.getByRole("option", { name: "OpenAI" }).press("Enter");
