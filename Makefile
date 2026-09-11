@@ -3,7 +3,15 @@
 # .RECIPEPREFIX убирает требование табов: правило начинается с '>'.
 .RECIPEPREFIX = >
 .DEFAULT_GOAL := help
+# На Linux/macOS POSIX-shell уже лежит в стандартном месте. Windows-версия
+# GNU Make превращает `/bin/sh` в `sh.exe` и ищет его только в PATH, хотя Git
+# Bash обычно установлен, но в PATH не добавлен. Все рецепты ниже — POSIX;
+# указываем один настоящий shell, иначе часть команд незаметно исполняет cmd.
+ifeq ($(OS),Windows_NT)
+SHELL := C:/PROGRA~1/Git/bin/sh.exe
+else
 SHELL := /bin/sh
+endif
 
 # ⚠️ НАШ СТЕНД ПОДКЛЮЧАЕТСЯ ЯВНО, И ЭТО ЕДИНСТВЕННОЕ МЕСТО, ГДЕ ОБ ЭТОМ
 # СКАЗАНО (Р-030 ①).
@@ -61,13 +69,16 @@ env-check: ## проверки самого генератора настрое�
 hooks: ## включить хуки git из .githooks (карта проекта на коммите)
 > @if [ -d .git ]; then git config core.hooksPath .githooks && echo "хуки включены: .githooks"; else echo "не репозиторий git — хуки не включены"; fi
 
-up: env ## поднять весь стек
-> $(COMPOSE) up -d --build
+wait-api:
 > @echo "ждём здоровья api..."
 > @for i in $$(seq 1 30); do \
 >   if $(COMPOSE) ps api --format '{{.Health}}' | grep -q healthy; then echo "готово: http://localhost:$${HTTP_PORT:-8477}/health"; exit 0; fi; \
 >   sleep 2; \
 > done; echo "api не стал здоровым за 60с — смотри 'make logs'"; exit 1
+
+up: env ## поднять весь собранный стенд
+> $(COMPOSE) up -d --build
+> @$(MAKE) wait-api
 
 # ── ДЕВ-РЕЖИМ: ПРАВКА ВИДНА СРАЗУ, БЕЗ ПЕРЕСБОРКИ ──────────────────────
 #
@@ -77,8 +88,8 @@ up: env ## поднять весь стек
 #
 # Здесь фронт поднимается своим сервером на этой машине: правка видна
 # в браузере через доли секунды, состояние экрана не теряется. Запросы
-# к `/v1` он проксирует на стек, поэтому `make up` всё равно нужен —
-# ради базы и бека.
+# к `/v1` он проксирует на уже поднятые базу и API. Первый запуск после
+# свежего клона честно требует `make up`: dev-режим не прячет сборку образа.
 #
 # ⚠️ ЭТО НИЖНЯЯ ПОЛОВИНА `make work`, и в одиночку она нужна редко:
 # дев-сервер занимает 8477 и не поднимется, пока там Caddy. Обычный вход
@@ -103,10 +114,14 @@ dev: ## фронт с горячей перезагрузкой (стек уже
 # ⚠️ ТЫКАЛКА В ОБРАЗ НЕ ПОПАДАЕТ И НЕ ДОЛЖНА: это оснастка работы,
 # а не часть продукта. Значит на собранном стенде Alt не работает —
 # и это не поломка, а граница.
-work: up ## начать работу: один адрес :8477, горячая перезагрузка и тыкалка
+dev-deps: env
+> $(COMPOSE) up -d postgres api
+> @$(MAKE) wait-api
+
+work: dev-deps ## начать работу: один адрес :8477, горячая перезагрузка и тыкалка
 > $(COMPOSE) stop caddy
 > @echo "фронт с тыкалкой поднимается на http://localhost:8477 (Ctrl+C — выйти)"
-> @echo "вернуть собранное на тот же адрес: make up"
+> @echo "проверить режим: make dev-status; вернуть собранное: make up"
 > API_URL=http://localhost:$${API_HOST_PORT:-3477} npm run dev --workspace=@amplifie/frontend
 
 # То же самое для бека. Node 24 запускает TypeScript сам, поэтому сборка
@@ -134,6 +149,12 @@ ps: ## что запущено
 
 health: ## дёрнуть /health как пользователь (не test client)
 > curl -fsS http://localhost:$${HTTP_PORT:-8477}/health && echo
+
+dev-status: ## показать, кто отвечает на :8477 и доступен ли API
+> @node tools/ops/dev-status.mjs
+
+dev-mode-check: ## проверить контракт режимов разработки и арбитра сборки
+> node --test tools/ops/dev-mode.test.mjs
 
 # ⚠️ ЗАПУСКАЕТСЯ РУКАМИ И РЕДКО. Переносчик читает файл ЧУЖОГО проекта
 # с чужой машины: путь у каждого свой, и вшивать его сюда нельзя.
@@ -277,13 +298,13 @@ load: ## нагрузочный замер по живому стеку (сна�
 #
 # ⚠️ ВНЕ `make check`. Быстрым проверкам нельзя требовать поднятого стека
 # и браузера — иначе их перестают гонять. Тот же довод, что у `make test`.
-test-ui: ## проверки интерфейса настоящим браузером (сначала: make up)
+test-ui: env ## проверки интерфейса настоящим браузером и свежим образом
 # ⚠️ ПОДНИМАЕМ CADDY ОБРАТНО, И ЭТО НЕ ПЕРЕСТРАХОВКА. Проверки обязаны
 # бить по СОБРАННОМУ образу (Р-022): по нему уедет к людям, и только он
 # ловит поломки сборки. Забыл после `make work` — и проверки молча
 # прошли бы по дев-сборке, то есть арбитр соврал бы, а это худший
 # вид отказа (см. инцидент с заглушкой в Caddyfile).
-> @$(COMPOSE) up -d caddy || (echo ""; echo "8477 занят дев-сервером: погаси его (Ctrl+C в окне make work) и повтори."; exit 1)
+> @$(COMPOSE) up -d --build || (echo ""; echo "не удалось поднять свежий Caddy-стенд: если :8477 занят Vite, погаси make work (Ctrl+C) и повтори."; exit 1)
 > npx playwright install chromium
 > npm run test-ui
 
@@ -299,4 +320,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env env-box env-check delivery hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk test test-ui load check
+.PHONY: help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk test test-ui load check

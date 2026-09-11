@@ -92,6 +92,8 @@ export default defineConfig({
      */
     port: 8477,
     strictPort: true,
+    // `make dev-status` узнаёт режим по ответу, а не по хрупкому поиску PID.
+    headers: { "X-Amplifie-Frontend": "vite-dev" },
     // Windows + bind-mount: без опроса HMR не видит изменений.
     watch: { usePolling: true },
     // Куда уходят запросы к серверу. По умолчанию — Caddy из compose,
