@@ -57,6 +57,12 @@ export const panelView = z.object({
   projects: z.array(projectView),
 });
 
+/** Порция строк панели. `next` непрозрачен для клиента. */
+export const conversationsPage = z.object({
+  items: z.array(conversationView),
+  next: z.string().nullable(),
+});
+
 /** На что отвечает реплика. Кусок текста режет сервер. */
 export const quoteView = z.object({
   id,
@@ -195,6 +201,7 @@ export const pageQuery = z.object({
   limit: z.string().optional(),
   before: z.string().optional(),
 });
+export const cursorQuery = z.object({ cursor: z.string().optional() });
 export const syncQuery = z.object({
   after: z.string().optional(),
   limit: z.string().optional(),

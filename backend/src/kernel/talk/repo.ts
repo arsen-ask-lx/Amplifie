@@ -23,6 +23,13 @@ import { mentionsOf, unreadOf } from "./unread.js";
 /** Хранилище модуля talk: только запросы. Непрочитанное — в `unread.ts`, отдаётся отсюда. */
 export { countUnread, markRead } from "./unread.js";
 
+/** Курсор панели — последнее место в серверном порядке, не номер строки. */
+export interface PanelCursor {
+  pinned: boolean;
+  lastAt: Date;
+  id: string;
+}
+
 /**
  * Следующий номер в пространстве.
  *
@@ -181,7 +188,12 @@ const THIS_CONVERSATION = sql.raw('"conversation"."id"');
  * Не `async`: отдаётся строитель запроса — он так же `await`-ится, но у него
  * есть `.toSQL()`, и гейт цены меряет настоящий запрос, а не копию.
  */
-export function listConversationsFor(tx: Executor, participantId: string, workspaceId: string) {
+export function listConversationsFor(
+  tx: Executor,
+  participantId: string,
+  workspaceId: string,
+  options: { projectId?: string; rootOnly?: boolean; limit?: number; after?: PanelCursor } = {},
+) {
   // Подзапросом, а не соединением: список разговоров не должен размножаться.
   const pinned = sql<boolean>`EXISTS (
     SELECT 1 FROM ${pin}
@@ -205,42 +217,60 @@ export function listConversationsFor(tx: Executor, participantId: string, worksp
     ), ${conversation.createdAt})
   )`;
 
-  return (
-    tx
-      .select({
-        id: conversation.id,
-        kind: conversation.kind,
-        title: conversation.title,
-        parentId: conversation.parentId,
-        lastAt,
-        projectId: conversation.projectId,
-        unread: unreadOf(THIS_CONVERSATION, participantId),
-        mentions: mentionsOf(THIS_CONVERSATION, participantId),
-        // Докуда дочитал: счётчик отвечает «сколько», черта в ленте — «откуда»
-        // (как `read_inbox_max_id` у Телеграма). Нет отметки — ноль.
-        readSeq: sql<number>`COALESCE((
+  const after = options.after
+    ? sql`(
+        ${pinned} < ${options.after.pinned}
+        OR (
+          ${pinned} = ${options.after.pinned}
+          AND (
+            ${lastAt} < ${options.after.lastAt}
+            OR (${lastAt} = ${options.after.lastAt} AND ${conversation.id} < ${options.after.id})
+          )
+        )
+      )`
+    : undefined;
+
+  const query = tx
+    .select({
+      id: conversation.id,
+      kind: conversation.kind,
+      title: conversation.title,
+      parentId: conversation.parentId,
+      lastAt,
+      projectId: conversation.projectId,
+      unread: unreadOf(THIS_CONVERSATION, participantId),
+      mentions: mentionsOf(THIS_CONVERSATION, participantId),
+      // Докуда дочитал: счётчик отвечает «сколько», черта в ленте — «откуда»
+      // (как `read_inbox_max_id` у Телеграма). Нет отметки — ноль.
+      readSeq: sql<number>`COALESCE((
         SELECT ${conversationRead.readSeq} FROM ${conversationRead}
         WHERE ${conversationRead.conversationId} = ${THIS_CONVERSATION}
           AND ${conversationRead.participantId} = ${participantId}
       ), 0)`,
-        pinned: pinned,
-        // Убирает ли здесь чужое (Р-035) — фронт по нему показывает «Удалить».
-        moderator: moderates(conversation.id, conversation.parentId, participantId),
-      })
-      .from(conversation)
-      // Пространство — отдельным условием, хотя видимость его отсекает:
-      // видимость проверяет строку, а не отбирает, и без условия запрос
-      // обходил разговоры всех пространств базы.
-      .where(
-        and(
-          eq(conversation.workspaceId, workspaceId),
-          isNull(conversation.deletedAt),
-          visibleTo(participantId),
-        ),
-      )
-      // Порядок панели считает только сервер: клиент его не переупорядочивает.
-      .orderBy(desc(pinned), desc(lastAt))
-  );
+      pinned: pinned,
+      // Убирает ли здесь чужое (Р-035) — фронт по нему показывает «Удалить».
+      moderator: moderates(conversation.id, conversation.parentId, participantId),
+    })
+    .from(conversation)
+    // Пространство — отдельным условием, хотя видимость его отсекает:
+    // видимость проверяет строку, а не отбирает, и без условия запрос
+    // обходил разговоры всех пространств базы.
+    .where(
+      and(
+        eq(conversation.workspaceId, workspaceId),
+        isNull(conversation.deletedAt),
+        visibleTo(participantId),
+        // Старый снимок панели ещё отдаёт ветки: его потребляют лента и
+        // догон. Постраничная навигация проекта — только корневые чаты.
+        options.rootOnly ? isNull(conversation.parentId) : undefined,
+        options.projectId === undefined ? undefined : eq(conversation.projectId, options.projectId),
+        after,
+      ),
+    )
+    // Порядок панели считает только сервер: клиент его не переупорядочивает.
+    .orderBy(desc(pinned), desc(lastAt), desc(conversation.id));
+
+  return options.limit === undefined ? query : query.limit(options.limit);
 }
 
 /** Мягко удалить разговор. «Ещё не удалён» — в самом запросе: повтор ничего не двигает. */

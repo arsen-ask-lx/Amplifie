@@ -5,8 +5,24 @@ import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
 import { mentionedWhoSee, setMentions } from "./mentions.js";
-import { listProjectsFor, requireProject } from "./projects.js";
+import { listProjectsFor, requireProject, requireVisibleProject } from "./projects.js";
 import * as repo from "./repo.js";
+
+function presentConversation(row: Awaited<ReturnType<typeof repo.listConversationsFor>>[number]) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    parentId: row.parentId,
+    projectId: row.projectId,
+    lastAt: new Date(row.lastAt).toISOString(),
+    unread: row.unread,
+    mentions: row.mentions,
+    readSeq: Number(row.readSeq),
+    pinned: row.pinned,
+    moderator: row.moderator,
+  };
+}
 
 /**
  * Вид реплики и надгробия — формы из общего контракта (Р-034), а не свои
@@ -86,19 +102,39 @@ export async function listConversations(viewer: Viewer) {
   ]);
   return {
     projects,
-    items: rows.map((r) => ({
-      id: r.id,
-      kind: r.kind,
-      title: r.title,
-      parentId: r.parentId,
-      projectId: r.projectId,
-      lastAt: new Date(r.lastAt).toISOString(),
-      unread: r.unread,
-      mentions: r.mentions,
-      readSeq: Number(r.readSeq),
-      pinned: r.pinned,
-      moderator: r.moderator,
-    })),
+    items: rows.map(presentConversation),
+  };
+}
+
+/** Порция видимых корневых чатов проекта. Берём одну строку сверх лимита,
+ * чтобы назвать наличие продолжения без отдельного COUNT. */
+export async function listProjectConversations(
+  viewer: Viewer,
+  projectId: string,
+  after: repo.PanelCursor | undefined,
+  limit: number,
+) {
+  await requireVisibleProject(db, viewer.participantId, viewer.workspaceId, projectId);
+  const rows = await repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, {
+    projectId,
+    rootOnly: true,
+    limit: limit + 1,
+    ...(after ? { after } : {}),
+  });
+  const page = rows.slice(0, limit);
+  const tail = page.at(-1);
+  return {
+    items: page.map(presentConversation),
+    next:
+      rows.length > limit && tail
+        ? Buffer.from(
+            JSON.stringify({
+              pinned: tail.pinned,
+              lastAt: new Date(tail.lastAt).toISOString(),
+              id: tail.id,
+            }),
+          ).toString("base64url")
+        : null,
   };
 }
 

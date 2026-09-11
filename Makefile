@@ -167,6 +167,15 @@ themes: ## перенести темы из audit_project (PATH=... путь к 
 demo: ## завести демо-канал с диалогом (дев-данные, стираются make reset)
 > $(COMPOSE) exec -T postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie} -v ON_ERROR_STOP=1 -f - < tools/dev/demo.sql
 
+scale-check: ## проверить нагрузочный набор панели в указанном dev-пространстве
+> @test -n "$$SEED_WORKSPACE_ID" || (echo "нужен SEED_WORKSPACE_ID" && exit 2)
+> $(COMPOSE) exec -T postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie} -v workspace_id="$$SEED_WORKSPACE_ID" -f - < tools/dev/scale-panel-check.sql
+
+scale-seed: ## добавить идемпотентный набор нагрузки панели в dev-пространство
+> @test -n "$$SEED_WORKSPACE_ID" || (echo "нужен SEED_WORKSPACE_ID" && exit 2)
+> $(COMPOSE) exec -T postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie} -v workspace_id="$$SEED_WORKSPACE_ID" -f - < tools/dev/scale-panel.sql
+> @$(MAKE) scale-check SEED_WORKSPACE_ID="$$SEED_WORKSPACE_ID"
+
 psql: ## консоль базы
 > $(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-amplifie} -d $${POSTGRES_DB:-amplifie}
 

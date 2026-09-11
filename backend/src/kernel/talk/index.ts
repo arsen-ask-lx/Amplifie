@@ -19,6 +19,7 @@ export {
   listConversations,
   listMessages,
   listPinned,
+  listProjectConversations,
   markRead,
   pinMessage,
   sendAsAgent,

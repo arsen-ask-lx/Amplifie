@@ -56,6 +56,41 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
   );
 }
 
+/**
+ * Проект виден ровно тогда, когда он попал бы в панель этого человека.
+ * Отдельная дверь порций не должна выдавать существование скрытой папки.
+ */
+export async function requireVisibleProject(
+  tx: Executor,
+  participantId: string,
+  workspaceId: string,
+  projectId: string,
+): Promise<void> {
+  const hasChats = sql`EXISTS (
+    SELECT 1 FROM ${conversation}
+    WHERE ${conversation.projectId} = ${project.id}
+      AND ${conversation.deletedAt} IS NULL
+  )`;
+  const hasVisible = sql`EXISTS (
+    SELECT 1 FROM ${conversation}
+    WHERE ${conversation.projectId} = ${project.id}
+      AND ${repo.visibleTo(participantId)}
+  )`;
+  const found = await tx
+    .select({ id: project.id })
+    .from(project)
+    .where(
+      and(
+        eq(project.id, projectId),
+        eq(project.workspaceId, workspaceId),
+        isNull(project.deletedAt),
+        sql`(NOT ${hasChats} OR ${hasVisible})`,
+      ),
+    )
+    .limit(1);
+  if (!found[0]) throw new ConversationNotVisibleError();
+}
+
 /** Завести проект — любому: прав он не несёт. */
 export async function createProject(
   viewer: Viewer,

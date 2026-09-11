@@ -1,8 +1,10 @@
 import {
   askBody,
   channelBody,
+  conversationsPage,
   createdConversation,
   createdThread,
+  cursorQuery,
   editBody,
   idOnly,
   idParams,
@@ -37,6 +39,7 @@ import {
   listConversations,
   listMessages,
   listPinned,
+  listProjectConversations,
   markRead,
   peopleToMention,
   pinMessage,
@@ -75,6 +78,29 @@ function seqOf(raw: string | undefined): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+/** Мусорный курсор не открывает другой срез: начинаем страницу заново. */
+function panelCursor(raw: string | undefined) {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as {
+      pinned?: unknown;
+      lastAt?: unknown;
+      id?: unknown;
+    };
+    const lastAt = new Date(typeof parsed.lastAt === "string" ? parsed.lastAt : "");
+    if (
+      typeof parsed.pinned !== "boolean" ||
+      typeof parsed.id !== "string" ||
+      Number.isNaN(+lastAt)
+    ) {
+      return undefined;
+    }
+    return { pinned: parsed.pinned, lastAt, id: parsed.id };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Закрепить: `POST` ставит, `DELETE` снимает — у реплики (для всех
  * в разговоре), у разговора и проекта (в СВОЕЙ панели, task-038).
@@ -93,6 +119,20 @@ export function registerChatRoutes(scope: FastifyInstance): void {
 
   app.get("/v1/conversations", { schema: { response: { 200: panelView } } }, (request) =>
     listConversations(actorOf(request)),
+  );
+
+  app.get(
+    "/v1/projects/:id/conversations",
+    {
+      schema: { params: idParams, querystring: cursorQuery, response: { 200: conversationsPage } },
+    },
+    (request) =>
+      listProjectConversations(
+        actorOf(request),
+        request.params.id,
+        panelCursor(request.query.cursor),
+        request.query.cursor ? 25 : 10,
+      ),
   );
 
   app.post(
