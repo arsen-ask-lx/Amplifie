@@ -12,7 +12,6 @@ export {
 export {
   createChannel,
   createDefaultChannel,
-  createTaskDiscussion,
   createThread,
   deleteConversation,
   deleteMessage,

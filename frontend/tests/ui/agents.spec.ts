@@ -18,7 +18,4 @@ test("агенты живут в настройках, а старая ссыл�
   await page.goto("/agents");
   await expect(page).toHaveURL(/\/settings\/agents$/);
   await expect(page.getByRole("link", { name: "Агенты" })).toBeVisible();
-
-  await page.goto("/board");
-  await expect(page.getByRole("link", { name: "Агенты" })).toHaveCount(0);
 });

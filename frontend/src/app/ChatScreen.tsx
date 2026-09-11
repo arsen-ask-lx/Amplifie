@@ -1,25 +1,12 @@
 import { Sidebar } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
-import { useLocation } from "react-router";
 import type { Me } from "../data/api.js";
-import { type Chat, useChat } from "../data/useChat.js";
-import { useWork, type Work } from "../data/useWork.js";
-import { BoardScreen } from "../screens/BoardScreen.js";
+import { useChat } from "../data/useChat.js";
 import { Room } from "../screens/talk/Room.js";
-import { Rail, type Section, sectionOf } from "./Rail.js";
+import { Rail } from "./Rail.js";
 import { ThemePicker } from "./ThemePicker.js";
 
-/** Заголовок середины экрана. Разговор подписывается своим названием. */
-const TITLES: Partial<Record<Section, string>> = {
-  board: "Доска",
-};
-
-/**
- * Главный экран: чат и работа.
- *
- * Разделов будет больше (документы, встречи), и это место для них уже
- * есть. Папок по-прежнему нет: порядок и поиск (Р-011).
- */
+/** Главный экран: панель слева, разговор посередине. */
 
 const PANEL_KEY = "amplifie.панель";
 
@@ -40,28 +27,8 @@ function railWasOpen(): boolean {
   }
 }
 
-/** Середина экрана целиком: разговор, работа или подключение модели. */
-function Middle({
-  section,
-  chat,
-  work,
-  meId,
-}: {
-  section: Section;
-  chat: Chat;
-  work: Work;
-  meId: string;
-}) {
-  if (section === "board") return <BoardScreen work={work} meId={meId} />;
-  return <Room chat={chat} meId={meId} />;
-}
-
 export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
   const chat = useChat(me);
-  const work = useWork();
-  // Раздел ВЫВОДИТСЯ из адреса, а не хранится рядом с ним (Р-019).
-  // Хранить копию значило бы завести второй ответ на вопрос «где я».
-  const section: Section = sectionOf(useLocation().pathname);
 
   const [railOpen, setRailOpen] = useState(railWasOpen);
 
@@ -104,7 +71,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-bg text-ink">
-      <Rail me={me} chat={chat} section={section} open={railOpen} onLeave={onLeave} />
+      <Rail me={me} chat={chat} open={railOpen} onLeave={onLeave} />
 
       {/* ⚠️ `min-h-0` ЗДЕСЬ И НА ЛЕНТЕ — НЕ УКРАШЕНИЕ. У flex-ребёнка
           минимальная высота по умолчанию равна содержимому, поэтому лента
@@ -125,7 +92,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
           </button>
 
           <h2 className="min-w-0 truncate text-head font-semibold text-ink">
-            {TITLES[section] ?? chat.current?.title ?? "Канал"}
+            {chat.current?.title ?? "Канал"}
           </h2>
 
           <div className="ml-auto flex shrink-0 items-center">
@@ -139,7 +106,7 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
           </p>
         ) : null}
 
-        <Middle section={section} chat={chat} work={work} meId={me.participant.id} />
+        <Room chat={chat} meId={me.participant.id} />
       </main>
     </div>
   );

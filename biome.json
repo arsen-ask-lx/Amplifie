@@ -112,20 +112,6 @@
           }
         }
       }
-    },
-    {
-      "includes": [
-        "backend/src/agent/answering/envelope.ts",
-        "backend/src/agent/answering/envelope.test.ts",
-        "backend/tests/task-from-chat.e2e.test.ts"
-      ],
-      "linter": {
-        "rules": {
-          "style": {
-            "useNamingConvention": "off"
-          }
-        }
-      }
     }
   ]
 }

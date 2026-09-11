@@ -183,6 +183,13 @@
       "when": 1789108842865,
       "tag": "0025_snapshot_catch_up",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789118110496,
+      "tag": "0026_board_removed",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,7 @@
 import { NotePencil } from "@phosphor-icons/react";
 import { useState } from "react";
-import { Link } from "react-router";
 import type { Me } from "../data/api.js";
 import type { Chat } from "../data/useChat.js";
-import { Icon } from "../shared/Icon.js";
 import { Logo } from "../shared/Logo.js";
 import { NewChatDialog } from "./ChannelAsks.js";
 import { Profile } from "./Profile.js";
@@ -16,91 +14,15 @@ import { RoomList } from "./RoomList.js";
  * три уровня условий поверх разметки, и линтер сложности был прав.
  * Во-вторых, файл перевалил за предел размера компонента, и гейт тоже был
  * прав: панель — отдельный вопрос, а не часть разговора.
- *
- * Все три раздела равны и переключаются одинаково.
- *
- * Раньше «Своя нейросеть» тоже переключала раздел, но была нарисована
- * кнопкой в подвале рядом с выходом. Одинаковое поведение выглядело
- * по-разному, и это учило не доверять виду. Теперь подключение подписки
- * лежит внутри «Агентов»: агент отвечает через мост позвавшего, значит
- * «агент молчит» и «мост погашен» — одно событие с двух сторон.
  */
-export type Section = "talk" | "board";
-
-/**
- * Раздел, его адрес, подпись и значок.
- *
- * ⚠️ АДРЕС ЗДЕСЬ — ЕДИНСТВЕННЫЙ ИСТОЧНИК ПРАВДЫ О ТОМ, ГДЕ ЧЕЛОВЕК (Р-019).
- * До task-012 раздел жил в `useState` у экрана: ссылку дать было нечем,
- * «назад» выкидывал из приложения, а F5 возвращал в «Разговоры».
- */
-/**
- * ⚠️ «ЧАТА» СРЕДИ РАЗДЕЛОВ БОЛЬШЕ НЕТ (владелец, 10.09: «нам тогда
- * из боковой панели слово чат нужно убрать»). Он стал лишним в тот миг,
- * когда список разговоров начал стоять в панели ВСЕГДА: строка «Чат»
- * вела туда, где человек и так находится, — а рядом уже висит «Новый
- * чат», и два похожих слова подряд читаются как ошибка.
- *
- * Так же у Codex: в верхнем блоке нет пункта «чат», потому что чаты —
- * это и есть сама панель.
- */
-const PARTS: Array<{
-  id: Section;
-  path: string;
-  label: string;
-  icon: "hash" | "tasks" | "model" | "dot";
-}> = [{ id: "board", path: "/board", label: "Доска", icon: "tasks" }];
-
-/**
- * Какой раздел открыт — по адресу.
- *
- * Чат остаётся ответом по умолчанию: и «/», и «/c/…» — это он.
- */
-export function sectionOf(pathname: string): Section {
-  const found = PARTS.find((part) => part.path !== "/" && pathname.startsWith(part.path));
-  return found?.id ?? "talk";
-}
-
-/**
- * Переключатель разделов. Счётчик — только у того, что ждёт человека.
- *
- * Ссылки, а не кнопки: по ним работает средняя кнопка мыши, «открыть
- * в новой вкладке» и копирование адреса. Кнопка этого не умеет и молча
- * притворяется ссылкой.
- */
-function Parts({ section }: { section: Section }) {
-  return (
-    <nav className="flex flex-col gap-0.5" aria-label="Разделы">
-      {PARTS.map((part) => (
-        <Link
-          key={part.id}
-          to={part.path}
-          className={[
-            "flex items-center gap-2.5 rounded px-2.5 py-2 text-body no-underline transition-colors",
-            section === part.id
-              ? "bg-selected font-medium text-ink"
-              : "bg-transparent text-muted hover:bg-raised hover:text-ink",
-          ].join(" ")}
-          aria-current={section === part.id ? "page" : undefined}
-        >
-          <Icon name={part.icon} />
-          {part.label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
-
 export function Rail({
   me,
   chat,
-  section,
   open,
   onLeave,
 }: {
   me: Me;
   chat: Chat;
-  section: Section;
   /** Панель раскрыта. Задвинутая остаётся в разметке — см. ниже. */
   open: boolean;
   onLeave: () => void;
@@ -158,8 +80,6 @@ export function Rail({
             <NotePencil className="size-4 shrink-0" />
             Новый чат
           </button>
-
-          <Parts section={section} />
         </div>
 
         <NewChatDialog

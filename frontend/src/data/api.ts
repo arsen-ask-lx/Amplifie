@@ -78,34 +78,6 @@ export function isTombstone(line: SyncLine): line is Tombstone {
   return "deleted" in line && line.deleted;
 }
 
-/**
- * Задача в том виде, в каком ею пользуется доска.
- *
- * ⚠️ ЗДЕСЬ НЕ ВЕСЬ ОТВЕТ СЕРВЕРА, а только то, что читает экран. Копировать
- * серверную форму целиком значит завести вторую её копию, которая разъедется
- * при первом же изменении, — и мы это уже проходили сегодня с `agreementId`.
- */
-export interface Task {
-  id: string;
-  title: string;
-  /** Колонка доски. Список закрыт сервером и базой. */
-  stage: string;
-  createdAt: string;
-  assignedTo: { id: string; name: string; kind: string } | null;
-  /** Всегда человек: это держит база, а не экран. */
-  responsible: { id: string; name: string } | null;
-  /** Обсуждение задачи. Пусто, пока не было ни одного прогона. */
-  discussionId: string | null;
-  /** Отказов подряд. Два — размыкатель разомкнут, нужен человек. */
-  failedRuns: number;
-}
-
-export interface Participant {
-  id: string;
-  name: string;
-  kind: string;
-}
-
 /** Мост — машина участника, на которой живёт его подписка (task-001). */
 export interface Bridge {
   id: string;
@@ -207,26 +179,6 @@ export const api = {
 
   /** Агенты пространства и состояние МОЕГО моста — через него они отвечают. */
   agents: () => request<AgentsView>("/v1/agents"),
-
-  /** Кого можно назначить исполнителем. */
-  participants: () => request<{ items: Participant[] }>("/v1/participants"),
-
-  /** Завести задачу руками — без договорённости (task-010). */
-  addTask: (input: { title: string; responsibleId: string; assignedToId?: string | null }) =>
-    request<Task>("/v1/tasks", { method: "POST", body: JSON.stringify(input) }),
-
-  /** Пусть агент сделает задачу. Платит нажавший (Р-016). */
-  runTask: (id: string) =>
-    request<{ taskId: string; discussionId: string; ms: number }>(`/v1/tasks/${id}/run`, {
-      method: "POST",
-      body: "{}",
-    }),
-
-  /** Подвинуть по доске либо переназначить. */
-  patchTask: (
-    id: string,
-    patch: { stage?: string; assignedToId?: string | null; responsibleId?: string },
-  ) => request<Task>(`/v1/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   /** Мои ключи и ключи пространства. Чужих личных здесь не бывает. */
   modelKeys: () => request<{ items: ModelKey[] }>("/v1/model-keys"),
@@ -351,8 +303,6 @@ export const api = {
    */
   join: (input: { token: string; email: string; password: string; displayName: string }) =>
     request<Me>("/v1/auth/join", { method: "POST", body: JSON.stringify(input) }),
-
-  tasks: () => request<{ items: Task[] }>("/v1/tasks"),
 
   /** Мосты участника: и подключённые, и ещё не погашенные коды. */
   bridges: () => request<{ items: Bridge[] }>("/v1/bridges"),

@@ -200,9 +200,6 @@ no-raw-html: ## запрет вставки сырого HTML в интерфе�
 failure-map: ## код отказа разбирается в одном слое, а не по экранам
 > npm run failure-map
 
-stages: ## список стадий задачи совпадает с CHECK в базе
-> npm run stages
-
 favicon: ## знак на вкладке не разошёлся со знаком в интерфейсе
 > npm run favicon
 
@@ -302,4 +299,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env env-box env-check delivery hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk test test-ui load check
+.PHONY: help env env-box env-check delivery hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk test test-ui load check

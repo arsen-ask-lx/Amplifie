@@ -459,15 +459,6 @@ export async function deleteConversation(viewer: Viewer, conversationId: string)
 }
 
 /**
- * Обсуждение задачи — обычный разговор вида `task`: лента, догон и живое
- * работают даром. Ссылку держит задача — `talk` про работу не знает (Р-4).
- */
-export async function createTaskDiscussion(viewer: Viewer, title: string): Promise<{ id: string }> {
-  const created = await openConversation(viewer, { kind: "task", title, visibility: "workspace" });
-  return { id: created.id };
-}
-
-/**
  * Сообщение живо и в видимом мне разговоре — иначе «не найдено», а не молчаливый
  * `null`: проглоченная ссылка дала бы ответ, потерявший, на что он отвечает.
  */

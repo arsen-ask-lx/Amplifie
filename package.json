@@ -21,7 +21,6 @@
     "unit": "vitest run --config tools/vitest.unit.ts",
     "no-raw-html": "node tools/checks/check-no-raw-html.mjs",
     "failure-map": "node tools/checks/check-failure-map.mjs",
-    "stages": "node tools/checks/check-stages.mjs",
     "favicon": "node tools/checks/check-favicon.mjs",
     "map": "node tools/checks/check-map.mjs",
     "map:check": "node --test tools/checks/map-rule.test.mjs",

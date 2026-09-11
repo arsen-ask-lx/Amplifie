@@ -15,7 +15,6 @@ import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerStreamRoutes } from "./routes/stream.js";
 import { requireSession } from "./routes/viewer.js";
-import { registerWorkRoutes } from "./routes/work.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -80,7 +79,6 @@ export async function buildApp(): Promise<FastifyInstance> {
     registerAgentRoutes(signedIn);
     registerChatRoutes(signedIn);
     registerStreamRoutes(signedIn);
-    registerWorkRoutes(signedIn);
   });
 
   return app;

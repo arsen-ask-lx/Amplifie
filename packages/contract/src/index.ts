@@ -18,11 +18,3 @@ export {
   type ProjectColor,
   type ProjectIcon,
 } from "./projectLook.js";
-export {
-  BREAKER,
-  FIRST_STAGE,
-  HIDDEN_STAGE,
-  isStage,
-  STAGES,
-  type Stage,
-} from "./work.js";

@@ -2,7 +2,6 @@ import { hasZodFastifySchemaValidationErrors } from "@fastify/type-provider-zod"
 import type { FastifyError, FastifyInstance } from "fastify";
 import { NoBridgeError } from "../../agent/model/bridge.js";
 import { ModelUnavailableError } from "../../app/answering.js";
-import { BreakerOpenError, NotAgentTaskError } from "../../app/working.js";
 import {
   BadKeyFormatError,
   EmailTakenError,
@@ -12,7 +11,6 @@ import {
   RegistrationClosedError,
 } from "../../kernel/identity/index.js";
 import { ConversationNotVisibleError, MentionNotAllowedError } from "../../kernel/talk/index.js";
-import { NotHumanError, TaskNotVisibleError } from "../../kernel/work/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../platform/rendezvous.js";
 
 /**
@@ -27,13 +25,9 @@ const KNOWN: ReadonlyArray<{
   detail?: true;
 }> = [
   { kind: ConversationNotVisibleError, code: 404, error: "not_found" },
-  { kind: TaskNotVisibleError, code: 404, error: "not_found" },
   { kind: InviteNotUsableError, code: 404, error: "not_found" },
   { kind: MentionNotAllowedError, code: 422, error: "mention_not_allowed", detail: true },
-  { kind: NotHumanError, code: 422, error: "not_human", detail: true },
-  { kind: NotAgentTaskError, code: 422, error: "not_agent_task", detail: true },
   { kind: BadKeyFormatError, code: 422, error: "bad_key_format", detail: true },
-  { kind: BreakerOpenError, code: 409, error: "breaker_open", detail: true },
   { kind: EmailTakenError, code: 409, error: "email_taken" },
   { kind: InvalidCredentialsError, code: 401, error: "invalid_credentials" },
   { kind: RegistrationClosedError, code: 403, error: "registration_closed" },

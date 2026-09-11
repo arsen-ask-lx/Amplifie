@@ -1,4 +1,3 @@
-import { readEnvelope } from "../agent/answering/envelope.js";
 import { buildPrompt, SYSTEM, type Turn } from "../agent/answering/prompt.js";
 import { awaitsAnswer } from "../agent/listening/address.js";
 import { NoBridgeError } from "../agent/model/bridge.js";
@@ -15,7 +14,6 @@ import {
 } from "../kernel/talk/index.js";
 import { db } from "../platform/db.js";
 import { askOwnBridge } from "./bridging.js";
-import { doActions } from "./doing.js";
 
 /**
  * Агент отвечает в чате по обращению (task-006), через настройку
@@ -79,12 +77,12 @@ function timed(ask: (prompt: string) => Promise<string>) {
  * Список, а не цепочка условий: добавить источник — значит вставить строку,
  * а не переписать ветвление.
  */
-async function sourcesFor(viewer: Viewer, system: string = SYSTEM): Promise<Source[]> {
+async function sourcesFor(viewer: Viewer): Promise<Source[]> {
   const found: Source[] = [
     {
       payment: "мост",
       hint: null,
-      ask: (prompt) => askOwnBridge(viewer.participantId, prompt, system),
+      ask: (prompt) => askOwnBridge(viewer.participantId, prompt, SYSTEM),
     },
   ];
 
@@ -102,7 +100,7 @@ async function sourcesFor(viewer: Viewer, system: string = SYSTEM): Promise<Sour
     found.push({
       payment: own.scope === "участник" ? "свой ключ" : "ключ пространства",
       hint: own.hint,
-      ask: timed(async (prompt) => (await provider.ask({ system, prompt })).text),
+      ask: timed(async (prompt) => (await provider.ask({ system: SYSTEM, prompt })).text),
     });
   }
 
@@ -111,7 +109,7 @@ async function sourcesFor(viewer: Viewer, system: string = SYSTEM): Promise<Sour
     found.push({
       payment: "ключ сервера",
       hint: null,
-      ask: timed(async (prompt) => (await server.ask({ system, prompt })).text),
+      ask: timed(async (prompt) => (await server.ask({ system: SYSTEM, prompt })).text),
     });
   }
 
@@ -126,23 +124,6 @@ async function sourcesFor(viewer: Viewer, system: string = SYSTEM): Promise<Sour
  * а любой другой отказ пробрасывается: молча съесть отказ поставщика
  * значит потерять причину и показать человеку не то.
  */
-/**
- * Спросить модель через настройку этого участника, с любой подсказкой.
- *
- * Вынесено наружу для прогона задач (task-011): порядок оплаты и обход
- * источников там ровно тот же, и вторая копия разъехалась бы с первой
- * при первом же изменении Р-016.
- */
-export async function askThroughSources(
-  viewer: Viewer,
-  system: string,
-  prompt: string,
-): Promise<{ text: string; ms: number }> {
-  const sources = await sourcesFor(viewer, system);
-  const { text, ms } = await askThrough(sources, prompt);
-  return { text, ms };
-}
-
 async function askThrough(
   sources: Source[],
   prompt: string,
@@ -267,19 +248,10 @@ export async function answerIfAddressed(
     throw error;
   }
 
-  // Конверт разбирается ЗДЕСЬ, после ответа модели и до записи в ленту.
-  // Не разобрался — весь вывод считается простым ответом (Р-017).
-  const envelope = readEnvelope(answer.text);
-
-  // Действия выполняются ТОЛЬКО потому, что человек обратился: до этой
-  // строки мы уже убедились в обращении (`called`). Ответственным становится
-  // он же, и это не читается из вывода модели.
-  const done = await doActions(viewer, agent.id, conversationId, envelope.actions);
-
   // Ключ идемпотентности — идентификатор сообщения-обращения. Двойной зов
   // (двойной клик, повтор после разрыва) даёт один ответ, а не два.
   const message = await sendAsAgent(viewer, agent.id, conversationId, {
-    body: withScope(withReport(envelope.text, done), projectFeed),
+    body: withScope(answer.text, projectFeed),
     clientMsgId: asking.id,
   });
 
@@ -291,7 +263,6 @@ export async function answerIfAddressed(
     hint: answer.used.hint,
     promptChars: prompt.length,
     ms: answer.ms,
-    made: done.made.length,
   });
 
   return { messageId: message.id, body: message.body, ms: answer.ms };
@@ -312,20 +283,4 @@ function note(
     subjectId: conversationId,
     payload,
   });
-}
-
-/**
- * Приписать к ответу, что агент сделал.
- *
- * Обязательно, а не по вкусу: действие, о котором не сказали, неотличимо
- * от подлога (Р-017). Человек должен узнать о заведённой задаче из того же
- * сообщения, в котором получил ответ, — а не из раздела «Работа» через час.
- */
-function withReport(text: string, done: { made: string[] }): string {
-  if (done.made.length === 0) return text;
-  const listed = done.made.map((one) => `«${one}»`).join(", ");
-  const word = done.made.length === 1 ? "задачу" : "задачи";
-  return `${text}
-
-Завёл ${word}: ${listed}.`;
 }

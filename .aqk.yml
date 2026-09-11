@@ -41,7 +41,6 @@ gates:
   unit: "npm run unit"
   no-raw-html: "npm run no-raw-html"
   failure-map: "npm run failure-map"
-  stages: "npm run stages"
   favicon: "npm run favicon"
   # Ритм отступов и подключённость модели — были в `make check`, но не здесь,
   # и потому не гонялись конвейером: два списка проверок разошлись. Список один.
