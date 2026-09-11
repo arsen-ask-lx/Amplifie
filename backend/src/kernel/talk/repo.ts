@@ -438,7 +438,7 @@ export async function listMessages(
 /**
  * Лента нескольких разговоров одним запросом (Д-31) — для области агента
  * «весь проект» (Р-032). Видимость здесь не проверяется: список уже отобран
- * `readingScope` по правам позвавшего; снаружи `talk` функции нет.
+ * `scopeFeed` по правам позвавшего; снаружи `talk` функции нет.
  * Предел общий на всю область, а не на чат.
  */
 export async function listMessagesIn(tx: Executor, conversationIds: string[], limit: number) {
