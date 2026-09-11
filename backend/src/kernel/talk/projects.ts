@@ -1,10 +1,10 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { publish } from "../../platform/bus.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
 import * as repo from "./repo.js";
-import { conversation, project } from "./schema.js";
+import { conversation, pin, project } from "./schema.js";
 
 /**
  * Проекты: папка чатов и область чтения агента (Р-032).
@@ -42,17 +42,33 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
       AND ${repo.visibleTo(participantId)}
   )`;
 
-  return tx
-    .select({ id: project.id, title: project.title })
-    .from(project)
-    .where(
-      and(
-        eq(project.workspaceId, workspaceId),
-        isNull(project.deletedAt),
-        sql`(NOT ${естьЧаты} OR ${естьВидимый})`,
-      ),
-    )
-    .orderBy(asc(project.title));
+  const закреплён = sql<boolean>`EXISTS (
+    SELECT 1 FROM ${pin}
+    WHERE ${pin.projectId} = ${project.id}
+      AND ${pin.participantId} = ${participantId}
+  )`;
+
+  return (
+    tx
+      .select({
+        id: project.id,
+        title: project.title,
+        icon: project.icon,
+        color: project.color,
+        pinned: закреплён,
+      })
+      .from(project)
+      .where(
+        and(
+          eq(project.workspaceId, workspaceId),
+          isNull(project.deletedAt),
+          sql`(NOT ${естьЧаты} OR ${естьВидимый})`,
+        ),
+      )
+      // Закреплённые сверху, остальные по алфавиту — порядок задаёт сервер,
+      // как и у разговоров (task-038).
+      .orderBy(desc(закреплён), asc(project.title))
+  );
 }
 
 /**
@@ -63,11 +79,19 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
  * заведённый проект появлялся бы у соседа только назавтра; поймано
  * сценарием «переименование доезжает до второй вкладки».
  */
-export async function createProject(viewer: Viewer, title: string): Promise<{ id: string }> {
+export async function createProject(
+  viewer: Viewer,
+  input: { title: string; icon?: string | undefined; color?: string | undefined },
+): Promise<{ id: string }> {
   const created = await withTransaction(async (tx) => {
     const rows = await tx
       .insert(project)
-      .values({ workspaceId: viewer.workspaceId, title })
+      .values({
+        workspaceId: viewer.workspaceId,
+        title: input.title,
+        icon: input.icon ?? null,
+        color: input.color ?? null,
+      })
       .returning({ id: project.id, title: project.title });
     const created = rows[0];
     if (!created) throw new Error("проект не завёлся");
@@ -129,15 +153,35 @@ export async function требуетсяПроект(
   if (!найден[0]) throw new ConversationNotVisibleError();
 }
 
-/** Переименовать проект. */
+/**
+ * Переименовать проект и/или сменить его вид (task-038).
+ *
+ * ⚠️ ОДНА ДВЕРЬ НА ИМЯ И ВИД, А НЕ ДВЕ. Снаружи это одно действие —
+ * «поправить папку», и человек в окне меняет и то и другое разом.
+ * Двумя дверями окно делало бы два запроса, и один из них однажды
+ * прошёл бы, а второй нет.
+ */
 export async function renameProject(
   viewer: Viewer,
   projectId: string,
-  title: string,
-): Promise<{ id: string; title: string }> {
+  правка: {
+    title?: string | undefined;
+    icon?: string | null | undefined;
+    color?: string | null | undefined;
+  },
+): Promise<{ id: string }> {
   const переименован = await withTransaction(async (tx) => {
     await требуетсяПроект(tx, viewer.workspaceId, projectId);
-    await tx.update(project).set({ title }).where(eq(project.id, projectId));
+    // Не переданное не трогаем: «не указано» и «убрать» — разные вещи,
+    // и первое не должно молча стирать второе.
+    const поля = {
+      ...(правка.title === undefined ? {} : { title: правка.title }),
+      ...(правка.icon === undefined ? {} : { icon: правка.icon }),
+      ...(правка.color === undefined ? {} : { color: правка.color }),
+    };
+    if (Object.keys(поля).length > 0) {
+      await tx.update(project).set(поля).where(eq(project.id, projectId));
+    }
 
     await appendEvent(tx, {
       kind: "project.renamed",
@@ -145,9 +189,9 @@ export async function renameProject(
       actorParticipantId: viewer.participantId,
       subjectType: "project",
       subjectId: projectId,
-      payload: { title },
+      payload: поля,
     });
-    return { id: projectId, title };
+    return { id: projectId };
   });
 
   publish(viewer.workspaceId);

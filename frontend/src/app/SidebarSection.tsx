@@ -1,68 +1,62 @@
-import { CaretDown, Plus } from "@phosphor-icons/react";
-import { useState } from "react";
+import { Plus } from "@phosphor-icons/react";
 
 /**
- * Сворачиваемая секция боковой панели.
+ * Раздел боковой панели: подпись и список под ней.
  *
  * ⚠️ УСТРОЙСТВО ПЕРЕНЕСЕНО ИЗ BUZZ (`features/sidebar/ui/SidebarSection.tsx`),
- * а не придумано. Там оно решает ровно нашу задачу — «а если разделов
- * станет десять»: разделов наверху остаётся мало, а РАСТЁТ список внизу,
- * и растёт он секциями, которые человек сворачивает.
+ * а не придумано, и два приёма оттуда остались:
  *
- * Три приёма оттуда, и каждый по делу:
+ *   ① ДЕЙСТВИЕ ЖИВЁТ В ПОДПИСИ. Новый проект — это `+` справа в строке
+ *      «Проекты», а не отдельная строка «+ Проект» внизу списка. Так
+ *      в Buzz, в Слаке, в Дискорде и в Codex;
  *
- *   ① ЗАГОЛОВОК — КНОПКА. Нажатие сворачивает. Шеврон появляется только
- *      при наведении: пока не трогаешь, это просто подпись, а не элемент
- *      управления, требующий внимания;
+ *   ② `+` ПО НАВЕДЕНИЮ. Список читают каждый день, а папку заводят
+ *      изредка; кнопка, которую видно всегда, забирает внимание у того,
+ *      ради чего раздел существует.
  *
- *   ② ДЕЙСТВИЕ ЖИВЁТ В ЗАГОЛОВКЕ. Создание канала — это `+` справа
- *      в строке «Каналы», а не отдельная строка «+ Канал» внизу списка.
- *      Так в Buzz, так в Слаке, так в Дискорде. Отдельной строкой это
- *      было у нас, и это была выдумка;
+ *      ⚠️ ЗАПИСЬ О КОЛЕБАНИИ, ЧТОБЫ НЕ ХОДИТЬ ПО КРУГУ. 10.09 плюс
+ *      сделали постоянным — по сверке с Codex, где он стоит всегда.
+ *      Владелец посмотрел на живом экране и вернул обратно: «пусть
+ *      плюсик не видно, пока не наведёшь». Решает экран, а не снимок
+ *      чужого продукта.
  *
- *   ③ `+` ТОЖЕ ПО НАВЕДЕНИЮ. Канал заводят раз в месяц, а список читают
- *      каждый день. Кнопка, которую видно всегда, забирает внимание
- *      у того, ради чего секция существует.
+ * Третий приём Buzz — подпись сворачивает раздел — снят 10.09 по слову
+ * владельца: «убрать напротив проектов стрелочку». Разделов два,
+ * сворачивать их незачем, а у каждой папки внутри своё сворачивание есть.
+ * Так же в Codex.
  */
 export function SidebarSection({
   title,
   onAdd,
   addLabel,
+  addAlwaysVisible = false,
   children,
 }: {
   title: string;
-  /** Что делает `+` в заголовке. Нет — заголовок без действия. */
+  /** Что делает `+` в подписи. Нет — подпись без действия. */
   onAdd?: () => void;
   addLabel?: string;
+  /**
+   * Показать `+` без наведения.
+   *
+   * ⚠️ НУЖНО ПУСТОМУ РАЗДЕЛУ. Когда проектов нет, плюс — единственный
+   * вход в раздел, и прятать его значит прятать саму возможность:
+   * на телефоне наведения не бывает вовсе, и первый проект было бы
+   * нечем завести.
+   */
+  addAlwaysVisible?: boolean;
   children: React.ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
-
   return (
-    /* ⚠️ `flex-1` И `min-h-0` НА ВСЕЙ ЦЕПОЧКЕ, СВЕРХУ ДОНИЗУ. Прокрутка
-       внутри колонки работает, только если КАЖДОЕ звено от неё до окна
-       умеет сжиматься: у флекса минимальная высота по умолчанию равна
-       содержимому, и одно звено без `min-h-0` распирает всю колонку.
-       Список каналов из-за этого выезжал под профиль, а не прокручивался
-       (замечание владельца). Оборвал цепочку я сам — отступом под
-       подписью «КАНАЛЫ». */
-    <section className="group/section flex min-h-0 flex-1 flex-col">
+    <section className="group/section flex min-h-0 flex-col">
       <div className="flex items-center gap-1 pr-1">
-        <button
-          type="button"
-          aria-expanded={!collapsed}
-          onClick={() => setCollapsed((was) => !was)}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded bg-transparent px-2.5 py-1 text-left text-mark tracking-wide text-muted uppercase transition-colors hover:text-ink"
-        >
+        {/* ⚠️ ОБЫЧНЫЕ БУКВЫ РАЗМЕРОМ ПОДПИСИ ПАНЕЛИ, А НЕ МЕЛКИЙ КАПС
+            (владелец 10.09: «вот эта надпись маленькая по-моему»). Ярлык
+            вразрядку читают только при поиске глазами; здесь же подпись —
+            заголовок списка. У Codex «Проекты» тоже набраны обычными буквами. */}
+        <span className="min-w-0 flex-1 px-2.5 py-1 text-aside text-muted">
           <span className="truncate">{title}</span>
-          <CaretDown
-            aria-hidden="true"
-            className={[
-              "size-3 shrink-0 opacity-0 transition-opacity group-focus-within/section:opacity-100 group-hover/section:opacity-100",
-              collapsed ? "-rotate-90" : "",
-            ].join(" ")}
-          />
-        </button>
+        </span>
 
         {onAdd ? (
           <button
@@ -70,20 +64,24 @@ export function SidebarSection({
             aria-label={addLabel ?? "Добавить"}
             title={addLabel ?? "Добавить"}
             onClick={onAdd}
-            className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity group-focus-within/section:opacity-100 group-hover/section:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100"
+            className={[
+              "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
+              "hover:bg-raised hover:text-ink focus-visible:opacity-100",
+              addAlwaysVisible
+                ? "opacity-100"
+                : "opacity-0 group-focus-within/section:opacity-100 group-hover/section:opacity-100",
+            ].join(" ")}
           >
-            <Plus className="size-4" />
+            <Plus className="size-3.5" weight="bold" />
           </button>
         ) : null}
       </div>
 
-      {/* ⚠️ ОТСТУП МЕЖДУ ПОДПИСЬЮ И СПИСКОМ ЗАДАЁТСЯ ЗДЕСЬ, А НЕ У СПИСКА.
-          Подпись «КАНАЛЫ» набрана мелко и вразрядку — она читается как
-          ярлык к тому, что под ней, и без просвета прилипает к первой
-          строке списка (замечание владельца с экрана). Просвет —
-          свойство пары «подпись плюс её содержимое», а не самого списка:
+      {/* ⚠️ ПРОСВЕТ МЕЖДУ ПОДПИСЬЮ И СПИСКОМ ЗАДАЁТСЯ ЗДЕСЬ, А НЕ У СПИСКА.
+          Без него подпись прилипает к первой строке (замечание владельца
+          с экрана). Просвет — свойство пары «подпись плюс содержимое»:
           у списка нет причины знать, что над ним что-то есть. */}
-      {collapsed ? null : <div className="flex min-h-0 flex-1 flex-col pt-1.5">{children}</div>}
+      <div className="flex min-h-0 flex-col pt-1.5">{children}</div>
     </section>
   );
 }

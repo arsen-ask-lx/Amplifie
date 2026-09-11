@@ -33,6 +33,16 @@ export const project = pgTable(
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    /**
+     * Как папка выглядит в панели (task-038): имя значка и имя цвета
+     * из общего списка (`packages/contract`). Пусто — вид по умолчанию.
+     *
+     * ⚠️ ИМЕНА, А НЕ ЗНАЧЕНИЯ: цвет это роль в теме, и в светлой
+     * с тёмной он разный. Записанный числом, он перестал бы слушаться
+     * темы, а картинка навсегда привязалась бы к набору иконок.
+     */
+    icon: text("icon"),
+    color: text("color"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** Удаление мягкое — по той же причине, что у канала и реплики. */
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -104,6 +114,40 @@ export const conversation = pgTable(
     // Чатов вне проектов много и будет много: частичный индекс.
     index("conversation_project_idx").on(t.projectId).where(sql`${t.projectId} is not null`),
   ],
+);
+
+/**
+ * Что человек закрепил в СВОЕЙ панели (task-038).
+ *
+ * ⚠️ ЛИЧНОЕ, И ПОТОМУ ОТДЕЛЬНАЯ ТАБЛИЦА, А НЕ КОЛОНКА У РАЗГОВОРА.
+ * Колонка означала бы одно закрепление на всех: поднял себе — поднял
+ * всем. Владелец выбрал личное (Д-32), и так же у Телеграма и Слака.
+ *
+ * ⚠️ ДВЕ НАСТОЯЩИЕ ССЫЛКИ ВМЕСТО ПАРЫ «ТИП И НОМЕР». Полиморфизм строкой
+ * отнял бы внешние ключи, и удалённый проект оставлял бы закрепление
+ * в никуда. `CHECK` в миграции требует ровно одну из двух.
+ *
+ * ⚠️ НЕ ПУТАТЬ С ЗАКРЕПЛЁННОЙ РЕПЛИКОЙ (`message.pinnedAt`). Та —
+ * общая: её видят все в чате. Эта — про мой взгляд на список.
+ */
+export const pin = pgTable(
+  "pin",
+  {
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => participant.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    /** Закреплённый разговор. `null` — закреплён проект. */
+    conversationId: uuid("conversation_id").references(() => conversation.id, {
+      onDelete: "cascade",
+    }),
+    /** Закреплённый проект. `null` — закреплён разговор. */
+    projectId: uuid("project_id").references(() => project.id, { onDelete: "cascade" }),
+    pinnedAt: timestamp("pinned_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("pin_participant_idx").on(t.participantId)],
 );
 
 /**

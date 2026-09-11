@@ -13,6 +13,12 @@
  */
 export { MENTION_SOURCE, mentionedIds, mentionMarkup } from "./mentions.js";
 export {
+  PROJECT_COLORS,
+  PROJECT_ICONS,
+  type ProjectColor,
+  type ProjectIcon,
+} from "./projectLook.js";
+export {
   BREAKER,
   FIRST_STAGE,
   HIDDEN_STAGE,

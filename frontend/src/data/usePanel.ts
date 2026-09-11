@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Conversation, Project } from "./api.js";
+import type { Conversation } from "./api.js";
 import type { Reading } from "./useReading.js";
 import type { Rooms } from "./useRooms.js";
 
@@ -19,27 +19,31 @@ import type { Rooms } from "./useRooms.js";
  * не должно: список живёт в `useRooms`, прочитанное — в `useReading`,
  * «где я» — в адресе (Р-019). Заведи здесь хоть одно своё поле — и оно
  * станет вторым ответом на вопрос, у которого уже есть первый.
+ *
+ * ⚠️ ДЕЙСТВИЯ ВЗЯТЫ ИЗ `Rooms` ПО ИМЕНАМ, А НЕ ПЕРЕПИСАНЫ. Прежде здесь
+ * стояла дословная копия их объявлений — гейт повторов нашёл её,
+ * а копия уже успела потерять описание одного из полей.
  */
-export interface Panel {
+export interface Panel
+  extends Pick<
+    Rooms,
+    | "projects"
+    | "addChannel"
+    | "addProject"
+    | "renameProject"
+    | "removeProject"
+    | "moveToProject"
+    | "pin"
+    | "removeChannel"
+  > {
   /** Корневые разговоры. Ветки в панели не живут — они внутри канала. */
   items: Conversation[];
-  /** Проекты, в которых человеку виден хоть один чат (Р-032). */
-  projects: Project[];
   currentId: string | null;
   /** Сколько чужих реплик человек тут не видел (Р-029). */
   unreadOf: (conversationId: string) => number;
   /** Сколько раз тут позвали его самого и он этого не видел (Р-031). */
   mentionsOf: (conversationId: string) => number;
   select: (conversationId: string) => void;
-  /** Завести канал. `projectId` — сразу внутрь проекта. */
-  addChannel: (title: string, projectId?: string) => Promise<void>;
-  addProject: (title: string) => Promise<void>;
-  renameProject: (id: string, title: string) => Promise<void>;
-  /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
-  removeProject: (id: string) => Promise<void>;
-  /** Отнести чат к проекту либо снять принадлежность (`null`). */
-  moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
-  removeChannel: (id: string) => Promise<void>;
 }
 
 export function usePanel(input: {
@@ -68,6 +72,7 @@ export function usePanel(input: {
       renameProject: rooms.renameProject,
       removeProject: rooms.removeProject,
       moveToProject: rooms.moveToProject,
+      pin: rooms.pin,
       removeChannel: rooms.removeChannel,
     }),
     [rooms, reading, currentId, select],

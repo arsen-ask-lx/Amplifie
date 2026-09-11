@@ -1,6 +1,7 @@
-import { CaretDown, CaretRight, DotsThree, FolderSimple, Plus } from "@phosphor-icons/react";
+import { DotsThree, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
+import { ЗначокПроекта } from "../shared/projectLook.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,10 +60,12 @@ function Сводка({ unread, mentions }: { unread: number; mentions: number }
  */
 function МенюПроекта({
   project,
+  onPin,
   onRename,
   onRemove,
 }: {
   project: Project;
+  onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
   onRemove: () => void;
 }) {
@@ -83,6 +86,11 @@ function МенюПроекта({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuItem onSelect={() => void onPin(!project.pinned)}>
+          {project.pinned ? <PushPinSlash /> : <PushPin />}
+          {project.pinned ? "Открепить" : "Закрепить"}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onRename}>Переименовать</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onSelect={onRemove}>
@@ -99,12 +107,12 @@ export function ProjectRow({
   collapsed,
   onToggle,
   onAddChat,
+  onPin,
   onRename,
   onRemove,
   unreadOf,
   mentionsOf,
   renderChannel,
-  newChat,
 }: {
   project: Project;
   /** Чаты этого проекта — только те, что человеку видны. Отбирает сервер. */
@@ -113,14 +121,8 @@ export function ProjectRow({
   onToggle: () => void;
   /** Завести чат ВНУТРИ этого проекта (task-035). */
   onAddChat: () => void;
-  /**
-   * Поле нового чата, когда его заводят здесь. `null` — не заводят.
-   *
-   * ⚠️ ГОТОВЫМ УЗЛОМ, А НЕ ФЛАЖКОМ «СЕЙЧАС ЗАВОДИМ». Папка не знает
-   * ни как выглядит поле, ни куда уходит название, — а с флажком ей
-   * пришлось бы принимать и то и другое.
-   */
-  newChat?: React.ReactNode;
+  /** Закрепить папку в СВОЕЙ панели либо снять (task-038). */
+  onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
   onRemove: () => void;
   unreadOf: (conversationId: string) => number;
@@ -132,6 +134,11 @@ export function ProjectRow({
 
   return (
     <div className="group/project flex flex-col gap-0.5">
+      {/* ⚠️ СТРЕЛКИ СВОРАЧИВАНИЯ НЕТ (владелец 10.09: «нужно убрать
+          полностью»). Папка по-прежнему сворачивается нажатием на строку —
+          исчез только значок. Признак «свёрнута» остался и он честнее
+          стрелки: у свёрнутой видны числа непрочитанного, у развёрнутой —
+          сами чаты. */}
       <div className="flex items-center rounded pr-1 transition-colors hover:bg-raised">
         <button
           type="button"
@@ -139,44 +146,51 @@ export function ProjectRow({
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-aside text-muted transition-colors hover:text-ink"
         >
-          {collapsed ? (
-            <CaretRight className="size-3 shrink-0" weight="bold" />
+          {/* ⚠️ ЗАКРЕПЛЁННАЯ ПАПКА ПОКАЗЫВАЕТ БУЛАВКУ ВМЕСТО СВОЕГО ЗНАЧКА.
+              Два значка подряд — это два сообщения там, где нужно одно;
+              «почему она наверху» важнее, чем «про что она», пока
+              название рядом. */}
+          {project.pinned ? (
+            <PushPin className="size-4 shrink-0 opacity-60" weight="fill" aria-hidden="true" />
           ) : (
-            <CaretDown className="size-3 shrink-0" weight="bold" />
+            <ЗначокПроекта icon={project.icon} color={project.color} className="size-4" />
           )}
-          <FolderSimple className="size-4 shrink-0 opacity-60" />
           <span className="truncate font-medium">{project.title}</span>
           {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
             на самих чатах, и повторять их сверху значит сказать дважды. */}
           {collapsed ? <Сводка unread={сумма(unreadOf)} mentions={сумма(mentionsOf)} /> : null}
         </button>
 
-        <МенюПроекта project={project} onRename={onRename} onRemove={onRemove} />
+        {/* ⚠️ «+» СТОИТ В СТРОКЕ САМОЙ ПАПКИ, А НЕ ОТДЕЛЬНОЙ СТРОКОЙ
+            ПОД ЕЁ ЧАТАМИ (владелец 10.09: «в codex кнопка + где сам
+            проект, отсюда нужно убрать»). Отдельная строка занимала
+            место в каждой развёрнутой папке и притворялась чатом —
+            в списке из семи папок это семь ложных строк. */}
+        <button
+          type="button"
+          aria-label={`Новый чат в проекте «${project.title}»`}
+          title="Новый чат"
+          onClick={onAddChat}
+          className={[
+            "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
+            "hover:bg-selected hover:text-ink focus-visible:opacity-100",
+            "opacity-0 group-hover/project:opacity-100",
+          ].join(" ")}
+        >
+          <Plus className="size-3.5" weight="bold" />
+        </button>
+
+        <МенюПроекта project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
       </div>
 
-      {collapsed ? null : (
+      {/* ⚠️ У ПУСТОЙ ПАПКИ ТЕЛА НЕТ ВОВСЕ, А НЕ «ПУСТОЕ ТЕЛО». Пустой
+          столбец всё равно занимает просвет между собой и заголовком —
+          и папка без чатов дёргалась на каждое нажатие, будто что-то
+          раскрывается (владелец увидел это на экране). Показывать
+          нечего — значит и места занимать нечем. */}
+      {collapsed || channels.length === 0 ? null : (
         <div className="flex flex-col gap-0.5 pl-3">
           {channels.map((channel) => renderChannel(channel))}
-
-          {newChat}
-
-          {/* ⚠️ ЗАВОДКА ЧАТА ЖИВЁТ ВНУТРИ ПАПКИ, А НЕ СНАРУЖИ (task-035).
-              Проект — это место, где чат РОЖДАЕТСЯ: человек сперва
-              называет дело, потом говорит о нём. Кнопка стоит там, куда
-              он уже смотрит, и заводит канал сразу с принадлежностью —
-              одним запросом, а не «завести и переложить». */}
-          {/* Пока поле открыто, кнопки нет: она превратилась в него. */}
-          {newChat ? null : (
-            <button
-              type="button"
-              onClick={onAddChat}
-              aria-label={`Новый чат в проекте «${project.title}»`}
-              className="flex items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-aside text-muted transition-colors hover:bg-raised hover:text-ink"
-            >
-              <Plus className="size-3.5 shrink-0" weight="bold" />
-              Новый чат
-            </button>
-          )}
         </div>
       )}
     </div>

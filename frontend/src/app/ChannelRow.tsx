@@ -1,4 +1,4 @@
-import { DotsThree, FolderSimple, Hash, Trash } from "@phosphor-icons/react";
+import { DotsThree, FolderSimple, Hash, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import {
@@ -165,6 +165,7 @@ export function ChannelRow({
   mentions,
   onSelect,
   onMove,
+  onPin,
   onRemove,
 }: {
   channel: Conversation;
@@ -177,6 +178,8 @@ export function ChannelRow({
   mentions: number;
   onSelect: (id: string) => void;
   onMove: (conversationId: string, projectId: string | null) => Promise<void>;
+  /** Закрепить в СВОЕЙ панели либо снять (task-038). */
+  onPin: (pinned: boolean) => Promise<void>;
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -201,7 +204,14 @@ export function ChannelRow({
           unread > 0 && !current ? "font-medium text-ink" : "",
         ].join(" ")}
       >
-        <Hash className="size-4 shrink-0 opacity-60" />
+        {/* ⚠️ ЗАКРЕПЛЁННЫЙ ЧАТ ПОКАЗЫВАЕТ ЭТО САМ, а не только положением
+            в списке. Иначе «почему он наверху» остаётся без ответа:
+            свежесть и закрепление снаружи выглядят одинаково. */}
+        {channel.pinned ? (
+          <PushPin className="size-4 shrink-0 opacity-60" weight="fill" aria-hidden="true" />
+        ) : (
+          <Hash className="size-4 shrink-0 opacity-60" />
+        )}
         <span className="truncate">{channel.title}</span>
         {/* ⚠️ ЧИСЛО ВНУТРИ КНОПКИ КАНАЛА, А НЕ РЯДОМ С НЕЙ. Оно про этот
             канал, и нажатие по нему обязано открывать его же — как
@@ -225,6 +235,14 @@ export function ChannelRow({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-52">
+          {/* ⚠️ ЗАКРЕПЛЕНИЕ ПЕРВЫМ ПУНКТОМ, КАК У CODEX. Это единственное
+              действие в меню, которым пользуются каждый день; перенос
+              и удаление — раз в месяц. */}
+          <DropdownMenuItem onSelect={() => void onPin(!channel.pinned)}>
+            {channel.pinned ? <PushPinSlash /> : <PushPin />}
+            {channel.pinned ? "Открепить" : "Закрепить"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <ToProject channel={channel} projects={projects} onMove={onMove} />
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={onRemove}>

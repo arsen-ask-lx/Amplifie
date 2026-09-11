@@ -1,30 +1,18 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gt,
-  inArray,
-  isNotNull,
-  isNull,
-  lt,
-  lte,
-  type SQL,
-  sql,
-} from "drizzle-orm";
-import { alias, type PgColumn } from "drizzle-orm/pg-core";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
-import {
-  conversation,
-  conversationMember,
-  conversationRead,
-  message,
-  messageMention,
-} from "./schema.js";
+import { conversation, conversationMember, conversationRead, message, pin } from "./schema.js";
+import { mentionsOf, unreadOf } from "./unread.js";
 
-/** Слой хранилища модуля talk. Только запросы, никакой логики. */
+/**
+ * Слой хранилища модуля talk. Только запросы, никакой логики.
+ *
+ * Непрочитанное живёт рядом, в `unread.ts`, и отдаётся отсюда же:
+ * для службы хранилище одно, как бы оно ни было разложено по файлам.
+ */
+export { countUnread, markRead } from "./unread.js";
 
 /**
  * Следующий номер в пространстве.
@@ -44,16 +32,6 @@ export async function nextSeq(tx: Executor, workspaceId: string): Promise<number
   return Number(row.seq);
 }
 
-/**
- * Разговор, видимый данному участнику. Одним запросом, а не двумя.
- *
- * Право читается у КОРНЯ дерева: у ветки своих участников нет
- * (dock/06-разбор-мессенджеров.md). Соединение по COALESCE(parent_id, id)
- * и есть «подняться к корню».
- *
- * Не найдено и не видно — оба случая дают null: наружу это одна и та же
- * ошибка, иначе по ответу перебирают существующие разговоры.
- */
 /**
  * ЕДИНСТВЕННОЕ условие видимости (Р-010). Всё, что спрашивает «можно ли
  * это читать», обязано спрашивать здесь — иначе ответов станет два.
@@ -101,6 +79,16 @@ export function visibleTo(participantId: string) {
   return sql`(${rootAlive} AND ((${openToMyWorkspace}) OR (${iAmMemberOfRoot})))`;
 }
 
+/**
+ * Разговор, видимый данному участнику. Одним запросом, а не двумя.
+ *
+ * Право читается у КОРНЯ дерева: у ветки своих участников нет
+ * (dock/06-разбор-мессенджеров.md). Соединение по COALESCE(parent_id, id)
+ * и есть «подняться к корню».
+ *
+ * Не найдено и не видно — оба случая дают null: наружу это одна и та же
+ * ошибка, иначе по ответу перебирают существующие разговоры.
+ */
 export async function findVisibleConversation(
   tx: Executor,
   conversationId: string,
@@ -149,34 +137,6 @@ export async function insertMember(
   await tx.insert(conversationMember).values(input);
 }
 
-/** Разговоры, где участник состоит, плюс их ветки. */
-/**
- * Список разговоров — по свежести (Р-011).
- *
- * Порядок по последней активности решает большую часть задачи «сто
- * каналов» сам по себе: в работе человеку почти всегда нужны те же
- * три-пять мест, и они всплывают наверх без всякой раскладки по папкам.
- *
- * Разговор без сообщений не проваливается вниз навсегда: за неимением
- * последнего сообщения берётся время создания. Иначе только что заведённый
- * канал оказывался бы в самом хвосте — там, где его никто не найдёт.
- */
-/**
- * Сколько чужих реплик человек ещё не видел в НАЗВАННОМ разговоре.
- *
- * ⚠️ СЧИТАЕТСЯ, А НЕ ХРАНИТСЯ (Р-029). Хранимое число — второй источник
- * правды о том же факте, и оно разойдётся с репликами при первом же
- * удалении. Индекс `(conversation_id, seq)` для этого счёта уже есть.
- *
- * ⚠️ СВОИ РЕПЛИКИ НЕ СЧИТАЮТСЯ. Автор уже видел то, что написал, —
- * иначе счётчик рос бы от собственного письма.
- *
- * ⚠️ ПОТОЛОК В ТЫСЯЧУ, И ОН НЕ ДЛЯ КРАСОТЫ. Выше тысячи число на экране
- * всё равно показывается как «999+», а `LIMIT` внутри превращает счёт
- * по огромному каналу в счёт по первой тысяче строк индекса.
- */
-const UNREAD_CAP = 1000;
-
 /**
  * Ссылка на разговор ИЗ ВЛОЖЕННОГО запроса, написанная именем таблицы.
  *
@@ -199,25 +159,18 @@ const UNREAD_CAP = 1000;
  */
 const ЭТОТ_РАЗГОВОР = sql.raw('"conversation"."id"');
 
-function unreadOf(conversationId: PgColumn | SQL | string, participantId: string) {
-  return sql<number>`(
-    SELECT count(*)::int FROM (
-      SELECT 1 FROM ${message}
-      WHERE ${message.conversationId} = ${conversationId}
-        AND ${message.authorParticipantId} <> ${participantId}
-        AND ${message.deletedAt} IS NULL
-        AND ${message.seq} > COALESCE((
-          SELECT ${conversationRead.readSeq} FROM ${conversationRead}
-          WHERE ${conversationRead.conversationId} = ${conversationId}
-            AND ${conversationRead.participantId} = ${participantId}
-        ), 0)
-      LIMIT ${UNREAD_CAP}
-    ) AS невидённые
-  )`;
-}
-
 /**
- * Панель: разговоры со счётчиками.
+ * Список разговоров — по свежести (Р-011).
+ *
+ * Порядок по последней активности решает большую часть задачи «сто
+ * каналов» сам по себе: в работе человеку почти всегда нужны те же
+ * три-пять мест, и они всплывают наверх без всякой раскладки по папкам.
+ *
+ * Разговор без сообщений не проваливается вниз навсегда: за неимением
+ * последнего сообщения берётся время создания. Иначе только что заведённый
+ * канал оказывался бы в самом хвосте — там, где его никто не найдёт.
+ * Закреплённое человеком идёт первым (task-038). Вместе со строками
+ * едут счётчики непрочитанного и упоминаний.
  *
  * ⚠️ НЕ `async`, И ЭТО НАМЕРЕННО. Возвращается СТРОИТЕЛЬ запроса, а не
  * его результат: строитель `await`-ится так же, как обещание, поэтому
@@ -227,6 +180,20 @@ function unreadOf(conversationId: PgColumn | SQL | string, participantId: string
  * стерёг бы запрос, которого в продукте нет.
  */
 export function listConversationsFor(tx: Executor, participantId: string) {
+  /**
+   * Закреплён ли разговор ЭТИМ человеком (task-038).
+   *
+   * ⚠️ ПОДЗАПРОСОМ, А НЕ СОЕДИНЕНИЕМ. Соединение с таблицей закреплений
+   * размножило бы строки, если закрепление когда-нибудь перестанет быть
+   * одним на пару, — а список каналов обязан оставаться списком каналов.
+   * Цена та же: индекс `pin_conversation_uq` отдаёт одну строку.
+   */
+  const закреплён = sql<boolean>`EXISTS (
+    SELECT 1 FROM ${pin}
+    WHERE ${pin.conversationId} = ${ЭТОТ_РАЗГОВОР}
+      AND ${pin.participantId} = ${participantId}
+  )`;
+
   /**
    * Когда в разговоре в последний раз говорили.
    *
@@ -261,128 +228,45 @@ export function listConversationsFor(tx: Executor, participantId: string) {
     ), ${conversation.createdAt})
   )`;
 
-  return tx
-    .select({
-      id: conversation.id,
-      kind: conversation.kind,
-      title: conversation.title,
-      parentId: conversation.parentId,
-      lastAt,
-      projectId: conversation.projectId,
-      unread: unreadOf(ЭТОТ_РАЗГОВОР, participantId),
-      mentions: mentionsOf(ЭТОТ_РАЗГОВОР, participantId),
-      /**
-       * Докуда человек дочитал. Едет наружу вместе со счётчиком, потому
-       * что число отвечает на «сколько», а черта «Непрочитанные
-       * сообщения» — на «откуда», и второго из первого не вывести:
-       * клиент держит только окно ленты. У Телеграма рядом с
-       * `unread_count` по той же причине лежит `read_inbox_max_id`.
-       *
-       * Ноль у того, кто в разговоре не состоит: он видит его по
-       * открытости пространству, а своей отметки у него нет.
-       */
-      readSeq: sql<number>`COALESCE((
+  return (
+    tx
+      .select({
+        id: conversation.id,
+        kind: conversation.kind,
+        title: conversation.title,
+        parentId: conversation.parentId,
+        lastAt,
+        projectId: conversation.projectId,
+        unread: unreadOf(ЭТОТ_РАЗГОВОР, participantId),
+        mentions: mentionsOf(ЭТОТ_РАЗГОВОР, participantId),
+        /**
+         * Докуда человек дочитал. Едет наружу вместе со счётчиком, потому
+         * что число отвечает на «сколько», а черта «Непрочитанные
+         * сообщения» — на «откуда», и второго из первого не вывести:
+         * клиент держит только окно ленты. У Телеграма рядом с
+         * `unread_count` по той же причине лежит `read_inbox_max_id`.
+         *
+         * Ноль у того, кто в разговоре не состоит: он видит его по
+         * открытости пространству, а своей отметки у него нет.
+         */
+        readSeq: sql<number>`COALESCE((
         SELECT ${conversationRead.readSeq} FROM ${conversationRead}
         WHERE ${conversationRead.conversationId} = ${ЭТОТ_РАЗГОВОР}
           AND ${conversationRead.participantId} = ${participantId}
       ), 0)`,
-    })
-    .from(conversation)
-    .where(visibleTo(participantId))
-    .orderBy(desc(lastAt));
-}
-
-/**
- * Непрочитанное в одном разговоре — после отметки.
- *
- * ⚠️ ЧЕРЕЗ `select`, А НЕ ЧЕРЕЗ `execute`, И ЭТО НЕ ВКУСОВЩИНА. Сперва
- * здесь стоял `tx.execute(sql...)` — он возвращает не список строк,
- * а ответ драйвера целиком, и чтение `[0]` давало `undefined`. Счётчик
- * молча оказывался нулём: ни ошибки, ни исключения, просто «всё
- * прочитано». Ровно тот отказ, от которого мы защищаемся всей задачей.
- *
- * Теперь путь один и тот же, что у списка разговоров, — значит и ломаться
- * им предстоит вместе, а не по отдельности.
- */
-export async function countUnread(
-  tx: Executor,
-  conversationId: string,
-  participantId: string,
-): Promise<number> {
-  const rows = await tx
-    .select({ n: unreadOf(conversationId, participantId) })
-    .from(conversation)
-    .where(eq(conversation.id, conversationId))
-    .limit(1);
-  return Number(rows[0]?.n ?? 0);
-}
-
-/**
- * Сколько раз в разговоре позвали этого человека и он этого не видел.
- *
- * ⚠️ СВОИ ЗОВЫ НЕ СЧИТАЮТСЯ — по той же причине, что и свои реплики
- * в непрочитанном: человек уже видел то, что написал сам.
- *
- * ⚠️ ВТОРОГО СОСТОЯНИЯ ПРОЧТЕНИЯ НЕТ. Упоминание неувидено ровно до тех
- * пор, пока номер прочтения не прошёл дальше номера сообщения (Р-029).
- * Заведи мы отдельную отметку — у человека появилось бы два разных
- * «прочитано», и они разошлись бы молча.
- */
-function mentionsOf(conversationId: PgColumn | SQL | string, participantId: string) {
-  return sql<number>`(
-    SELECT count(*)::int FROM (
-      SELECT 1 FROM ${message}
-      JOIN ${messageMention} ON ${messageMention.messageId} = ${message.id}
-      WHERE ${message.conversationId} = ${conversationId}
-        AND ${messageMention.participantId} = ${participantId}
-        AND ${message.authorParticipantId} <> ${participantId}
-        AND ${message.deletedAt} IS NULL
-        AND ${message.seq} > COALESCE((
-          SELECT ${conversationRead.readSeq} FROM ${conversationRead}
-          WHERE ${conversationRead.conversationId} = ${conversationId}
-            AND ${conversationRead.participantId} = ${participantId}
-        ), 0)
-      LIMIT ${UNREAD_CAP}
-    ) AS незамеченные
-  )`;
-}
-
-/**
- * Отметить прочитанным всё до номера включительно.
- *
- * ⚠️ ТОЛЬКО ВПЕРЁД, И ЭТО ГЛАВНАЯ СТРОКА ВСЕЙ ЗАТЕИ. `GREATEST` вместо
- * присваивания — защита от того, что две вкладки одного человека шлют
- * «дочитал» вразнобой: первая долистала до конца, вторая стояла на
- * старом месте и отправила свой номер ПОЗЖЕ. Присваивание откатило бы
- * прочитанное, и непрочитанное воскресло бы само (Р-029).
- *
- * Отметить прочитанным то, чего человек не видел, нечем отменить —
- * поэтому откат запрещён базой, а не порядком вызовов.
- *
- * ⚠️ ВСТАВКА С ДОПИСЫВАНИЕМ, А НЕ `UPDATE`, И ЭТО ИСПРАВЛЕНИЕ ОТКАЗА.
- * Сперва здесь стоял `UPDATE conversation_member`, и его пустой результат
- * служил заодно проверкой права. Приём хороший, но опора неверная:
- * строки участника у читателя может не быть вовсе — канал открыт всему
- * пространству. У всех, кто вошёл позже заведения канала, отметка
- * не находила строки, отвечала 404 и глохла; число непрочитанного
- * не гасло никогда. Поймал владелец на «Демо».
- *
- * Право теперь проверяется ВИДИМОСТЬЮ разговора — до вызова, в службе.
- * Здесь только запись.
- */
-export async function markRead(
-  tx: Executor,
-  conversationId: string,
-  participantId: string,
-  seq: number,
-): Promise<void> {
-  await tx
-    .insert(conversationRead)
-    .values({ conversationId, participantId, readSeq: seq })
-    .onConflictDoUpdate({
-      target: [conversationRead.conversationId, conversationRead.participantId],
-      set: { readSeq: sql`GREATEST(${conversationRead.readSeq}, ${seq})` },
-    });
+        pinned: закреплён,
+      })
+      .from(conversation)
+      .where(visibleTo(participantId))
+      /**
+       * ⚠️ ЗАКРЕПЛЁННОЕ ПОДНИМАЕТ СЕРВЕР, А НЕ КЛИЕНТ (task-038). Порядок
+       * в панели — одно знание; посчитай его ещё и клиент, они однажды
+       * разойдутся, и у человека закреплённое будет прыгать при каждом
+       * обновлении списка. Это же правило записано в самой панели:
+       * «переупорядочивать здесь нельзя».
+       */
+      .orderBy(desc(закреплён), desc(lastAt))
+  );
 }
 
 /**

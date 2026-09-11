@@ -174,6 +174,8 @@ export async function listConversations(viewer: Viewer) {
       // `unread_mentions_count`.
       mentions: r.mentions,
       readSeq: Number(r.readSeq),
+      // Закреплён ли ЭТИМ человеком (task-038). Личное: у коллеги своё.
+      pinned: r.pinned,
     })),
   };
 }
@@ -664,6 +666,30 @@ async function requireMine(tx: Executor, viewer: Viewer, messageId: string) {
 }
 
 /**
+ * Событие о реплике в журнал: правка, удаление, закрепление.
+ *
+ * ⚠️ БЕЗ ТЕКСТА — НИ СТАРОГО, НИ НОВОГО. Журнал живёт дольше сообщения
+ * и читается шире разговора. Одна функция на три действия, чтобы это
+ * правило не приходилось помнить трижды: три копии нашёл гейт повторов.
+ */
+async function вЖурналРеплики(
+  tx: Executor,
+  viewer: Viewer,
+  kind: string,
+  messageId: string,
+  found: { conversationId: string; seq: bigint | number | string },
+): Promise<void> {
+  await appendEvent(tx, {
+    kind,
+    workspaceId: viewer.workspaceId,
+    actorParticipantId: viewer.participantId,
+    subjectType: "message",
+    subjectId: messageId,
+    payload: { conversationId: found.conversationId, seq: Number(found.seq) },
+  });
+}
+
+/**
  * Изменить своё сообщение.
  *
  * Отметку «изменено» ставит хранилище, а не этот код: разнесённая
@@ -683,16 +709,7 @@ export async function editMessage(
     // у человека остаться не должно.
     await setMentions(tx, messageId, await зовущиеся(tx, found.conversationId, body));
 
-    await appendEvent(tx, {
-      kind: "message.edited",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "message",
-      subjectId: messageId,
-      // Ни старого текста, ни нового: журнал живёт дольше сообщения
-      // и читается шире разговора.
-      payload: { conversationId: found.conversationId, seq: Number(found.seq) },
-    });
+    await вЖурналРеплики(tx, viewer, "message.edited", messageId, found);
     return viewOf(tx, messageId);
   });
 
@@ -713,14 +730,7 @@ export async function deleteMessage(viewer: Viewer, messageId: string): Promise<
     const gone = await repo.softDeleteMessage(tx, viewer.workspaceId, messageId);
     if (!gone) throw new ConversationNotVisibleError();
 
-    await appendEvent(tx, {
-      kind: "message.deleted",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "message",
-      subjectId: messageId,
-      payload: { conversationId: found.conversationId, seq: Number(found.seq) },
-    });
+    await вЖурналРеплики(tx, viewer, "message.deleted", messageId, found);
   });
 
   publish(viewer.workspaceId);
@@ -747,14 +757,13 @@ export async function pinMessage(
     // закреплено», и результат тот же.
     await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
 
-    await appendEvent(tx, {
-      kind: pinned ? "message.pinned" : "message.unpinned",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "message",
-      subjectId: messageId,
-      payload: { conversationId: found.conversationId, seq: Number(found.seq) },
-    });
+    await вЖурналРеплики(
+      tx,
+      viewer,
+      pinned ? "message.pinned" : "message.unpinned",
+      messageId,
+      found,
+    );
   });
 
   publish(viewer.workspaceId);

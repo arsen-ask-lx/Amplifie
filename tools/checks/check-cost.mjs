@@ -104,7 +104,7 @@ const ХРАПОВИК = "tools/ratchets/panel-rows.txt";
  */
 function строкПлана(node) {
   const свои = (node["Actual Rows"] ?? 0) * (node["Actual Loops"] ?? 1);
-  const дети = [...(node.Plans ?? []), ...(node["Subplans"] ?? [])];
+  const дети = [...(node.Plans ?? []), ...(node.Subplans ?? [])];
   return дети.reduce((всего, one) => всего + строкПлана(one), свои);
 }
 

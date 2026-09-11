@@ -4,12 +4,12 @@ import type * as React from "react";
 import { cn } from "@/shared/utils";
 
 const buttonVariants = cva(
-  "inline-flex w-auto shrink-0 items-center justify-center gap-2 rounded-lg border border-transparent bg-transparent text-body font-medium whitespace-nowrap transition-all outline-none focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-danger aria-invalid:ring-danger/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex w-auto shrink-0 items-center justify-center gap-2 rounded-lg border border-transparent bg-transparent text-body font-medium whitespace-nowrap transition-all outline-none focus-visible:border-accent focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-danger aria-invalid:outline-danger [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default: "bg-accent text-on-accent hover:bg-accent/90",
-        destructive: "bg-danger text-on-danger hover:bg-danger/90 focus-visible:ring-danger/20",
+        destructive: "bg-danger text-on-danger hover:bg-danger/90 focus-visible:outline-danger",
         outline: "border-edge bg-bg shadow-raised hover:bg-selected hover:text-ink",
         secondary: "bg-raised text-ink hover:bg-raised/80",
         ghost: "bg-transparent hover:bg-selected hover:text-ink",

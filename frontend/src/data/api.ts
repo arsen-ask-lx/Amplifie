@@ -61,6 +61,11 @@ export interface ModelKey {
 export interface Project {
   id: string;
   title: string;
+  /** Как папка выглядит в панели (task-038). Пусто — вид по умолчанию. */
+  icon?: string | null;
+  color?: string | null;
+  /** Закреплён ли МНОЙ в панели (task-038). У коллеги своё. */
+  pinned?: boolean;
 }
 
 /** Человек или агент — тот, кого можно позвать. */
@@ -81,6 +86,8 @@ export interface Conversation {
    * (Р-032): «Общий», курилка и личка не про проект.
    */
   projectId: string | null;
+  /** Закреплён ли МНОЙ в панели (task-038). У коллеги своё. */
+  pinned?: boolean;
   /** Когда тут в последний раз говорили. По нему сервер и сортирует. */
   lastAt?: string;
   /**
@@ -222,12 +229,31 @@ export const api = {
   conversations: () => request<{ items: Conversation[]; projects: Project[] }>("/v1/conversations"),
 
   /** Завести проект. Прав он не несёт, поэтому заводить может любой. */
-  addProject: (title: string) =>
-    request<Project>("/v1/projects", { method: "POST", body: JSON.stringify({ title }) }),
+  addProject: (title: string, вид?: { icon?: string | null; color?: string | null }) =>
+    request<Project>("/v1/projects", {
+      method: "POST",
+      body: JSON.stringify({ title, ...вид }),
+    }),
+
+  /**
+   * Закрепить разговор в СВОЕЙ панели либо снять закрепление (task-038).
+   *
+   * ⚠️ ЛИЧНОЕ. У коллеги порядок свой — это решение владельца (Д-32),
+   * и держит его сервер: клиент ничего не сортирует.
+   */
+  pinConversation: (id: string, pinned: boolean) =>
+    request<void>(`/v1/conversations/${id}/pin`, { method: pinned ? "POST" : "DELETE" }),
+
+  /** Закрепить проект в своей панели либо снять закрепление. */
+  pinProject: (id: string, pinned: boolean) =>
+    request<void>(`/v1/projects/${id}/pin`, { method: pinned ? "POST" : "DELETE" }),
 
   /** Переименовать проект. */
-  renameProject: (id: string, title: string) =>
-    request<Project>(`/v1/projects/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  /** Поправить папку: имя и/или вид. Не переданное не меняется. */
+  renameProject: (
+    id: string,
+    правка: { title?: string; icon?: string | null; color?: string | null },
+  ) => request<Project>(`/v1/projects/${id}`, { method: "PATCH", body: JSON.stringify(правка) }),
 
   /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
   removeProject: (id: string) => request<void>(`/v1/projects/${id}`, { method: "DELETE" }),

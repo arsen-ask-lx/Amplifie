@@ -16,6 +16,18 @@ import type { Address } from "./useAddress.js";
  * лишний запрос дешевле двух источников правды.
  */
 
+/**
+ * Вид папки: значок и цвет (task-038). Пусто — как было.
+ *
+ * ⚠️ ОТДЕЛЬНЫМ ИМЕНЕМ, А НЕ ДВУМЯ ДОВОДАМИ ПОДРЯД. Значок и цвет ходят
+ * только вместе — это одно понятие «как папка выглядит», и в четырёх
+ * местах, где оно передаётся, пара не должна разъезжаться.
+ */
+interface Вид {
+  icon?: string | null;
+  color?: string | null;
+}
+
 export interface Rooms {
   items: Conversation[];
   /** Проекты, в которых человеку виден хоть один чат (Р-032). */
@@ -34,12 +46,21 @@ export interface Rooms {
   removeChannel: (id: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
   /** Завести проект. */
-  addProject: (title: string) => Promise<void>;
-  renameProject: (id: string, title: string) => Promise<void>;
+  addProject: (title: string, вид?: Вид) => Promise<void>;
+  renameProject: (id: string, правка: { title?: string } & Вид) => Promise<void>;
   /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
   removeProject: (id: string) => Promise<void>;
   /** Отнести чат к проекту либо снять принадлежность (`null`). */
   moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
+  /**
+   * Закрепить чат либо проект в своей панели (task-038).
+   *
+   * ⚠️ ОДНА ФУНКЦИЯ НА ОБА СЛУЧАЯ, потому что это одно умение: «пусть
+   * будет наверху». Двумя они разъехались бы на первой правке.
+   *
+   * ⚠️ ЛИЧНОЕ (Д-32): у коллеги порядок свой. Считает его сервер.
+   */
+  pin: (что: { conversationId: string } | { projectId: string }, pinned: boolean) => Promise<void>;
 }
 
 export function useRooms(where: Address): Rooms {
@@ -115,16 +136,16 @@ export function useRooms(where: Address): Rooms {
    * и пустая папка появляется в ней.
    */
   const addProject = useCallback(
-    async (title: string) => {
-      await api.addProject(title);
+    async (title: string, вид?: Вид) => {
+      await api.addProject(title, вид);
       await reload();
     },
     [reload],
   );
 
   const renameProject = useCallback(
-    async (id: string, title: string) => {
-      await api.renameProject(id, title);
+    async (id: string, правка: { title?: string } & Вид) => {
+      await api.renameProject(id, правка);
       await reload();
     },
     [reload],
@@ -140,6 +161,18 @@ export function useRooms(where: Address): Rooms {
   const removeProject = useCallback(
     async (id: string) => {
       await api.removeProject(id);
+      await reload();
+    },
+    [reload],
+  );
+
+  const pin = useCallback(
+    async (что: { conversationId: string } | { projectId: string }, pinned: boolean) => {
+      await ("conversationId" in что
+        ? api.pinConversation(что.conversationId, pinned)
+        : api.pinProject(что.projectId, pinned));
+      // Порядок пересчитывает сервер — перечитываем панель целиком,
+      // а не переставляем строки здесь (иначе про порядок знают двое).
       await reload();
     },
     [reload],
@@ -164,5 +197,6 @@ export function useRooms(where: Address): Rooms {
     renameProject,
     removeProject,
     moveToProject,
+    pin,
   };
 }

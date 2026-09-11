@@ -1,3 +1,4 @@
+import { PROJECT_COLORS, PROJECT_ICONS } from "@amplifie/contract";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
@@ -25,7 +26,9 @@ import {
   removeProject,
   renameProject,
   sendMessage,
+  setConversationPin,
   setProject,
+  setProjectPin,
   sync,
   type Viewer,
   whereMentioned,
@@ -72,9 +75,25 @@ const channelSchema = z.object({
   visibility: z.enum(["workspace", "private"]).optional(),
 });
 
+/**
+ * Проект: имя и вид (task-038).
+ *
+ * ⚠️ ЗНАЧОК И ЦВЕТ ПРОВЕРЯЮТСЯ ПО ОБЩЕМУ СПИСКУ, А НЕ ПО СВОЕЙ КОПИИ.
+ * Список живёт в `packages/contract` — тот же, по которому фронт рисует
+ * выбор. Заведи мы здесь второй, человек однажды выбрал бы значок,
+ * которого сервер не знает.
+ *
+ * `null` значит «убрать вид», отсутствие поля — «не трогать»: это разные
+ * вещи, и слить их значило бы стирать цвет при каждом переименовании.
+ */
 const projectSchema = z.object({
   title: z.string().trim().min(1, "у проекта нужно название").max(120),
+  icon: z.enum(PROJECT_ICONS).nullable().optional(),
+  color: z.enum(PROJECT_COLORS).nullable().optional(),
 });
+
+/** Правка проекта: имя необязательно — можно менять только вид. */
+const projectPatchSchema = projectSchema.partial();
 
 /**
  * Принадлежность чата проекту. `null` — снять и вернуть чат наружу.
@@ -275,7 +294,13 @@ export function registerChatRoutes(app: FastifyInstance): void {
     const input = parse(projectSchema, request.body, reply);
     if (!input) return reply;
 
-    return reply.code(201).send(await createProject(viewer, input.title));
+    return reply.code(201).send(
+      await createProject(viewer, {
+        title: input.title,
+        icon: input.icon ?? undefined,
+        color: input.color ?? undefined,
+      }),
+    );
   });
 
   /** Переименовать проект. */
@@ -283,10 +308,10 @@ export function registerChatRoutes(app: FastifyInstance): void {
     const viewer = await viewerOf(request, reply);
     if (!viewer) return reply;
 
-    const input = parse(projectSchema, request.body, reply);
+    const input = parse(projectPatchSchema, request.body, reply);
     if (!input) return reply;
 
-    return orNotFound(reply, async () => renameProject(viewer, request.params.id, input.title));
+    return orNotFound(reply, async () => renameProject(viewer, request.params.id, input));
   });
 
   /**
@@ -467,6 +492,50 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * Закрепить и открепить. Две двери, а не одна с полем: «закрепить» —
    * это не правка сообщения, а другое действие, и повтор у него безобиден.
    */
+  /**
+   * Закрепить разговор или проект в СВОЕЙ панели (task-038).
+   *
+   * ⚠️ ТОТ ЖЕ ВИД ДВЕРИ, ЧТО У ЗАКРЕПЛЁННОЙ РЕПЛИКИ: `POST` ставит,
+   * `DELETE` снимает. Два разных закрепления — общее у реплики и личное
+   * у списка, — но форма двери одна, и человеку, читающему маршруты,
+   * не нужно держать в голове два способа сказать одно и то же.
+   */
+  app.post<{ Params: { id: string } }>("/v1/conversations/:id/pin", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, async () => {
+      await setConversationPin(viewer, request.params.id, true);
+      return reply.code(204).send();
+    });
+  });
+
+  app.delete<{ Params: { id: string } }>("/v1/conversations/:id/pin", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, async () => {
+      await setConversationPin(viewer, request.params.id, false);
+      return reply.code(204).send();
+    });
+  });
+
+  app.post<{ Params: { id: string } }>("/v1/projects/:id/pin", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, async () => {
+      await setProjectPin(viewer, request.params.id, true);
+      return reply.code(204).send();
+    });
+  });
+
+  app.delete<{ Params: { id: string } }>("/v1/projects/:id/pin", async (request, reply) => {
+    const viewer = await viewerOf(request, reply);
+    if (!viewer) return reply;
+    return orNotFound(reply, async () => {
+      await setProjectPin(viewer, request.params.id, false);
+      return reply.code(204).send();
+    });
+  });
+
   app.post<{ Params: { id: string } }>("/v1/messages/:id/pin", async (request, reply) => {
     const viewer = await viewerOf(request, reply);
     if (!viewer) return reply;

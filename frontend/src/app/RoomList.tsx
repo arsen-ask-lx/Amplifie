@@ -1,10 +1,9 @@
-import { Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import type { Panel } from "../data/usePanel.js";
-import { ConfirmRemoval, NewChannel } from "./ChannelAsks.js";
+import { ConfirmRemoval, NewChatDialog } from "./ChannelAsks.js";
 import { ChannelRow } from "./ChannelRow.js";
-import { ConfirmProjectRemoval, ProjectDialog } from "./ProjectDialog.js";
+import { ProjectAsks } from "./ProjectDialog.js";
 import { ProjectRow } from "./ProjectRow.js";
 import { SidebarSection } from "./SidebarSection.js";
 
@@ -88,8 +87,11 @@ function useСвёрнутые() {
 export function RoomList({ panel }: { panel: Panel }) {
   const { items, projects, currentId, unreadOf, mentionsOf } = panel;
   /**
-   * Где заводим чат: `null` — не заводим, `""` — без папки,
-   * иначе номер проекта. Одно состояние вместо флажка и номера рядом.
+   * В какой папке заводим чат: `null` — не заводим, иначе номер проекта.
+   *
+   * ⚠️ КНОПКА «НОВЫЙ ЧАТ» БЕЗ ПАПКИ ЖИВЁТ НЕ ЗДЕСЬ, А В ВЕРХНЕМ БЛОКЕ
+   * разделов (`Rail`) — так у Codex, и владелец показал на это пальцем
+   * 10.09. Панель отвечает только за заводку ВНУТРИ папки.
    */
   const [adding, setAdding] = useState<string | null>(null);
   const { свёрнуты, свернуть } = useСвёрнутые();
@@ -137,44 +139,24 @@ export function RoomList({ panel }: { panel: Panel }) {
       mentions={mentionsOf(channel.id)}
       onSelect={panel.select}
       onMove={panel.moveToProject}
+      onPin={(pinned) => panel.pin({ conversationId: channel.id }, pinned)}
       onRemove={() => setRemoving(channel)}
     />
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* ⚠️ «НОВЫЙ ЧАТ» ВИДЕН ВСЕГДА, А НЕ ПО НАВЕДЕНИЮ, И ЭТО ОТСТУПЛЕНИЕ
-          ОТ ПРАВИЛА СЕКЦИЙ. Там плюс прячется намеренно: канал заводят
-          раз в месяц, а список читают каждый день. Здесь наоборот —
-          завести разговор стало главным действием панели, как «New chat»
-          у Claude и ChatGPT. Спрятанное главное действие человек ищет. */}
-      <button
-        type="button"
-        onClick={() => setAdding("")}
-        className="flex shrink-0 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body text-muted transition-colors hover:bg-raised hover:text-ink"
-      >
-        <Plus className="size-4 shrink-0" weight="bold" />
-        Новый чат
-      </button>
-
       {/* Прокрутка одна на обе части: чаты и папки растут вместе,
           и две полосы рядом читались бы как два разных списка. */}
       <div className="hide-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-        <div className="flex shrink-0 flex-col gap-0.5">
-          {adding === "" ? (
-            <NewChannel
-              // Пустая строка — «без папки»: чат заводится сам по себе.
-              onCreate={(title) => panel.addChannel(title)}
-              onDone={() => setAdding(null)}
-            />
-          ) : null}
-
-          {безПапки.map((channel) => строка(channel))}
-        </div>
-
+        {/* ⚠️ ПРОЕКТЫ ВЫШЕ НЕДАВНИХ (владелец 10.09: «проекты поменять
+            местами с недавние»). Наверху то, что человек назвал сам
+            и вернётся к нему завтра; ниже — то, что просто случилось
+            сегодня. Так же в Codex. */}
         <SidebarSection
           title="Проекты"
           addLabel="Новый проект"
+          addAlwaysVisible={projects.length === 0}
           onAdd={() => setСпрашиваем({ вид: "новый" })}
         >
           <div className="flex flex-col gap-0.5">
@@ -186,58 +168,47 @@ export function RoomList({ panel }: { panel: Panel }) {
                 collapsed={свёрнуты.has(project.id)}
                 onToggle={() => свернуть(project.id)}
                 onAddChat={() => setAdding(project.id)}
+                onPin={(pinned) => panel.pin({ projectId: project.id }, pinned)}
                 onRename={() => setСпрашиваем({ вид: "имя", project })}
                 onRemove={() => setСпрашиваем({ вид: "убрать", project })}
                 unreadOf={unreadOf}
                 mentionsOf={mentionsOf}
                 renderChannel={строка}
-                // Поле нового чата встаёт на место кнопки «Новый чат» —
-                // внутри той папки, куда чат и заводится.
-                newChat={
-                  adding === project.id ? (
-                    <NewChannel
-                      onCreate={(title) => panel.addChannel(title, project.id)}
-                      onDone={() => setAdding(null)}
-                    />
-                  ) : null
-                }
               />
             ))}
 
             {projects.length === 0 ? (
               <p className="px-2.5 py-1.5 text-aside text-muted">
-                Проектов нет. Заведите первый — плюс в заголовке.
+                Проектов нет. Заведите первый — плюс справа от подписи.
               </p>
             ) : null}
           </div>
         </SidebarSection>
+
+        {/* ⚠️ «НЕДАВНИЕ» — ЭТО ПРО ПОРЯДОК, А НЕ ПРО СОРТ ЧАТОВ, и потому
+            подпись не воскрешает раздел «Каналы». Список и правда идёт
+            по свежести — это делает сервер. Без подписи он читался
+            как свалка ничьих чатов.
+
+            Пусто — подписи нет вовсе: заголовок над пустотой говорит
+            только о том, что мы чего-то ждём от человека. */}
+        {безПапки.length > 0 ? (
+          <SidebarSection title="Недавние">
+            <div className="flex flex-col gap-0.5">
+              {безПапки.map((channel) => строка(channel))}
+            </div>
+          </SidebarSection>
+        ) : null}
       </div>
 
-      <ProjectDialog
-        open={спрашиваем?.вид === "новый" || спрашиваем?.вид === "имя"}
-        title={спрашиваем?.вид === "имя" ? "Переименовать проект" : "Новый проект"}
-        было={спрашиваем?.вид === "имя" ? спрашиваем.project.title : ""}
-        кнопка={спрашиваем?.вид === "имя" ? "Переименовать" : "Завести"}
-        // ⚠️ КЛЮЧ ПО СЛУЧАЮ: без него поле помнит прежнее имя, когда окно
-        // открывают второй раз с другим проектом.
-        key={спрашиваем?.вид === "имя" ? спрашиваем.project.id : "новый"}
-        onSubmit={async (title) => {
-          if (спрашиваем?.вид === "имя") await panel.renameProject(спрашиваем.project.id, title);
-          else await panel.addProject(title);
-        }}
-        onClose={закрыть}
+      <NewChatDialog
+        open={adding !== null}
+        внутри={projects.find((one) => one.id === adding)?.title}
+        onCreate={(title) => panel.addChannel(title, adding ?? undefined)}
+        onClose={() => setAdding(null)}
       />
 
-      <ConfirmProjectRemoval
-        title={спрашиваем?.вид === "убрать" ? спрашиваем.project.title : null}
-        onCancel={закрыть}
-        onConfirm={async () => {
-          if (спрашиваем?.вид !== "убрать") return;
-          const id = спрашиваем.project.id;
-          закрыть();
-          await panel.removeProject(id);
-        }}
-      />
+      <ProjectAsks спрашиваем={спрашиваем} panel={panel} onClose={закрыть} />
 
       <ConfirmRemoval
         channel={removing}

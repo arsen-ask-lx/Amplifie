@@ -139,8 +139,8 @@ export async function invited(гость: Page, хозяин: Page, name: string
  */
 export async function createChannel(page: Page, title: string): Promise<void> {
   await page.getByRole("button", { name: "Новый чат", exact: true }).click();
-  await page.getByLabel("Название нового канала").fill(title);
-  await page.getByLabel("Название нового канала").press("Enter");
+  await page.getByLabel("Название нового чата").fill(title);
+  await page.getByLabel("Название нового чата").press("Enter");
   await openChannel(page, title);
 }
 

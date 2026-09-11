@@ -76,6 +76,28 @@ async function say(person: Person, conversationId: string, body: string): Promis
   return ((await response.json()) as { id: string }).id;
 }
 
+/** Позвать второго человека в то же пространство. */
+async function invite(owner: Person): Promise<Person> {
+  const created = await post("/v1/invites", { maxUses: 50 }, owner);
+  const { token } = (await created.json()) as { token: string };
+  const entered = await post("/v1/auth/join", {
+    token,
+    email: freshEmail(),
+    password: PASSWORD,
+    displayName: "Коллега",
+  });
+  if (entered.status !== 201) throw new Error(`вход по ссылке: ${entered.status}`);
+  return { cookie: sessionCookie(entered) };
+}
+
+/** Закрепить разговор в СВОЕЙ панели либо снять закрепление (task-038). */
+async function закрепить(person: Person, conversationId: string, надо: boolean): Promise<Response> {
+  return fetch(`${BASE}/v1/conversations/${conversationId}/pin`, {
+    method: надо ? "POST" : "DELETE",
+    headers: { cookie: person.cookie },
+  });
+}
+
 /** Названия каналов в том порядке, в каком их показывает панель. */
 async function порядок(person: Person): Promise<string[]> {
   const response = await get("/v1/conversations", person);
@@ -106,6 +128,73 @@ describe("порядок каналов в панели", () => {
       "Третий",
       "Второй",
     ]);
+  });
+
+  /**
+   * ЗАКРЕПЛЕНИЕ (task-038, Д-32 закрыт владельцем: закрепление ЛИЧНОЕ).
+   *
+   * ⚠️ ПОРЯДОК СЧИТАЕТ СЕРВЕР, И ЗАКРЕПЛЁННОЕ ПОДНИМАЕТ ТОЖЕ ОН. Сделай
+   * это клиент — про порядок знали бы двое, и однажды они разошлись бы:
+   * у одного закреплённое сверху, у другого нет.
+   */
+  it("закреплённый канал стоит выше свежего", async () => {
+    const человек = await newPerson();
+    const редкий = await newChannel(человек, "Редкий");
+    const свежий = await newChannel(человек, "Свежий");
+
+    await say(человек, редкий, "давно");
+    await say(человек, свежий, "только что");
+    expect((await порядок(человек)).slice(0, 2)).toEqual(["Свежий", "Редкий"]);
+
+    expect((await закрепить(человек, редкий, true)).status).toBe(204);
+    expect(
+      (await порядок(человек)).slice(0, 2),
+      "закреплённый канал не поднялся — закреплять его тогда незачем",
+    ).toEqual(["Редкий", "Свежий"]);
+
+    expect((await закрепить(человек, редкий, false)).status).toBe(204);
+    expect((await порядок(человек)).slice(0, 2), "снятое закрепление не отпустило").toEqual([
+      "Свежий",
+      "Редкий",
+    ]);
+  });
+
+  it("закрепление личное: у коллеги порядок свой", async () => {
+    const хозяин = await newPerson();
+    const редкий = await newChannel(хозяин, "Редкий");
+    const свежий = await newChannel(хозяин, "Свежий");
+    await say(хозяин, редкий, "давно");
+    await say(хозяин, свежий, "только что");
+
+    const коллега = await invite(хозяин);
+    expect((await закрепить(хозяин, редкий, true)).status).toBe(204);
+
+    expect((await порядок(хозяин)).slice(0, 2)).toEqual(["Редкий", "Свежий"]);
+    expect(
+      (await порядок(коллега)).slice(0, 2),
+      "моё закрепление переставило панель коллеге — это его взгляд, не мой",
+    ).toEqual(["Свежий", "Редкий"]);
+  });
+
+  it("закрепить дважды — тот же исход, а не ошибка", async () => {
+    const человек = await newPerson();
+    const канал = await newChannel(человек, "Дважды");
+    expect((await закрепить(человек, канал, true)).status).toBe(204);
+    expect(
+      (await закрепить(человек, канал, true)).status,
+      "повтор закрепления отвечает ошибкой — а он ничего не меняет",
+    ).toBe(204);
+  });
+
+  it("чужой разговор закрепить нельзя", async () => {
+    const хозяин = await newPerson();
+    const чужой = await newPerson();
+    const канал = await newChannel(хозяин, "Не твой");
+
+    expect(
+      (await закрепить(чужой, канал, true)).status,
+      "закрепили разговор, которого не видно: панель рассказала бы о нём",
+    ).toBe(404);
   });
 
   it("правка старой реплики не поднимает канал наверх", async () => {

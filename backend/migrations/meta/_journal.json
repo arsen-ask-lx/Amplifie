@@ -162,6 +162,20 @@
       "when": 1788952388238,
       "tag": "0022_chat_may_live_outside_project",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788952389238,
+      "tag": "0023_pin",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788952390238,
+      "tag": "0024_project_look",
+      "breakpoints": true
     }
   ]
 }

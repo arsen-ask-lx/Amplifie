@@ -51,8 +51,10 @@ test("чаты без папки лежат сверху, отдельного �
    * получит своего агента и свою память, и сваленное в общую папку
    * испортит ответы молча.
    */
+  // ⚠️ ИЩЕМ ТЕКСТ, А НЕ КНОПКУ: подписи разделов больше не кнопки,
+  // и поиск кнопки «Каналы» проходил бы, даже вернись раздел.
   await expect(
-    page.getByRole("button", { name: "Каналы" }),
+    page.getByText("Каналы", { exact: true }),
     "раздел «Каналы» остался в панели",
   ).toHaveCount(0);
   await expect(
@@ -65,13 +67,56 @@ test("чаты без папки лежат сверху, отдельного �
   await expect(папка(page, "Общее"), "завелась папка-свалка").toHaveCount(0);
 });
 
+test("над чатами без папки стоит «Недавние», а плюс проектов прячется", async ({ page }) => {
+  await register(page, "Хозяин");
+
+  /**
+   * ⚠️ ПОДПИСЬ, А НЕ ЗАГОЛОВОК РАЗДЕЛА. «Недавние» говорит про ПОРЯДОК,
+   * а не про сорт чатов: сортов у нас снова стало бы два, и мы вернулись
+   * бы к тому, что убрали в task-037. Так же подписано у Codex.
+   */
+  await expect(
+    page.getByText("Недавние", { exact: true }),
+    "чаты без папки лежат без подписи — читаются как ничьи",
+  ).toBeVisible();
+
+  /**
+   * ⚠️ ПОКА ПРОЕКТОВ НЕТ, ПЛЮС ВИДЕН ВСЕГДА. Он единственный вход
+   * в раздел, а на телефоне наведения не бывает — спрятанным его
+   * было бы не найти вовсе.
+   */
+  await expect(
+    page.getByRole("button", { name: "Новый проект" }),
+    "в пустом разделе плюс спрятан — первый проект нечем завести",
+  ).toHaveCSS("opacity", "1");
+  await завестиПроект(page, "Объект");
+  // Уводим с раздела и мышь, и фокус: окно, закрываясь, возвращает фокус
+  // на плюс, а наведение и фокус его показывают. Проверяем же покой.
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+  /**
+   * ⚠️ ПРОВЕРЯЕМ ПРОЗРАЧНОСТЬ, А НЕ ВИДИМОСТЬ: `toBeVisible` не различает
+   * прозрачную кнопку и обычную, а разница здесь и есть предмет.
+   *
+   * Плюс прячется до наведения — так в Buzz и так решил владелец,
+   * посмотрев на живой экран (10.09). Днём раньше он же стоял постоянно;
+   * запись об этом колебании лежит в самом компоненте, чтобы мы не
+   * ходили по кругу.
+   */
+  await expect(
+    page.getByRole("button", { name: "Новый проект" }),
+    "плюс проектов виден без наведения — он забирает внимание у списка",
+  ).toHaveCSS("opacity", "0");
+});
+
 test("чат уходит из папки наверх и возвращается обратно", async ({ page }) => {
   await register(page, "Хозяин");
   await завестиПроект(page, "Объект");
 
   await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового канала").fill("Смета");
-  await page.getByLabel("Название нового канала").press("Enter");
+  await page.getByLabel("Название нового чата").fill("Смета");
+  await page.getByLabel("Название нового чата").press("Enter");
   await expect(канал(page, "Смета")).toBeVisible();
 
   await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
@@ -88,6 +133,43 @@ test("чат уходит из папки наверх и возвращаетс
   await expect(канал(page, "Смета"), "вышедший из папки чат пропал из панели").toBeVisible();
 });
 
+test("закреплённый чат стоит выше и переживает перезагрузку", async ({ page }) => {
+  await register(page, "Хозяин");
+  await createChannel(page, "Редкий");
+  await createChannel(page, "Свежий");
+
+  /**
+   * ⚠️ СРАВНИВАЕМ ПОЛОЖЕНИЕ НА ЭКРАНЕ, А НЕ ОТВЕТ СЕРВЕРА. Что порядок
+   * приходит верным, проверяет приёмочный; здесь проверяется то, ради
+   * чего человек нажимает булавку, — что закреплённое ВИДНО выше.
+   */
+  const сверху = async (title: string) => {
+    const box = await канал(page, title).boundingBox();
+    if (!box) throw new Error(`строки «${title}» нет на экране`);
+    return box.y;
+  };
+
+  expect(await сверху("Свежий"), "свежий и так не сверху").toBeLessThan(await сверху("Редкий"));
+
+  await page.getByRole("button", { name: "Что сделать с каналом «Редкий»" }).click();
+  await page.getByRole("menuitem", { name: "Закрепить" }).click();
+
+  await expect
+    .poll(async () => (await сверху("Редкий")) < (await сверху("Свежий")), {
+      message: "закреплённый чат не поднялся",
+    })
+    .toBe(true);
+
+  // ⚠️ ПЕРЕЗАГРУЗКА — ЭТО ПРОВЕРКА, ЧТО ЗАКРЕПЛЕНИЕ ЖИВЁТ НА СЕРВЕРЕ,
+  // а не в памяти вкладки. Иначе оно исчезло бы к утру.
+  await page.reload();
+  await expect(канал(page, "Редкий")).toBeVisible();
+  expect(
+    await сверху("Редкий"),
+    "закрепление не пережило перезагрузку — значит его не сохранили",
+  ).toBeLessThan(await сверху("Свежий"));
+});
+
 test("у проектов свой раздел и свой плюс", async ({ page }) => {
   await register(page, "Хозяин");
 
@@ -100,12 +182,42 @@ test("у проектов свой раздел и свой плюс", async ({ 
    * Цена отступления — одна строка заголовка; у Codex этот раздел
    * тоже стоит всегда.
    */
-  const пусто = page.getByText("Проектов нет. Заведите первый — плюс в заголовке.");
+  const пусто = page.getByText("Проектов нет. Заведите первый — плюс справа от подписи.");
   await expect(пусто, "пустой раздел проектов не объясняет себя").toBeVisible();
 
   await завестиПроект(page, "Объект");
 
   await expect(пусто, "подсказка осталась при заведённом проекте").toHaveCount(0);
+});
+
+test("у папки свой значок и свой цвет, и они переживают перезагрузку", async ({ page }) => {
+  await register(page, "Хозяин");
+
+  await page.getByRole("button", { name: "Новый проект" }).click();
+  await page.getByLabel("Название проекта").fill("Объект");
+  await page.getByRole("button", { name: "Портфель" }).click();
+  await page.getByRole("button", { name: "Оранжевый" }).click();
+  await page.getByRole("button", { name: "Завести" }).click();
+
+  await expect(папка(page, "Объект")).toBeVisible();
+
+  /**
+   * ⚠️ ПРОВЕРЯЕМ, ЧТО ВЫБОР ДОЕХАЛ ДО СЕРВЕРА, А НЕ ЧТО КАРТИНКА
+   * ИЗМЕНИЛАСЬ. «Значок стал другим» — слабое утверждение: он мог
+   * измениться и в одной вкладке. Настоящее свойство одно: вид папки
+   * сохранён и вернётся завтра.
+   */
+  const вид = await page.evaluate(async () => {
+    const ответ = await fetch("/v1/conversations", { credentials: "include" }).then((r) =>
+      r.json(),
+    );
+    const свой = ответ.projects.find((one: { title: string }) => one.title === "Объект");
+    return { icon: свой?.icon ?? null, color: свой?.color ?? null };
+  });
+  expect(вид, "выбранный вид папки не сохранился").toEqual({ icon: "briefcase", color: "orange" });
+
+  await page.reload();
+  await expect(папка(page, "Объект"), "папка пропала после перезагрузки").toBeVisible();
 });
 
 test("чат заводится ВНУТРИ проекта, а не снаружи", async ({ page }) => {
@@ -114,8 +226,8 @@ test("чат заводится ВНУТРИ проекта, а не снару�
 
   // Кнопка живёт внутри развёрнутой папки — там, где человек уже смотрит.
   await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового канала").fill("Смета");
-  await page.getByLabel("Название нового канала").press("Enter");
+  await page.getByLabel("Название нового чата").fill("Смета");
+  await page.getByLabel("Название нового чата").press("Enter");
 
   await expect(канал(page, "Смета")).toBeVisible();
 
@@ -144,8 +256,8 @@ test("проект переименовывается, и это видно во
   const другой = await browser.newPage();
   await invited(другой, page, "Коллега");
   await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового канала").fill("Смета");
-  await page.getByLabel("Название нового канала").press("Enter");
+  await page.getByLabel("Название нового чата").fill("Смета");
+  await page.getByLabel("Название нового чата").press("Enter");
   await expect(папка(другой, "Объект")).toBeVisible();
 
   await вМенюПроекта(page, "Объект", "Переименовать");
@@ -160,8 +272,8 @@ test("убрать проект — переписка цела и лежит с
   await register(page, "Хозяин");
   await завестиПроект(page, "Объект");
   await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового канала").fill("Смета");
-  await page.getByLabel("Название нового канала").press("Enter");
+  await page.getByLabel("Название нового чата").fill("Смета");
+  await page.getByLabel("Название нового чата").press("Enter");
   await openChannel(page, "Смета");
   await say(page, "важные слова");
 

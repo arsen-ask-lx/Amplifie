@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { troubleOf } from "../shared/trouble.js";
-import {
-  api,
-  type Conversation,
-  type Me,
-  type Message,
-  type Project,
-  type Quote,
-  type SyncLine,
-} from "./api.js";
+import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
 import { type Panel, usePanel } from "./usePanel.js";
