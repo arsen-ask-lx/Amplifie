@@ -14,36 +14,36 @@ describe("контракт дверей", () => {
   beforeAll(requireStand);
 
   it("мусор вместо номера в пути — 422 по полю, а не 500 с ошибкой базы (task-027 №15)", async () => {
-    const человек = await newPerson("Проверяющий");
-    const ответ = await call("GET", "/v1/conversations/это-не-номер/messages", человек);
+    const person = await newPerson("Проверяющий");
+    const response = await call("GET", "/v1/conversations/это-не-номер/messages", person);
 
-    expect(ответ.status, "номер из пути дошёл до базы").toBe(422);
-    const тело = (await ответ.json()) as { error: string; fields: Record<string, string> };
-    expect(тело.error).toBe("validation_failed");
-    expect(Object.keys(тело.fields)).toContain("id");
+    expect(response.status, "номер из пути дошёл до базы").toBe(422);
+    const body = (await response.json()) as { error: string; fields: Record<string, string> };
+    expect(body.error).toBe("validation_failed");
+    expect(Object.keys(body.fields)).toContain("id");
   });
 
   it("пустое сообщение отклоняется по полю body", async () => {
-    const человек = await newPerson("Проверяющий");
-    const список = await call("GET", "/v1/conversations", человек);
-    const канал = ((await список.json()) as { items: { id: string }[] }).items[0]?.id;
+    const person = await newPerson("Проверяющий");
+    const list = await call("GET", "/v1/conversations", person);
+    const channelId = ((await list.json()) as { items: { id: string }[] }).items[0]?.id;
 
-    const ответ = await call("POST", `/v1/conversations/${канал}/messages`, человек, {
+    const response = await call("POST", `/v1/conversations/${channelId}/messages`, person, {
       body: "   ",
       clientMsgId: crypto.randomUUID(),
     });
-    expect(ответ.status).toBe(422);
-    const тело = (await ответ.json()) as { fields: Record<string, string> };
-    expect(тело.fields.body).toBe("сообщение пустое");
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { fields: Record<string, string> };
+    expect(body.fields.body).toBe("сообщение пустое");
   });
 
   it("новый канал отдаётся ровно объявленными полями — служебные не уезжают", async () => {
-    const человек = await newPerson("Проверяющий");
-    const ответ = await call("POST", "/v1/conversations", человек, { title: "Смета" });
-    expect(ответ.status).toBe(201);
+    const person = await newPerson("Проверяющий");
+    const response = await call("POST", "/v1/conversations", person, { title: "Смета" });
+    expect(response.status).toBe(201);
 
-    const поля = Object.keys((await ответ.json()) as object).sort();
-    expect(поля, "в ответ просочились поля сверх контракта").toEqual([
+    const fields = Object.keys((await response.json()) as object).sort();
+    expect(fields, "в ответ просочились поля сверх контракта").toEqual([
       "id",
       "kind",
       "parentId",

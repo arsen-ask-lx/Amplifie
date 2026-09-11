@@ -22,7 +22,7 @@ import { addressedById, addressedTo, awaitsAnswer } from "./address.js";
 const AGENT = "memo";
 
 /** Имя кириллицей: так зовут людей, и так звали агента до переименования. */
-const РУССКОЕ = "Сводка";
+const CYRILLIC_NAME = "Сводка";
 
 describe("обращение к агенту", () => {
   it("простое обращение узнаётся", () => {
@@ -46,13 +46,13 @@ describe("обращение к агенту", () => {
   it("падеж — не обращение", () => {
     // Узко намеренно: угадывание склонений даёт ложные вызовы, а каждый
     // ложный вызов — это деньги и секунды.
-    expect(addressedTo("@Сводкой займётся Петя", РУССКОЕ)).toBe(false);
-    expect(addressedTo("@Сводкам не доверяю", РУССКОЕ)).toBe(false);
+    expect(addressedTo("@Сводкой займётся Петя", CYRILLIC_NAME)).toBe(false);
+    expect(addressedTo("@Сводкам не доверяю", CYRILLIC_NAME)).toBe(false);
   });
 
   it("часть почтового адреса — не обращение", () => {
     expect(addressedTo("пиши на почта@memo.рф", AGENT)).toBe(false);
-    expect(addressedTo("пиши на почта@Сводка.рф", РУССКОЕ)).toBe(false);
+    expect(addressedTo("пиши на почта@Сводка.рф", CYRILLIC_NAME)).toBe(false);
   });
 
   it("пустое имя агента не совпадает ни с чем", () => {
@@ -66,8 +66,8 @@ describe("обращение к агенту", () => {
 
     // Проверка той самой ловушки: `\b` в JavaScript не работает
     // с кириллицей, и без явных границ это выражение совпало бы.
-    expect(addressedTo("@Сводкаа", РУССКОЕ)).toBe(false);
-    expect(addressedTo("@Сводка!", РУССКОЕ)).toBe(true);
+    expect(addressedTo("@Сводкаа", CYRILLIC_NAME)).toBe(false);
+    expect(addressedTo("@Сводка!", CYRILLIC_NAME)).toBe(true);
   });
 });
 
@@ -103,30 +103,30 @@ describe("ждёт ли разговор ответа", () => {
 });
 
 describe("обращение упоминанием", () => {
-  const НОМЕР_АГЕНТА = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6b";
-  const НОМЕР_ЧЕЛОВЕКА = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6c";
+  const agentId = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6b";
+  const humanId = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6c";
 
   it("выбранный из списка агент — обращение", () => {
-    const body = `${mentionMarkup(AGENT, НОМЕР_АГЕНТА)}, подведи итог`;
-    expect(addressedById(body, НОМЕР_АГЕНТА)).toBe(true);
+    const body = `${mentionMarkup(AGENT, agentId)}, подведи итог`;
+    expect(addressedById(body, agentId)).toBe(true);
   });
 
   it("упомянули человека, а не агента — не обращение", () => {
     // Иначе агент отвечал бы каждый раз, когда двое зовут друг друга.
-    const body = `${mentionMarkup("Мария", НОМЕР_ЧЕЛОВЕКА)}, глянь`;
-    expect(addressedById(body, НОМЕР_АГЕНТА)).toBe(false);
+    const body = `${mentionMarkup("Мария", humanId)}, глянь`;
+    expect(addressedById(body, agentId)).toBe(false);
   });
 
   it("оба написания зовут одинаково", () => {
-    const текстом = [{ body: `@${AGENT} итог?`, authorKind: "human" }];
-    const узлом = [{ body: mentionMarkup(AGENT, НОМЕР_АГЕНТА), authorKind: "human" }];
-    expect(awaitsAnswer(текстом, AGENT, НОМЕР_АГЕНТА)).toBe(true);
-    expect(awaitsAnswer(узлом, AGENT, НОМЕР_АГЕНТА)).toBe(true);
+    const asText = [{ body: `@${AGENT} итог?`, authorKind: "human" }];
+    const asNode = [{ body: mentionMarkup(AGENT, agentId), authorKind: "human" }];
+    expect(awaitsAnswer(asText, AGENT, agentId)).toBe(true);
+    expect(awaitsAnswer(asNode, AGENT, agentId)).toBe(true);
   });
 
   it("своё же упоминание агента не зовёт", () => {
     // Без этого выходит та же петля, что и с текстовым обращением.
-    const feed = [{ body: mentionMarkup(AGENT, НОМЕР_АГЕНТА), authorKind: "agent" }];
-    expect(awaitsAnswer(feed, AGENT, НОМЕР_АГЕНТА)).toBe(false);
+    const feed = [{ body: mentionMarkup(AGENT, agentId), authorKind: "agent" }];
+    expect(awaitsAnswer(feed, AGENT, agentId)).toBe(false);
   });
 });

@@ -160,7 +160,7 @@ export const pin = pgTable(
  * удаления, и осиротевшие отметки прочтения пережили бы удалённый канал.
  * Гейт повторов поймал это сразу, как только вторая таблица появилась.
  */
-const параРазговораИЧеловека = () => ({
+const conversationParticipantPair = () => ({
   conversationId: uuid("conversation_id")
     .notNull()
     .references(() => conversation.id, { onDelete: "cascade" }),
@@ -179,7 +179,7 @@ const параРазговораИЧеловека = () => ({
 export const conversationMember = pgTable(
   "conversation_member",
   {
-    ...параРазговораИЧеловека(),
+    ...conversationParticipantPair(),
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
@@ -218,7 +218,7 @@ export const conversationMember = pgTable(
 export const conversationRead = pgTable(
   "conversation_read",
   {
-    ...параРазговораИЧеловека(),
+    ...conversationParticipantPair(),
     /** Ноль значит «не читал ничего»: номера реплик начинаются с единицы. */
     readSeq: bigint("read_seq", { mode: "number" }).notNull().default(0),
   },

@@ -4,7 +4,7 @@ import { awaitsAnswer } from "../agent/listening/address.js";
 import { NoBridgeError } from "../agent/model/bridge.js";
 import { chooseProvider } from "../agent/model/choose.js";
 import { KNOWN_API, keyProvider } from "../agent/model/http.js";
-import { ensureAgent, keyFor, ИМЯ_АГЕНТА } from "../kernel/identity/index.js";
+import { AGENT_NAME, ensureAgent, keyFor } from "../kernel/identity/index.js";
 import { appendEvent } from "../kernel/journal/index.js";
 import {
   listMessages,
@@ -194,7 +194,7 @@ export type Scope = "conversation" | "project";
  * столько же, сколько один. Число здесь нужно затем, чтобы ОДИН запрос
  * не вычитал проект целиком, если в нём миллион реплик.
  */
-const ОБЗОР = 300;
+const SCOPE_LINES = 300;
 
 /**
  * Сказать в ответе, по каким чатам агент смотрел.
@@ -205,11 +205,11 @@ const ОБЗОР = 300;
  * тут дороже лишней строки: человек должен видеть, из чего сложен ответ,
  * а не гадать, почему у коллеги вышло иначе.
  */
-function сОбластью(text: string, область: ScopeFeed | null): string {
-  if (!область) return text;
+function withScope(text: string, projectFeed: ScopeFeed | null): string {
+  if (!projectFeed) return text;
   return `${text}
 
-Смотрел: ${область.titles.join(", ")}.`;
+Смотрел: ${projectFeed.titles.join(", ")}.`;
 }
 
 export async function answerIfAddressed(
@@ -237,7 +237,7 @@ export async function answerIfAddressed(
   const agent = await ensureAgent(viewer.workspaceId);
   const called = awaitsAnswer(
     turns.map((one) => ({ body: one.body, authorKind: one.authorKind })),
-    ИМЯ_АГЕНТА,
+    AGENT_NAME,
     agent.id,
   );
   if (!asking || !called) throw new NotAddressedError();
@@ -251,11 +251,11 @@ export async function answerIfAddressed(
    * (Р-032). Пересечение считает ядро одним запросом; здесь его нельзя
    * ни расширить, ни обойти.
    */
-  const область: ScopeFeed | null =
-    scope === "project" ? await scopeFeed(viewer, conversationId, ОБЗОР) : null;
-  const кругозор = область ? область.lines : turns;
+  const projectFeed: ScopeFeed | null =
+    scope === "project" ? await scopeFeed(viewer, conversationId, SCOPE_LINES) : null;
+  const seen = projectFeed ? projectFeed.lines : turns;
 
-  const prompt = buildPrompt(кругозор);
+  const prompt = buildPrompt(seen);
 
   let answer: { text: string; ms: number; used: Source };
   try {
@@ -279,7 +279,7 @@ export async function answerIfAddressed(
   // Ключ идемпотентности — идентификатор сообщения-обращения. Двойной зов
   // (двойной клик, повтор после разрыва) даёт один ответ, а не два.
   const message = await sendAsAgent(viewer, agent.id, conversationId, {
-    body: сОбластью(withReport(envelope.text, done), область),
+    body: withScope(withReport(envelope.text, done), projectFeed),
     clientMsgId: asking.id,
   });
 

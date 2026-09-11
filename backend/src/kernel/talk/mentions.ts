@@ -33,21 +33,21 @@ async function peopleWhoSee(
   tx: Executor,
   conversationId: string,
 ): Promise<{ id: string; name: string; kind: string }[]> {
-  const найден = await tx
+  const found = await tx
     .select({ workspaceId: conversation.workspaceId, parentId: conversation.parentId })
     .from(conversation)
     .where(eq(conversation.id, conversationId))
     .limit(1);
-  const это = найден[0];
-  if (!это) return [];
+  const row = found[0];
+  if (!row) return [];
 
   return tx
     .select({ id: participant.id, name: participant.displayName, kind: participant.kind })
     .from(participant)
     .where(
       and(
-        eq(participant.workspaceId, это.workspaceId),
-        canSee(sql`${conversationId}::uuid`, sql`${это.parentId}::uuid`, participant.id),
+        eq(participant.workspaceId, row.workspaceId),
+        canSee(sql`${conversationId}::uuid`, sql`${row.parentId}::uuid`, participant.id),
       ),
     )
     .orderBy(asc(participant.displayName));
@@ -119,20 +119,20 @@ export class MentionNotAllowedError extends Error {}
  * проверки можно было бы позвать кого угодно из чужого пространства
  * и узнать его имя обратным ответом. Тот же рубеж, что у `replyToId`.
  */
-export async function зовущиеся(
+export async function mentionedWhoSee(
   tx: Executor,
   conversationId: string,
   body: string,
 ): Promise<string[]> {
-  const позваны = mentionedIds(body);
-  if (позваны.length === 0) return [];
+  const mentioned = mentionedIds(body);
+  if (mentioned.length === 0) return [];
 
-  const видят = new Set((await peopleWhoSee(tx, conversationId)).map((one) => one.id));
-  const чужой = позваны.find((id) => !видят.has(id));
-  if (чужой) {
+  const seers = new Set((await peopleWhoSee(tx, conversationId)).map((one) => one.id));
+  const stranger = mentioned.find((id) => !seers.has(id));
+  if (stranger) {
     throw new MentionNotAllowedError("позвали того, кто не видит этот разговор");
   }
-  return позваны;
+  return mentioned;
 }
 
 /**
@@ -144,8 +144,8 @@ export async function зовущиеся(
  */
 export async function peopleToMention(viewer: Viewer, conversationId: string) {
   await requireVisible(db, viewer, conversationId);
-  const все = await peopleWhoSee(db, conversationId);
-  return все
+  const everyone = await peopleWhoSee(db, conversationId);
+  return everyone
     .filter((one) => one.id !== viewer.participantId)
     .map((one) => ({ id: one.id, name: one.name, kind: one.kind }));
 }

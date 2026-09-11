@@ -56,27 +56,27 @@ describe("пороги у дверей", () => {
     // ⚠️ ПО ОЧЕРЕДИ, А НЕ ПАЧКОЙ. Порог считает попытки, и порядок здесь
     // важен: нам нужно увидеть, что ПЕРВЫЕ проходят до проверки пароля,
     // а поздние — уже нет.
-    const коды: number[] = [];
-    for (let attempt = 0; attempt < 7; attempt++) коды.push(await tryLogin(email));
+    const codes: number[] = [];
+    for (let attempt = 0; attempt < 7; attempt++) codes.push(await tryLogin(email));
 
-    expect(коды.slice(0, 5), "порог сработал раньше пятой попытки").toEqual([
+    expect(codes.slice(0, 5), "порог сработал раньше пятой попытки").toEqual([
       401, 401, 401, 401, 401,
     ]);
-    expect(коды.at(-1), "седьмая попытка подбора прошла к проверке пароля").toBe(429);
+    expect(codes.at(-1), "седьмая попытка подбора прошла к проверке пароля").toBe(429);
   });
 
   it("П-2: порог входа не отнимает попытки у соседа по адресу", async () => {
-    const первый = freshEmail("neighbour-a");
-    const второй = freshEmail("neighbour-b");
+    const first = freshEmail("neighbour-a");
+    const second = freshEmail("neighbour-b");
 
     // Первый израсходовал свои попытки целиком.
-    for (let attempt = 0; attempt < 7; attempt++) await tryLogin(первый);
-    expect(await tryLogin(первый)).toBe(429);
+    for (let attempt = 0; attempt < 7; attempt++) await tryLogin(first);
+    expect(await tryLogin(first)).toBe(429);
 
     // ⚠️ ВТОРОЙ ПРИХОДИТ С ТОГО ЖЕ АДРЕСА. Если ключ порога — адрес,
     // а не пара «почта и адрес», он получит 429 за чужие попытки.
     expect(
-      await tryLogin(второй),
+      await tryLogin(second),
       "сосед по общему выходу в интернет потерял свои попытки из-за чужого подбора",
     ).toBe(401);
   });
@@ -110,20 +110,20 @@ describe("пороги у дверей", () => {
 
   it("П-4: порог отправки считается по человеку, а не по адресу", async () => {
     // Двое РАЗНЫХ людей с одного адреса: у каждого свой счётчик.
-    const первый = await post("/v1/auth/register", {
+    const first = await post("/v1/auth/register", {
       email: freshEmail("sender-a"),
       password: "очень-длинный-пароль-для-теста",
       displayName: "Первый",
       workspaceName: "Отправка А",
     });
-    const второй = await post("/v1/auth/register", {
+    const second = await post("/v1/auth/register", {
       email: freshEmail("sender-b"),
       password: "очень-длинный-пароль-для-теста",
       displayName: "Второй",
       workspaceName: "Отправка Б",
     });
-    const cookieA = sessionCookie(первый);
-    const cookieB = sessionCookie(второй);
+    const cookieA = sessionCookie(first);
+    const cookieB = sessionCookie(second);
 
     const roomOf = async (cookie: string): Promise<string> => {
       const rooms = await get("/v1/conversations", cookie);
@@ -144,11 +144,11 @@ describe("пороги у дверей", () => {
       return response.status;
     };
 
-    let первыйУпёрся = false;
-    for (let n = 0; n < 35 && !первыйУпёрся; n++) {
-      первыйУпёрся = (await say(roomA, cookieA, n)) === 429;
+    let firstHitLimit = false;
+    for (let n = 0; n < 35 && !firstHitLimit; n++) {
+      firstHitLimit = (await say(roomA, cookieA, n)) === 429;
     }
-    expect(первыйУпёрся, "отправка ничем не ограничена").toBe(true);
+    expect(firstHitLimit, "отправка ничем не ограничена").toBe(true);
 
     expect(
       await say(roomB, cookieB, 1),

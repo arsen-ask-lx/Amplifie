@@ -31,18 +31,18 @@ import { conversation, pin, project } from "./schema.js";
  * от того, кто её завёл, значило бы сломать саму заводку.
  */
 export async function listProjectsFor(tx: Executor, participantId: string, workspaceId: string) {
-  const естьЧаты = sql`EXISTS (
+  const hasChats = sql`EXISTS (
     SELECT 1 FROM ${conversation}
     WHERE ${conversation.projectId} = ${project.id}
       AND ${conversation.deletedAt} IS NULL
   )`;
-  const естьВидимый = sql`EXISTS (
+  const hasVisible = sql`EXISTS (
     SELECT 1 FROM ${conversation}
     WHERE ${conversation.projectId} = ${project.id}
       AND ${repo.visibleTo(participantId)}
   )`;
 
-  const закреплён = sql<boolean>`EXISTS (
+  const pinned = sql<boolean>`EXISTS (
     SELECT 1 FROM ${pin}
     WHERE ${pin.projectId} = ${project.id}
       AND ${pin.participantId} = ${participantId}
@@ -55,19 +55,19 @@ export async function listProjectsFor(tx: Executor, participantId: string, works
         title: project.title,
         icon: project.icon,
         color: project.color,
-        pinned: закреплён,
+        pinned: pinned,
       })
       .from(project)
       .where(
         and(
           eq(project.workspaceId, workspaceId),
           isNull(project.deletedAt),
-          sql`(NOT ${естьЧаты} OR ${естьВидимый})`,
+          sql`(NOT ${hasChats} OR ${hasVisible})`,
         ),
       )
       // Закреплённые сверху, остальные по алфавиту — порядок задаёт сервер,
       // как и у разговоров (task-038).
-      .orderBy(desc(закреплён), asc(project.title))
+      .orderBy(desc(pinned), asc(project.title))
   );
 }
 
@@ -131,12 +131,12 @@ export async function createProject(
  * Нет и не виден — снаружи одно и то же, 404: иначе по ответу
  * перебираются существующие проекты.
  */
-export async function требуетсяПроект(
+export async function requireProject(
   tx: Executor,
   workspaceId: string,
   projectId: string,
 ): Promise<void> {
-  const найден = await tx
+  const found = await tx
     .select({ id: project.id })
     .from(project)
     .where(
@@ -147,7 +147,7 @@ export async function требуетсяПроект(
       ),
     )
     .limit(1);
-  if (!найден[0]) throw new ConversationNotVisibleError();
+  if (!found[0]) throw new ConversationNotVisibleError();
 }
 
 /**
@@ -161,23 +161,23 @@ export async function требуетсяПроект(
 export async function renameProject(
   viewer: Viewer,
   projectId: string,
-  правка: {
+  edit: {
     title?: string | undefined;
     icon?: string | null | undefined;
     color?: string | null | undefined;
   },
 ): Promise<{ id: string }> {
   return change(viewer.workspaceId, async (tx) => {
-    await требуетсяПроект(tx, viewer.workspaceId, projectId);
+    await requireProject(tx, viewer.workspaceId, projectId);
     // Не переданное не трогаем: «не указано» и «убрать» — разные вещи,
     // и первое не должно молча стирать второе.
-    const поля = {
-      ...(правка.title === undefined ? {} : { title: правка.title }),
-      ...(правка.icon === undefined ? {} : { icon: правка.icon }),
-      ...(правка.color === undefined ? {} : { color: правка.color }),
+    const fields = {
+      ...(edit.title === undefined ? {} : { title: edit.title }),
+      ...(edit.icon === undefined ? {} : { icon: edit.icon }),
+      ...(edit.color === undefined ? {} : { color: edit.color }),
     };
-    if (Object.keys(поля).length > 0) {
-      await tx.update(project).set(поля).where(eq(project.id, projectId));
+    if (Object.keys(fields).length > 0) {
+      await tx.update(project).set(fields).where(eq(project.id, projectId));
     }
 
     await appendEvent(tx, {
@@ -186,7 +186,7 @@ export async function renameProject(
       actorParticipantId: viewer.participantId,
       subjectType: "project",
       subjectId: projectId,
-      payload: поля,
+      payload: fields,
     });
     return { id: projectId };
   });
@@ -207,7 +207,7 @@ export async function renameProject(
  */
 export async function removeProject(viewer: Viewer, projectId: string): Promise<void> {
   await change(viewer.workspaceId, async (tx) => {
-    await требуетсяПроект(tx, viewer.workspaceId, projectId);
+    await requireProject(tx, viewer.workspaceId, projectId);
 
     await tx
       .update(conversation)
@@ -233,7 +233,7 @@ export async function setProject(
 ): Promise<{ id: string; projectId: string | null }> {
   return change(viewer.workspaceId, async (tx) => {
     await requireVisible(tx, viewer, conversationId);
-    if (projectId !== null) await требуетсяПроект(tx, viewer.workspaceId, projectId);
+    if (projectId !== null) await requireProject(tx, viewer.workspaceId, projectId);
 
     await tx
       .update(conversation)
@@ -288,32 +288,32 @@ export async function scopeFeed(
   conversationId: string,
   limit: number,
 ): Promise<ScopeFeed | null> {
-  const текущий = await requireVisible(db, viewer, conversationId);
-  if (!текущий.projectId) return null;
+  const current = await requireVisible(db, viewer, conversationId);
+  if (!current.projectId) return null;
 
-  const чаты = await db
+  const chats = await db
     .select({ id: conversation.id, title: conversation.title })
     .from(conversation)
-    .where(and(eq(conversation.projectId, текущий.projectId), repo.visibleTo(viewer.participantId)))
+    .where(and(eq(conversation.projectId, current.projectId), repo.visibleTo(viewer.participantId)))
     .orderBy(asc(conversation.createdAt));
 
   // Один видимый чат — это не область, а тот же разговор.
-  if (чаты.length < 2) return null;
+  if (chats.length < 2) return null;
 
-  const имя = new Map(чаты.map((one) => [one.id, one.title]));
-  const лента = await repo.listMessagesIn(
+  const titleOf = new Map(chats.map((one) => [one.id, one.title]));
+  const feed = await repo.listMessagesIn(
     db,
-    чаты.map((one) => one.id),
+    chats.map((one) => one.id),
     limit,
   );
 
   return {
-    titles: чаты.map((one) => one.title),
-    lines: лента.map((one) => ({
+    titles: chats.map((one) => one.title),
+    lines: feed.map((one) => ({
       body: one.body,
       authorName: one.authorName,
       authorKind: one.authorKind,
-      where: имя.get(one.conversationId) ?? "",
+      where: titleOf.get(one.conversationId) ?? "",
     })),
   };
 }

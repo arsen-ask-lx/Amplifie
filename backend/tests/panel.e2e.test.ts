@@ -91,15 +91,15 @@ async function invite(owner: Person): Promise<Person> {
 }
 
 /** Закрепить разговор в СВОЕЙ панели либо снять закрепление (task-038). */
-async function закрепить(person: Person, conversationId: string, надо: boolean): Promise<Response> {
+async function pin(person: Person, conversationId: string, on: boolean): Promise<Response> {
   return fetch(`${BASE}/v1/conversations/${conversationId}/pin`, {
-    method: надо ? "POST" : "DELETE",
+    method: on ? "POST" : "DELETE",
     headers: { cookie: person.cookie },
   });
 }
 
 /** Названия каналов в том порядке, в каком их показывает панель. */
-async function порядок(person: Person): Promise<string[]> {
+async function order(person: Person): Promise<string[]> {
   const response = await get("/v1/conversations", person);
   expect(response.status).toBe(200);
   const body = (await response.json()) as { items: { title: string }[] };
@@ -113,17 +113,17 @@ describe("порядок каналов в панели", () => {
   });
 
   it("канал, в котором сказали позже, стоит выше", async () => {
-    const человек = await newPerson();
-    const первый = await newChannel(человек, "Первый");
-    const второй = await newChannel(человек, "Второй");
-    const третий = await newChannel(человек, "Третий");
+    const person = await newPerson();
+    const first = await newChannel(person, "Первый");
+    const second = await newChannel(person, "Второй");
+    const third = await newChannel(person, "Третий");
 
-    await say(человек, второй, "во втором");
-    await say(человек, третий, "в третьем");
-    await say(человек, первый, "в первом");
+    await say(person, second, "во втором");
+    await say(person, third, "в третьем");
+    await say(person, first, "в первом");
 
-    const список = await порядок(человек);
-    expect(список.slice(0, 3), "панель сортирует не по свежести разговора").toEqual([
+    const list = await order(person);
+    expect(list.slice(0, 3), "панель сортирует не по свежести разговора").toEqual([
       "Первый",
       "Третий",
       "Второй",
@@ -138,85 +138,85 @@ describe("порядок каналов в панели", () => {
    * у одного закреплённое сверху, у другого нет.
    */
   it("закреплённый канал стоит выше свежего", async () => {
-    const человек = await newPerson();
-    const редкий = await newChannel(человек, "Редкий");
-    const свежий = await newChannel(человек, "Свежий");
+    const person = await newPerson();
+    const quiet = await newChannel(person, "Редкий");
+    const fresh = await newChannel(person, "Свежий");
 
-    await say(человек, редкий, "давно");
-    await say(человек, свежий, "только что");
-    expect((await порядок(человек)).slice(0, 2)).toEqual(["Свежий", "Редкий"]);
+    await say(person, quiet, "давно");
+    await say(person, fresh, "только что");
+    expect((await order(person)).slice(0, 2)).toEqual(["Свежий", "Редкий"]);
 
-    expect((await закрепить(человек, редкий, true)).status).toBe(204);
+    expect((await pin(person, quiet, true)).status).toBe(204);
     expect(
-      (await порядок(человек)).slice(0, 2),
+      (await order(person)).slice(0, 2),
       "закреплённый канал не поднялся — закреплять его тогда незачем",
     ).toEqual(["Редкий", "Свежий"]);
 
-    expect((await закрепить(человек, редкий, false)).status).toBe(204);
-    expect((await порядок(человек)).slice(0, 2), "снятое закрепление не отпустило").toEqual([
+    expect((await pin(person, quiet, false)).status).toBe(204);
+    expect((await order(person)).slice(0, 2), "снятое закрепление не отпустило").toEqual([
       "Свежий",
       "Редкий",
     ]);
   });
 
   it("закрепление личное: у коллеги порядок свой", async () => {
-    const хозяин = await newPerson();
-    const редкий = await newChannel(хозяин, "Редкий");
-    const свежий = await newChannel(хозяин, "Свежий");
-    await say(хозяин, редкий, "давно");
-    await say(хозяин, свежий, "только что");
+    const owner = await newPerson();
+    const quiet = await newChannel(owner, "Редкий");
+    const fresh = await newChannel(owner, "Свежий");
+    await say(owner, quiet, "давно");
+    await say(owner, fresh, "только что");
 
-    const коллега = await invite(хозяин);
-    expect((await закрепить(хозяин, редкий, true)).status).toBe(204);
+    const mate = await invite(owner);
+    expect((await pin(owner, quiet, true)).status).toBe(204);
 
-    expect((await порядок(хозяин)).slice(0, 2)).toEqual(["Редкий", "Свежий"]);
+    expect((await order(owner)).slice(0, 2)).toEqual(["Редкий", "Свежий"]);
     expect(
-      (await порядок(коллега)).slice(0, 2),
+      (await order(mate)).slice(0, 2),
       "моё закрепление переставило панель коллеге — это его взгляд, не мой",
     ).toEqual(["Свежий", "Редкий"]);
   });
 
   it("закрепить дважды — тот же исход, а не ошибка", async () => {
-    const человек = await newPerson();
-    const канал = await newChannel(человек, "Дважды");
-    expect((await закрепить(человек, канал, true)).status).toBe(204);
+    const person = await newPerson();
+    const channel = await newChannel(person, "Дважды");
+    expect((await pin(person, channel, true)).status).toBe(204);
     expect(
-      (await закрепить(человек, канал, true)).status,
+      (await pin(person, channel, true)).status,
       "повтор закрепления отвечает ошибкой — а он ничего не меняет",
     ).toBe(204);
   });
 
   it("чужой разговор закрепить нельзя", async () => {
-    const хозяин = await newPerson();
-    const чужой = await newPerson();
-    const канал = await newChannel(хозяин, "Не твой");
+    const owner = await newPerson();
+    const stranger = await newPerson();
+    const channel = await newChannel(owner, "Не твой");
 
     expect(
-      (await закрепить(чужой, канал, true)).status,
+      (await pin(stranger, channel, true)).status,
       "закрепили разговор, которого не видно: панель рассказала бы о нём",
     ).toBe(404);
   });
 
   it("правка старой реплики не поднимает канал наверх", async () => {
-    const человек = await newPerson();
-    const старый = await newChannel(человек, "Старый");
-    const свежий = await newChannel(человек, "Свежий");
+    const person = await newPerson();
+    const old = await newChannel(person, "Старый");
+    const fresh = await newChannel(person, "Свежий");
 
-    const давняя = await say(человек, старый, "давняя реплика");
-    await say(человек, свежий, "сегодняшняя реплика");
-    expect((await порядок(человек)).slice(0, 2)).toEqual(["Свежий", "Старый"]);
+    const oldMessage = await say(person, old, "давняя реплика");
+    await say(person, fresh, "сегодняшняя реплика");
+    expect((await order(person)).slice(0, 2)).toEqual(["Свежий", "Старый"]);
 
     // Правка двигает номер ИЗМЕНЕНИЯ (Р-021) — по нему живёт догон.
     // Место в списке живёт по другому вопросу: когда тут говорили.
-    const правка = await fetch(`${BASE}/v1/messages/${давняя}`, {
+    const edit = await fetch(`${BASE}/v1/messages/${oldMessage}`, {
       method: "PATCH",
-      headers: { "content-type": "application/json", cookie: человек.cookie },
+      headers: { "content-type": "application/json", cookie: person.cookie },
       body: JSON.stringify({ body: "давняя реплика, исправленная" }),
     });
-    expect(правка.status).toBe(200);
+    expect(edit.status).toBe(200);
 
     expect(
-      (await порядок(человек)).slice(0, 2),
+      (await order(person)).slice(0, 2),
       "исправленная опечатка недельной давности вытолкнула сегодняшний разговор",
     ).toEqual(["Свежий", "Старый"]);
   });

@@ -131,14 +131,14 @@ describe("вход второго человека в компанию", () => {
     // Несуществующая.
     const nobody = await join("ZZZ-этого-токена-нет-и-не-было-ZZZ", "ghost");
 
-    const ответы = [revoked, exhausted, nobody];
+    const responses = [revoked, exhausted, nobody];
     expect(
-      ответы.map((r) => r.status),
+      responses.map((r) => r.status),
       "по разнице ответов переберут живые ссылки",
     ).toEqual([404, 404, 404]);
 
-    const тела = await Promise.all(ответы.map((r) => r.text()));
-    expect(new Set(тела).size, "тела ответов различаются — это тоже подсказка").toBe(1);
+    const bodies = await Promise.all(responses.map((r) => r.text()));
+    expect(new Set(bodies).size, "тела ответов различаются — это тоже подсказка").toBe(1);
   });
 
   it("П-5: два устройства с последним входом — входит ровно один", async () => {
@@ -150,8 +150,8 @@ describe("вход второго человека в компанию", () => {
     // отдельным запросом: та была бы гонкой — той же, что мы уже ловили
     // в отправке сообщений.
     const [one, two] = await Promise.all([join(token, "dev-a"), join(token, "dev-b")]);
-    const успехи = [one.status, two.status].filter((s) => s === 201);
-    expect(успехи.length, "по одной ссылке вошли двое").toBe(1);
+    const successes = [one.status, two.status].filter((s) => s === 201);
+    expect(successes.length, "по одной ссылке вошли двое").toBe(1);
   });
 
   it("П-6: вошедший не видит закрытый канал, в котором не состоит", async () => {

@@ -167,7 +167,7 @@ export async function insertMember(
  * `sql.raw` здесь — не грубость, а единственный способ сказать «именно
  * та таблица снаружи»: имя разговора в этом файле одно и не меняется.
  */
-const ЭТОТ_РАЗГОВОР = sql.raw('"conversation"."id"');
+const THIS_CONVERSATION = sql.raw('"conversation"."id"');
 
 /**
  * Список разговоров — по свежести (Р-011).
@@ -198,9 +198,9 @@ export function listConversationsFor(tx: Executor, participantId: string, worksp
    * одним на пару, — а список каналов обязан оставаться списком каналов.
    * Цена та же: индекс `pin_conversation_uq` отдаёт одну строку.
    */
-  const закреплён = sql<boolean>`EXISTS (
+  const pinned = sql<boolean>`EXISTS (
     SELECT 1 FROM ${pin}
-    WHERE ${pin.conversationId} = ${ЭТОТ_РАЗГОВОР}
+    WHERE ${pin.conversationId} = ${THIS_CONVERSATION}
       AND ${pin.participantId} = ${participantId}
   )`;
 
@@ -232,7 +232,7 @@ export function listConversationsFor(tx: Executor, participantId: string, worksp
     ${conversation.createdAt},
     COALESCE((
       SELECT ${message.createdAt} FROM ${message}
-      WHERE ${message.conversationId} = ${ЭТОТ_РАЗГОВОР}
+      WHERE ${message.conversationId} = ${THIS_CONVERSATION}
       ORDER BY ${message.seq} DESC
       LIMIT 1
     ), ${conversation.createdAt})
@@ -247,8 +247,8 @@ export function listConversationsFor(tx: Executor, participantId: string, worksp
         parentId: conversation.parentId,
         lastAt,
         projectId: conversation.projectId,
-        unread: unreadOf(ЭТОТ_РАЗГОВОР, participantId),
-        mentions: mentionsOf(ЭТОТ_РАЗГОВОР, participantId),
+        unread: unreadOf(THIS_CONVERSATION, participantId),
+        mentions: mentionsOf(THIS_CONVERSATION, participantId),
         /**
          * Докуда человек дочитал. Едет наружу вместе со счётчиком, потому
          * что число отвечает на «сколько», а черта «Непрочитанные
@@ -261,10 +261,10 @@ export function listConversationsFor(tx: Executor, participantId: string, worksp
          */
         readSeq: sql<number>`COALESCE((
         SELECT ${conversationRead.readSeq} FROM ${conversationRead}
-        WHERE ${conversationRead.conversationId} = ${ЭТОТ_РАЗГОВОР}
+        WHERE ${conversationRead.conversationId} = ${THIS_CONVERSATION}
           AND ${conversationRead.participantId} = ${participantId}
       ), 0)`,
-        pinned: закреплён,
+        pinned: pinned,
       })
       .from(conversation)
       /**
@@ -288,7 +288,7 @@ export function listConversationsFor(tx: Executor, participantId: string, worksp
        * обновлении списка. Это же правило записано в самой панели:
        * «переупорядочивать здесь нельзя».
        */
-      .orderBy(desc(закреплён), desc(lastAt))
+      .orderBy(desc(pinned), desc(lastAt))
   );
 }
 
@@ -461,7 +461,7 @@ const MESSAGE_VIEW = {
  * Условия и порядок дописывает вызывающий: они у всех разные, и это
  * как раз то, что отличает эти запросы друг от друга.
  */
-function видСообщения(tx: Executor) {
+function selectMessages(tx: Executor) {
   return tx
     .select({ ...MESSAGE_VIEW, updatedSeq: message.updatedSeq })
     .from(message)
@@ -480,7 +480,7 @@ function видСообщения(tx: Executor) {
  * которой у повтора терялся автор (найдено 2026-09-06).
  */
 export async function findMessageViewById(tx: Executor, messageId: string) {
-  const rows = await видСообщения(tx).where(eq(message.id, messageId)).limit(1);
+  const rows = await selectMessages(tx).where(eq(message.id, messageId)).limit(1);
   return rows[0] ?? null;
 }
 
@@ -568,7 +568,7 @@ export async function setPinned(
 
 /** Закреплённые разговора, свежие сверху. Их единицы — предел не нужен. */
 export async function listPinned(tx: Executor, conversationId: string) {
-  return видСообщения(tx)
+  return selectMessages(tx)
     .where(
       and(
         eq(message.conversationId, conversationId),
@@ -592,7 +592,7 @@ export async function listMessages(
   limit: number,
   before?: number,
 ) {
-  const rows = await видСообщения(tx)
+  const rows = await selectMessages(tx)
     // ⚠️ Удалённые не отдаются НИ ЗДЕСЬ, НИ В ДОГОНЕ. Забыть одно из двух
     // мест — главный способ провалить мягкое удаление: реплика исчезает
     // из ленты и возвращается первым же обновлением.
@@ -628,7 +628,7 @@ export async function listMessages(
  */
 export async function listMessagesIn(tx: Executor, conversationIds: string[], limit: number) {
   if (conversationIds.length === 0) return [];
-  const rows = await видСообщения(tx)
+  const rows = await selectMessages(tx)
     .where(and(inArray(message.conversationId, conversationIds), isNull(message.deletedAt)))
     .orderBy(desc(message.seq))
     .limit(limit);
@@ -654,7 +654,7 @@ export async function listMessagesAfter(
   limit: number,
 ) {
   return (
-    видСообщения(tx)
+    selectMessages(tx)
       // Догону нужен ещё и сам разговор: по нему проверяется видимость.
       .innerJoin(conversation, eq(conversation.id, message.conversationId))
       .where(

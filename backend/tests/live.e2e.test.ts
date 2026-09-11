@@ -14,19 +14,19 @@ describe("изменение звонит соседям", () => {
   beforeAll(requireStand);
 
   it("новая ветка приходит к соседу звонком, без перезагрузки", async () => {
-    const хозяин = await newPerson("Хозяин");
-    const сосед = await colleague(хозяин, "Сосед");
+    const owner = await newPerson("Хозяин");
+    const neighbour = await colleague(owner, "Сосед");
 
-    const список = await call("GET", "/v1/conversations", хозяин);
-    const канал = ((await список.json()) as { items: { id: string }[] }).items[0]?.id;
-    if (!канал) throw new Error("у нового пространства нет канала");
+    const list = await call("GET", "/v1/conversations", owner);
+    const channelId = ((await list.json()) as { items: { id: string }[] }).items[0]?.id;
+    if (!channelId) throw new Error("у нового пространства нет канала");
 
-    const звонок = await listen(сосед);
-    const ветка = await call("POST", `/v1/conversations/${канал}/threads`, хозяин, {
+    const ring = await listen(neighbour);
+    const thread = await call("POST", `/v1/conversations/${channelId}/threads`, owner, {
       title: "Обсудить смету",
     });
-    expect(ветка.status).toBe(201);
+    expect(thread.status).toBe(201);
 
-    expect(await звонок(), "ветка завелась, а сосед об этом не узнал").toBe(true);
+    expect(await ring(), "ветка завелась, а сосед об этом не узнал").toBe(true);
   });
 });

@@ -69,58 +69,58 @@ describe("границы догона", () => {
   beforeAll(requireStand);
 
   it("правка старой реплики на границе страницы не уводит курсор назад (№3)", async () => {
-    const хозяин = await newPerson("Хозяин");
-    const канал = await firstChannel(хозяин);
-    const старая = await say(хозяин, канал, "первая");
-    await say(хозяин, канал, "вторая");
-    await say(хозяин, канал, "третья");
-    const было = await head(хозяин, канал);
+    const owner = await newPerson("Хозяин");
+    const channel = await firstChannel(owner);
+    const old = await say(owner, channel, "первая");
+    await say(owner, channel, "вторая");
+    await say(owner, channel, "третья");
+    const before = await head(owner, channel);
 
-    const правка = await call("PATCH", `/v1/messages/${старая.id}`, хозяин, {
+    const edit = await call("PATCH", `/v1/messages/${old.id}`, owner, {
       body: "первая, исправлено",
     });
-    expect(правка.status).toBe(200);
+    expect(edit.status).toBe(200);
 
-    const { seen, cursor } = await drain(хозяин, было, 1);
-    expect(seen.map((one) => one.id)).toContain(старая.id);
-    expect(cursor, "курсор не дошёл до правки").toBeGreaterThan(было);
+    const { seen, cursor } = await drain(owner, before, 1);
+    expect(seen.map((one) => one.id)).toContain(old.id);
+    expect(cursor, "курсор не дошёл до правки").toBeGreaterThan(before);
   });
 
   it("удаление реплики с ответами доезжает целиком, даже когда рвёт страницу (№4)", async () => {
-    const хозяин = await newPerson("Хозяин");
-    const канал = await firstChannel(хозяин);
-    const исходная = await say(хозяин, канал, "исходная");
-    const ответы = [
-      await say(хозяин, канал, "ответ 1", исходная.id),
-      await say(хозяин, канал, "ответ 2", исходная.id),
-      await say(хозяин, канал, "ответ 3", исходная.id),
+    const owner = await newPerson("Хозяин");
+    const channel = await firstChannel(owner);
+    const original = await say(owner, channel, "исходная");
+    const responses = [
+      await say(owner, channel, "ответ 1", original.id),
+      await say(owner, channel, "ответ 2", original.id),
+      await say(owner, channel, "ответ 3", original.id),
     ];
-    const было = await head(хозяин, канал);
+    const before = await head(owner, channel);
 
-    expect((await call("DELETE", `/v1/messages/${исходная.id}`, хозяин)).status).toBe(204);
+    expect((await call("DELETE", `/v1/messages/${original.id}`, owner)).status).toBe(204);
 
-    const { seen } = await drain(хозяин, было, 2);
+    const { seen } = await drain(owner, before, 2);
     const ids = new Set(seen.map((one) => one.id));
-    expect(ids.has(исходная.id), "надгробие удалённой не доехало").toBe(true);
-    for (const ответ of ответы) {
-      expect(ids.has(ответ.id), "ответ на удалённую потерялся на границе страницы").toBe(true);
+    expect(ids.has(original.id), "надгробие удалённой не доехало").toBe(true);
+    for (const response of responses) {
+      expect(ids.has(response.id), "ответ на удалённую потерялся на границе страницы").toBe(true);
     }
   });
 
   it("отметка «прочитано» из будущего не глушит следующие сообщения (№5)", async () => {
-    const хозяин = await newPerson("Хозяин");
-    const сосед = await colleague(хозяин, "Сосед");
-    const канал = await firstChannel(хозяин);
+    const owner = await newPerson("Хозяин");
+    const neighbour = await colleague(owner, "Сосед");
+    const channel = await firstChannel(owner);
 
-    const отметка = await call("POST", `/v1/conversations/${канал}/read`, хозяин, { seq: 2 ** 40 });
-    expect(отметка.status).toBe(200);
+    const mark = await call("POST", `/v1/conversations/${channel}/read`, owner, { seq: 2 ** 40 });
+    expect(mark.status).toBe(200);
 
-    await say(сосед, канал, "новое после отметки");
+    await say(neighbour, channel, "новое после отметки");
 
-    const панель = await call("GET", "/v1/conversations", хозяин);
-    const строка = (
-      (await панель.json()) as { items: { id: string; unread: number }[] }
-    ).items.find((one) => one.id === канал);
-    expect(строка?.unread, "новое сообщение сочтено прочитанным заранее").toBe(1);
+    const panel = await call("GET", "/v1/conversations", owner);
+    const row = ((await panel.json()) as { items: { id: string; unread: number }[] }).items.find(
+      (one) => one.id === channel,
+    );
+    expect(row?.unread, "новое сообщение сочтено прочитанным заранее").toBe(1);
   });
 });

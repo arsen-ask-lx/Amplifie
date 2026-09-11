@@ -28,7 +28,7 @@ const AGENT = "memo";
  * Редкое нарочно: если оно окажется в приглашении, это не совпадение
  * и не общая фраза, а именно та реплика.
  */
-const ТАЙНА = "криптоквазиморфный";
+const SECRET_WORD = "криптоквазиморфный";
 
 function freshEmail(): string {
   return `project-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
@@ -229,212 +229,212 @@ describe("проекты", () => {
 
   describe("агент не выносит закрытое", () => {
     it("зов по всему проекту не приносит из чата, которого позвавший не видит", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const гость = await invite(хозяин, "Гость");
-      const bridge = await connectBridge(гость);
+      const owner = await newPerson("Хозяин");
+      const guest = await invite(owner, "Гость");
+      const bridge = await connectBridge(guest);
 
-      const проект = await newProject(хозяин, "Объект");
-      const открытый = await newChannel(хозяин, "Смета");
-      const закрытый = await newChannel(хозяин, "Деньги", "private");
-      await toProject(хозяин, открытый.id, проект.id);
-      await toProject(хозяин, закрытый.id, проект.id);
+      const project = await newProject(owner, "Объект");
+      const open = await newChannel(owner, "Смета");
+      const closed = await newChannel(owner, "Деньги", "private");
+      await toProject(owner, open.id, project.id);
+      await toProject(owner, closed.id, project.id);
 
-      await say(хозяин, открытый.id, "по смете вопросов нет");
-      await say(хозяин, закрытый.id, `ставка ${ТАЙНА}`);
+      await say(owner, open.id, "по смете вопросов нет");
+      await say(owner, closed.id, `ставка ${SECRET_WORD}`);
 
-      await say(гость, открытый.id, `@${AGENT} что у нас по объекту?`);
-      const { prompt } = await askAndCatchPrompt(гость, открытый.id, bridge, "project");
+      await say(guest, open.id, `@${AGENT} что у нас по объекту?`);
+      const { prompt } = await askAndCatchPrompt(guest, open.id, bridge, "project");
 
       expect(
         prompt,
         "в приглашение модели уехало содержимое чата, которого позвавший не видит",
-      ).not.toContain(ТАЙНА);
+      ).not.toContain(SECRET_WORD);
       expect(prompt, "соседний ВИДИМЫЙ чат проекта в приглашение не попал").toContain("смете");
     });
 
     it("зов по проекту читает соседний чат, если он виден", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const bridge = await connectBridge(хозяин);
+      const owner = await newPerson("Хозяин");
+      const bridge = await connectBridge(owner);
 
-      const проект = await newProject(хозяин, "Объект");
-      const первый = await newChannel(хозяин, "Смета");
-      const второй = await newChannel(хозяин, "Кровля");
-      await toProject(хозяин, первый.id, проект.id);
-      await toProject(хозяин, второй.id, проект.id);
+      const project = await newProject(owner, "Объект");
+      const first = await newChannel(owner, "Смета");
+      const second = await newChannel(owner, "Кровля");
+      await toProject(owner, first.id, project.id);
+      await toProject(owner, second.id, project.id);
 
-      await say(хозяин, второй.id, "кровлю закрыли в четверг");
-      await say(хозяин, первый.id, `@${AGENT} что по объекту?`);
+      await say(owner, second.id, "кровлю закрыли в четверг");
+      await say(owner, first.id, `@${AGENT} что по объекту?`);
 
-      const { prompt } = await askAndCatchPrompt(хозяин, первый.id, bridge, "project");
+      const { prompt } = await askAndCatchPrompt(owner, first.id, bridge, "project");
       expect(prompt, "соседний чат проекта не прочитан").toContain("четверг");
     });
 
     it("чат вне проекта читается один, как и раньше", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const bridge = await connectBridge(хозяин);
+      const owner = await newPerson("Хозяин");
+      const bridge = await connectBridge(owner);
 
-      const сам = await newChannel(хозяин, "Сам по себе");
-      const соседний = await newChannel(хозяин, "Соседний");
-      await say(хозяин, соседний.id, "посторонняя тема");
-      await say(хозяин, сам.id, `@${AGENT} итог?`);
+      const loose = await newChannel(owner, "Сам по себе");
+      const nearby = await newChannel(owner, "Соседний");
+      await say(owner, nearby.id, "посторонняя тема");
+      await say(owner, loose.id, `@${AGENT} итог?`);
 
-      const { prompt } = await askAndCatchPrompt(хозяин, сам.id, bridge, "project");
+      const { prompt } = await askAndCatchPrompt(owner, loose.id, bridge, "project");
       expect(prompt, "чат без проекта притянул соседей").not.toContain("посторонняя");
     });
   });
 
   describe("проект не меняет прав", () => {
     it("приватный чат в общем проекте остаётся невидимым", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const гость = await invite(хозяин, "Гость");
+      const owner = await newPerson("Хозяин");
+      const guest = await invite(owner, "Гость");
 
-      const проект = await newProject(хозяин, "Объект");
-      const открытый = await newChannel(хозяин, "Смета");
-      const закрытый = await newChannel(хозяин, "Деньги", "private");
-      await toProject(хозяин, открытый.id, проект.id);
-      await toProject(хозяин, закрытый.id, проект.id);
+      const project = await newProject(owner, "Объект");
+      const open = await newChannel(owner, "Смета");
+      const closed = await newChannel(owner, "Деньги", "private");
+      await toProject(owner, open.id, project.id);
+      await toProject(owner, closed.id, project.id);
 
-      const видит = await conversations(гость);
+      const visible = await conversations(guest);
       expect(
-        видит.map((one) => one.id),
+        visible.map((one) => one.id),
         "проект открыл гостю приватный чат",
-      ).not.toContain(закрытый.id);
-      expect(видит.find((one) => one.id === открытый.id)?.projectId).toBe(проект.id);
+      ).not.toContain(closed.id);
+      expect(visible.find((one) => one.id === open.id)?.projectId).toBe(project.id);
     });
 
     it("проект, все чаты которого закрыты, гостю не виден вовсе", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const гость = await invite(хозяин, "Гость");
+      const owner = await newPerson("Хозяин");
+      const guest = await invite(owner, "Гость");
 
-      const проект = await newProject(хозяин, "Только своё");
-      const закрытый = await newChannel(хозяин, "Деньги", "private");
-      await toProject(хозяин, закрытый.id, проект.id);
+      const project = await newProject(owner, "Только своё");
+      const closed = await newChannel(owner, "Деньги", "private");
+      await toProject(owner, closed.id, project.id);
 
       expect(
-        (await projects(гость)).map((one) => one.id),
+        (await projects(guest)).map((one) => one.id),
         "гость видит проект, в котором ему не виден ни один чат",
-      ).not.toContain(проект.id);
+      ).not.toContain(project.id);
       expect(
-        (await projects(хозяин)).map((one) => one.id),
+        (await projects(owner)).map((one) => one.id),
         "хозяин потерял свой проект",
-      ).toContain(проект.id);
+      ).toContain(project.id);
     });
 
     it("чужой проект не отвечает ничем", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const чужой = await newPerson("Чужой");
-      const проект = await newProject(хозяин, "Объект");
-      const свой = await newChannel(чужой, "Свой");
+      const owner = await newPerson("Хозяин");
+      const stranger = await newPerson("Чужой");
+      const project = await newProject(owner, "Объект");
+      const own = await newChannel(stranger, "Свой");
 
-      const ответ = await toProject(чужой, свой.id, проект.id);
-      expect(ответ.status, "чат отнесли к проекту другого пространства").toBe(404);
+      const response = await toProject(stranger, own.id, project.id);
+      expect(response.status, "чат отнесли к проекту другого пространства").toBe(404);
     });
   });
 
   describe("принадлежность", () => {
     it("одна: переезд в другой проект убирает из прежнего", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const первый = await newProject(хозяин, "Первый");
-      const второй = await newProject(хозяин, "Второй");
-      const чат = await newChannel(хозяин, "Кочующий");
+      const owner = await newPerson("Хозяин");
+      const first = await newProject(owner, "Первый");
+      const second = await newProject(owner, "Второй");
+      const chat = await newChannel(owner, "Кочующий");
 
-      await toProject(хозяин, чат.id, первый.id);
-      await toProject(хозяин, чат.id, второй.id);
+      await toProject(owner, chat.id, first.id);
+      await toProject(owner, chat.id, second.id);
 
-      const где = (await conversations(хозяин)).find((one) => one.id === чат.id);
-      expect(где?.projectId, "чат остался в прежнем проекте").toBe(второй.id);
+      const moved = (await conversations(owner)).find((one) => one.id === chat.id);
+      expect(moved?.projectId, "чат остался в прежнем проекте").toBe(second.id);
     });
 
     it("снятая принадлежность возвращает чат наружу", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const проект = await newProject(хозяин, "Объект");
-      const чат = await newChannel(хозяин, "Смета");
+      const owner = await newPerson("Хозяин");
+      const project = await newProject(owner, "Объект");
+      const chat = await newChannel(owner, "Смета");
 
-      await toProject(хозяин, чат.id, проект.id);
-      expect((await toProject(хозяин, чат.id, null)).status).toBe(200);
+      await toProject(owner, chat.id, project.id);
+      expect((await toProject(owner, chat.id, null)).status).toBe(200);
 
-      const где = (await conversations(хозяин)).find((one) => one.id === чат.id);
-      expect(где?.projectId, "чат не вышел из проекта").toBeNull();
+      const moved = (await conversations(owner)).find((one) => one.id === chat.id);
+      expect(moved?.projectId, "чат не вышел из проекта").toBeNull();
     });
 
     it("чат заводится СРАЗУ в проекте, одним запросом", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const проект = await newProject(хозяин, "Объект");
+      const owner = await newPerson("Хозяин");
+      const project = await newProject(owner, "Объект");
 
-      const ответ = await newChannelIn(хозяин, "Смета", проект.id);
-      expect(ответ.status).toBe(201);
-      const создан = (await ответ.json()) as Conversation;
-      expect(создан.projectId, "заводка в проект вернула чат без принадлежности").toBe(проект.id);
+      const response = await newChannelIn(owner, "Смета", project.id);
+      expect(response.status).toBe(201);
+      const created = (await response.json()) as Conversation;
+      expect(created.projectId, "заводка в проект вернула чат без принадлежности").toBe(project.id);
 
-      const где = (await conversations(хозяин)).find((one) => one.id === создан.id);
-      expect(где?.projectId).toBe(проект.id);
+      const moved = (await conversations(owner)).find((one) => one.id === created.id);
+      expect(moved?.projectId).toBe(project.id);
     });
 
     it("чат в чужой проект не заводится", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const чужой = await newPerson("Чужой");
-      const проект = await newProject(хозяин, "Объект");
+      const owner = await newPerson("Хозяин");
+      const stranger = await newPerson("Чужой");
+      const project = await newProject(owner, "Объект");
 
-      const ответ = await newChannelIn(чужой, "Свой", проект.id);
-      expect(ответ.status, "канал завели в проект другого пространства").toBe(404);
+      const response = await newChannelIn(stranger, "Свой", project.id);
+      expect(response.status, "канал завели в проект другого пространства").toBe(404);
     });
 
     it("новый чат заводится вне проектов", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const чат = await newChannel(хозяин, "Просто чат");
-      const где = (await conversations(хозяин)).find((one) => one.id === чат.id);
-      expect(где?.projectId).toBeNull();
+      const owner = await newPerson("Хозяин");
+      const chat = await newChannel(owner, "Просто чат");
+      const moved = (await conversations(owner)).find((one) => one.id === chat.id);
+      expect(moved?.projectId).toBeNull();
     });
   });
 
   describe("переименование и удаление", () => {
     it("проект переименовывается", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const проект = await newProject(хозяин, "Объект");
-      const чат = await newChannel(хозяин, "Смета");
-      await toProject(хозяин, чат.id, проект.id);
+      const owner = await newPerson("Хозяин");
+      const project = await newProject(owner, "Объект");
+      const chat = await newChannel(owner, "Смета");
+      await toProject(owner, chat.id, project.id);
 
-      expect((await renameProject(хозяин, проект.id, "Второй объект")).status).toBe(200);
-      const виден = (await projects(хозяин)).find((one) => one.id === проект.id);
-      expect(виден?.title).toBe("Второй объект");
+      expect((await renameProject(owner, project.id, "Второй объект")).status).toBe(200);
+      const shown = (await projects(owner)).find((one) => one.id === project.id);
+      expect(shown?.title).toBe("Второй объект");
     });
 
     it("убрать проект — чаты живы и вне проектов", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const проект = await newProject(хозяин, "Объект");
-      const первый = await newChannel(хозяин, "Смета");
-      const второй = await newChannel(хозяин, "Кровля");
-      await toProject(хозяин, первый.id, проект.id);
-      await toProject(хозяин, второй.id, проект.id);
-      await say(хозяин, первый.id, "важные слова");
+      const owner = await newPerson("Хозяин");
+      const project = await newProject(owner, "Объект");
+      const first = await newChannel(owner, "Смета");
+      const second = await newChannel(owner, "Кровля");
+      await toProject(owner, first.id, project.id);
+      await toProject(owner, second.id, project.id);
+      await say(owner, first.id, "важные слова");
 
-      expect((await removeProject(хозяин, проект.id)).status).toBe(204);
+      expect((await removeProject(owner, project.id)).status).toBe(204);
 
       expect(
-        (await projects(хозяин)).map((one) => one.id),
+        (await projects(owner)).map((one) => one.id),
         "убранный проект остался в панели",
-      ).not.toContain(проект.id);
+      ).not.toContain(project.id);
 
-      const список = await conversations(хозяин);
-      for (const id of [первый.id, второй.id]) {
-        const чат = список.find((one) => one.id === id);
-        expect(чат, "чат исчез вместе с папкой — худшая трактовка слова «убрать»").toBeDefined();
-        expect(чат?.projectId, "чат остался привязан к убранному проекту").toBeNull();
+      const list = await conversations(owner);
+      for (const id of [first.id, second.id]) {
+        const chat = list.find((one) => one.id === id);
+        expect(chat, "чат исчез вместе с папкой — худшая трактовка слова «убрать»").toBeDefined();
+        expect(chat?.projectId, "чат остался привязан к убранному проекту").toBeNull();
       }
 
-      const лента = await get(`/v1/conversations/${первый.id}/messages`, хозяин);
-      expect(лента.status, "переписка убранного проекта не читается").toBe(200);
-      const тело = (await лента.json()) as { items: { body: string }[] };
-      expect(тело.items.map((one) => one.body)).toContain("важные слова");
+      const feed = await get(`/v1/conversations/${first.id}/messages`, owner);
+      expect(feed.status, "переписка убранного проекта не читается").toBe(200);
+      const body = (await feed.json()) as { items: { body: string }[] };
+      expect(body.items.map((one) => one.body)).toContain("важные слова");
     });
 
     it("чужой проект не убрать и не переименовать", async () => {
-      const хозяин = await newPerson("Хозяин");
-      const чужой = await newPerson("Чужой");
-      const проект = await newProject(хозяин, "Объект");
+      const owner = await newPerson("Хозяин");
+      const stranger = await newPerson("Чужой");
+      const project = await newProject(owner, "Объект");
 
-      expect((await removeProject(чужой, проект.id)).status).toBe(404);
-      expect((await renameProject(чужой, проект.id, "моё")).status).toBe(404);
+      expect((await removeProject(stranger, project.id)).status).toBe(404);
+      expect((await renameProject(stranger, project.id, "моё")).status).toBe(404);
     });
   });
 });

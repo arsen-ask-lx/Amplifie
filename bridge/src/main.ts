@@ -35,8 +35,8 @@ function say(line: string): void {
 function clientOf(options: Options): Provider {
   const known = KNOWN_CLIENTS[options.client];
   if (!known) {
-    const годные = Object.keys(KNOWN_CLIENTS).join(", ");
-    throw new Error(`неизвестный клиент «${options.client}». Годятся: ${годные}`);
+    const knownNames = Object.keys(KNOWN_CLIENTS).join(", ");
+    throw new Error(`неизвестный клиент «${options.client}». Годятся: ${knownNames}`);
   }
   return cliProvider({
     name: options.client,

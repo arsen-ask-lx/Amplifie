@@ -21,6 +21,7 @@ export {
 } from "./keys.js";
 export {
   type Actor,
+  AGENT_NAME,
   EmailTakenError,
   ensureAgent,
   InvalidCredentialsError,
@@ -33,5 +34,4 @@ export {
   registrationOpen,
   resolveActor,
   setSessionTouchFailureReporter,
-  ИМЯ_АГЕНТА,
 } from "./service.js";

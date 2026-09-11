@@ -159,18 +159,18 @@ describe("непрочитанное", () => {
       const channel = await channelOf(owner);
 
       await say(guest, channel.id, "раз");
-      const второй = await say(guest, channel.id, "два");
+      const second = await say(guest, channel.id, "два");
       await say(guest, channel.id, "три");
 
       // Отмечаем ДО середины: остаток обязан быть посчитан сервером,
       // потому что клиент видит только загруженный кусок ленты.
-      const частично = await markRead(owner, channel.id, второй);
-      expect(частично.status).toBe(200);
-      expect((await частично.json()) as { unread: number }).toEqual({ unread: 1 });
+      const partial = await markRead(owner, channel.id, second);
+      expect(partial.status).toBe(200);
+      expect((await partial.json()) as { unread: number }).toEqual({ unread: 1 });
       expect(await unreadOf(owner, channel.id)).toBe(1);
 
-      const всё = await markRead(owner, channel.id, второй + 1);
-      expect((await всё.json()) as { unread: number }).toEqual({ unread: 0 });
+      const all = await markRead(owner, channel.id, second + 1);
+      expect((await all.json()) as { unread: number }).toEqual({ unread: 0 });
       expect(await unreadOf(owner, channel.id)).toBe(0);
     });
   });
@@ -191,19 +191,19 @@ describe("непрочитанное", () => {
       const guest = await invite(owner, "Собеседник");
       const channel = await channelOf(owner);
 
-      const первый = await say(guest, channel.id, "раз");
+      const first = await say(guest, channel.id, "раз");
       await say(guest, channel.id, "два");
-      const третий = await say(guest, channel.id, "три");
+      const third = await say(guest, channel.id, "три");
 
       // Первая вкладка дочитала до конца.
-      await markRead(owner, channel.id, третий);
+      await markRead(owner, channel.id, third);
       expect(await unreadOf(owner, channel.id)).toBe(0);
 
       // Вторая вкладка опоздала со своим старым номером.
-      const опоздавшая = await markRead(owner, channel.id, первый);
-      expect(опоздавшая.status).toBe(200);
+      const late = await markRead(owner, channel.id, first);
+      expect(late.status).toBe(200);
       expect(
-        (await опоздавшая.json()) as { unread: number },
+        (await late.json()) as { unread: number },
         "отставшая отметка откатила прочитанное назад",
       ).toEqual({ unread: 0 });
       expect(await unreadOf(owner, channel.id), "непрочитанное воскресло").toBe(0);
@@ -216,9 +216,9 @@ describe("непрочитанное", () => {
 
       const seq = await say(guest, channel.id, "единственная");
       await markRead(owner, channel.id, seq);
-      const снова = await markRead(owner, channel.id, seq);
+      const again = await markRead(owner, channel.id, seq);
 
-      expect((await снова.json()) as { unread: number }).toEqual({ unread: 0 });
+      expect((await again.json()) as { unread: number }).toEqual({ unread: 0 });
     });
   });
 
@@ -240,9 +240,9 @@ describe("непрочитанное", () => {
       const seq = await say(owner, channel.id, "сказано до его прихода");
       expect(await unreadOf(late, channel.id)).toBe(1);
 
-      const ответ = await markRead(late, channel.id, seq);
-      expect(ответ.status, "отметка отказала тому, кто не состоит в канале").toBe(200);
-      expect((await ответ.json()) as { unread: number }).toEqual({ unread: 0 });
+      const response = await markRead(late, channel.id, seq);
+      expect(response.status, "отметка отказала тому, кто не состоит в канале").toBe(200);
+      expect((await response.json()) as { unread: number }).toEqual({ unread: 0 });
       expect(await unreadOf(late, channel.id), "число не погасло").toBe(0);
     });
   });
@@ -253,16 +253,16 @@ describe("непрочитанное", () => {
       const stranger = await newPerson("Чужой");
       const channel = await channelOf(owner);
 
-      const ответ = await markRead(stranger, channel.id, 1);
-      expect(ответ.status, "чужой отметил прочтение в чужом разговоре").toBe(404);
+      const response = await markRead(stranger, channel.id, 1);
+      expect(response.status, "чужой отметил прочтение в чужом разговоре").toBe(404);
     });
 
     it("без сессии не отмечает", async () => {
       const owner = await newPerson("Хозяин двери");
       const channel = await channelOf(owner);
 
-      const ответ = await post(`/v1/conversations/${channel.id}/read`, { seq: 1 });
-      expect(ответ.status).toBe(401);
+      const response = await post(`/v1/conversations/${channel.id}/read`, { seq: 1 });
+      expect(response.status).toBe(401);
     });
   });
 });

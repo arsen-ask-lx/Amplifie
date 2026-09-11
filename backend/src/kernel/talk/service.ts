@@ -4,8 +4,8 @@ import { change } from "../../platform/change.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
-import { setMentions, зовущиеся } from "./mentions.js";
-import { listProjectsFor, требуетсяПроект } from "./projects.js";
+import { mentionedWhoSee, setMentions } from "./mentions.js";
+import { listProjectsFor, requireProject } from "./projects.js";
 import * as repo from "./repo.js";
 
 /**
@@ -230,7 +230,7 @@ async function writeMessage(
     ...input,
   });
 
-  await setMentions(tx, created.id, await зовущиеся(tx, input.conversationId, input.body));
+  await setMentions(tx, created.id, await mentionedWhoSee(tx, input.conversationId, input.body));
 
   // Состояние и событие — в одной транзакции. Всегда (Р-2).
   await appendEvent(tx, {
@@ -494,7 +494,7 @@ async function openConversation(
     // ⚠️ ПРОЕКТ ПРОВЕРЯЕТСЯ ДО ВСТАВКИ И ТОЙ ЖЕ ПРОВЕРКОЙ, ЧТО И ПЕРЕНОС.
     // Иначе по номеру проекта из соседней компании можно было бы завести
     // канал прямо к ним в панель.
-    if (input.projectId) await требуетсяПроект(tx, viewer.workspaceId, input.projectId);
+    if (input.projectId) await requireProject(tx, viewer.workspaceId, input.projectId);
 
     const made = await repo.insertConversation(tx, {
       workspaceId: viewer.workspaceId,
@@ -674,7 +674,7 @@ export async function editMessage(
 
     // Правка меняет и то, кого зовут: убрал упоминание — значка
     // у человека остаться не должно.
-    await setMentions(tx, messageId, await зовущиеся(tx, found.conversationId, body));
+    await setMentions(tx, messageId, await mentionedWhoSee(tx, found.conversationId, body));
 
     await logMessageEvent(tx, viewer, "message.edited", messageId, found);
     return viewOf(tx, messageId);

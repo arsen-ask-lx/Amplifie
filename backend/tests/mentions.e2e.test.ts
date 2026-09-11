@@ -159,11 +159,11 @@ describe("упоминания", () => {
   describe("кого можно позвать", () => {
     it("чужого из другого пространства позвать нельзя", async () => {
       const owner = await newPerson("Хозяин");
-      const чужой = await newPerson("Чужой");
+      const stranger = await newPerson("Чужой");
       const channel = await channelOf(owner);
-      const было = await messageCount(owner, channel.id);
+      const before = await messageCount(owner, channel.id);
 
-      const response = await trySay(owner, channel.id, `привет, ${mention(чужой)}`);
+      const response = await trySay(owner, channel.id, `привет, ${mention(stranger)}`);
 
       expect(
         response.status,
@@ -172,7 +172,7 @@ describe("упоминания", () => {
       expect(
         await messageCount(owner, channel.id),
         "сообщение с негодным упоминанием всё-таки появилось в разговоре",
-      ).toBe(было);
+      ).toBe(before);
     });
 
     it("того, кто не видит приватный канал, позвать нельзя", async () => {
@@ -267,7 +267,7 @@ describe("упоминания", () => {
       const guest = await invite(owner, "Гость");
       const channel = await channelOf(owner);
 
-      const первое = await say(owner, channel.id, `раз ${mention(guest)}`);
+      const firstMessage = await say(owner, channel.id, `раз ${mention(guest)}`);
       await say(owner, channel.id, `два ${mention(guest)}`);
       await say(owner, channel.id, `три ${mention(guest)}`);
 
@@ -275,7 +275,7 @@ describe("упоминания", () => {
       expect(response.status).toBe(200);
       const body = (await response.json()) as { seq: number | null };
       expect(body.seq, "переход обязан вести к САМОМУ РАННЕМУ неувиденному упоминанию").toBe(
-        первое,
+        firstMessage,
       );
     });
 
@@ -312,7 +312,7 @@ describe("упоминания", () => {
 
     it("не содержит людей из другого пространства", async () => {
       const owner = await newPerson("Хозяин");
-      const чужой = await newPerson("Чужой");
+      const stranger = await newPerson("Чужой");
       const channel = await channelOf(owner);
 
       const response = await get(`/v1/conversations/${channel.id}/people`, owner);
@@ -321,7 +321,7 @@ describe("упоминания", () => {
       expect(
         body.items.map((one) => one.id),
         "в списке оказался человек из другого пространства",
-      ).not.toContain(чужой.participantId);
+      ).not.toContain(stranger.participantId);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withTransaction } from "../../platform/db.js";
 import { requireVisible, type Viewer } from "./access.js";
-import { требуетсяПроект } from "./projects.js";
+import { requireProject } from "./projects.js";
 import { pin } from "./schema.js";
 
 /**
@@ -68,7 +68,7 @@ export async function setProjectPin(
   pinned: boolean,
 ): Promise<void> {
   await withTransaction(async (tx) => {
-    await требуетсяПроект(tx, viewer.workspaceId, projectId);
+    await requireProject(tx, viewer.workspaceId, projectId);
 
     if (!pinned) {
       await tx

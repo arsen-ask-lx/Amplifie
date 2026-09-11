@@ -8,22 +8,22 @@
 import { describe, expect, it } from "vitest";
 import { mentionedIds, mentionMarkup } from "./mentions.js";
 
-const МАРИЯ = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6b";
-const ПЁТР = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6c";
+const MARIA = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6b";
+const PETR = "018f3a1c-2b4d-7e8f-9a0b-1c2d3e4f5a6c";
 
 describe("запись упоминания", () => {
   it("собранное читается обратно", () => {
-    expect(mentionedIds(`привет, ${mentionMarkup("Мария Петрова", МАРИЯ)}`)).toEqual([МАРИЯ]);
+    expect(mentionedIds(`привет, ${mentionMarkup("Мария Петрова", MARIA)}`)).toEqual([MARIA]);
   });
 
   it("двоих зовут двумя номерами", () => {
-    const body = `${mentionMarkup("Мария", МАРИЯ)} и ${mentionMarkup("Пётр", ПЁТР)}`;
-    expect(mentionedIds(body).sort()).toEqual([МАРИЯ, ПЁТР].sort());
+    const body = `${mentionMarkup("Мария", MARIA)} и ${mentionMarkup("Пётр", PETR)}`;
+    expect(mentionedIds(body).sort()).toEqual([MARIA, PETR].sort());
   });
 
   it("одного дважды — это один зов", () => {
-    const body = `${mentionMarkup("Мария", МАРИЯ)}, ещё раз ${mentionMarkup("Мария", МАРИЯ)}`;
-    expect(mentionedIds(body)).toEqual([МАРИЯ]);
+    const body = `${mentionMarkup("Мария", MARIA)}, ещё раз ${mentionMarkup("Мария", MARIA)}`;
+    expect(mentionedIds(body)).toEqual([MARIA]);
   });
 
   it("обычная ссылка упоминанием не считается", () => {
@@ -43,7 +43,7 @@ describe("запись упоминания", () => {
   it("повторный вызов даёт тот же ответ", () => {
     // Общая глобальная регулярка помнила бы lastIndex и через раз
     // возвращала пусто. Тест ровно на это.
-    const body = mentionMarkup("Мария", МАРИЯ);
+    const body = mentionMarkup("Мария", MARIA);
     expect(mentionedIds(body)).toEqual(mentionedIds(body));
   });
 });

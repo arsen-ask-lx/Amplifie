@@ -122,71 +122,71 @@ describe("мост участника", () => {
       // Код даёт постоянный доступ от имени человека. Два моста по одному
       // коду — это чужая машина, отвечающая за него. Приём тот же, что
       // у приглашений, но таблица и запрос другие, поэтому проверяем заново.
-      const светлана = await person("Светлана");
-      const { code } = await issueCode(светлана.cookie);
+      const svetlana = await person("Светлана");
+      const { code } = await issueCode(svetlana.cookie);
 
-      const [первый, второй] = await Promise.all([join(code, "ноутбук"), join(code, "рабочий")]);
-      const успехи = [первый, второй].filter((r) => r.status === 200);
+      const [first, second] = await Promise.all([join(code, "ноутбук"), join(code, "рабочий")]);
+      const successes = [first, second].filter((r) => r.status === 200);
 
-      expect(успехи).toHaveLength(1);
+      expect(successes).toHaveLength(1);
     });
 
     it("чужой код не даёт доступа: ответ неотличим от «такого кода нет»", async () => {
-      const ответ = await join("код-которого-не-существует", "ноутбук");
-      expect(ответ.status).toBe(404);
+      const response = await join("код-которого-не-существует", "ноутбук");
+      expect(response.status).toBe(404);
       // Именно НАШ отказ, а не «нет такого пути»: пока ручки не существует,
       // Fastify отдаёт ту же четыреста четвёртую, и тест зеленел бы впустую.
-      expect(((await ответ.json()) as { error?: string }).error).toBe("not_found");
+      expect(((await response.json()) as { error?: string }).error).toBe("not_found");
     });
   });
 
   describe("В-2 ответ приходит тому, кто спросил", () => {
     it("два человека спрашивают одновременно — ответы не перепутаны", async () => {
-      const светлана = await person("Светлана");
-      const пётр = await person("Пётр");
-      const мостСветланы = await connect(светлана.cookie, "ноутбук Светланы");
-      const мостПетра = await connect(пётр.cookie, "ноутбук Петра");
+      const svetlana = await person("Светлана");
+      const petr = await person("Пётр");
+      const svetlanaBridge = await connect(svetlana.cookie, "ноутбук Светланы");
+      const petrBridge = await connect(petr.cookie, "ноутбук Петра");
 
-      const вопросС = ask(светлана.cookie, "кто я?");
-      const вопросП = ask(пётр.cookie, "кто я?");
+      const svetlanaQuestion = ask(svetlana.cookie, "кто я?");
+      const petrQuestion = ask(petr.cookie, "кто я?");
 
       // Каждый мост отвечает своим словом. Перепутанные ответы означали бы,
       // что человек увидел чужой текст, — худший из возможных отказов.
-      const работаС = await мостСветланы.next();
-      const работаП = await мостПетра.next();
-      if (!работаС || !работаП) throw new Error("мост не получил задание");
-      await мостСветланы.answer(работаС.jobId, "Светлана");
-      await мостПетра.answer(работаП.jobId, "Пётр");
+      const svetlanaJob = await svetlanaBridge.next();
+      const petrJob = await petrBridge.next();
+      if (!svetlanaJob || !petrJob) throw new Error("мост не получил задание");
+      await svetlanaBridge.answer(svetlanaJob.jobId, "Светлана");
+      await petrBridge.answer(petrJob.jobId, "Пётр");
 
-      const [ответС, ответП] = await Promise.all([вопросС, вопросП]);
-      expect(((await ответС.json()) as { text: string }).text).toBe("Светлана");
-      expect(((await ответП.json()) as { text: string }).text).toBe("Пётр");
+      const [svetlanaAnswer, petrAnswer] = await Promise.all([svetlanaQuestion, petrQuestion]);
+      expect(((await svetlanaAnswer.json()) as { text: string }).text).toBe("Светлана");
+      expect(((await petrAnswer.json()) as { text: string }).text).toBe("Пётр");
     });
   });
 
   describe("В-3 мост молчит", () => {
     it("моста нет вовсе — внятная причина, а не пятисотка", async () => {
       // Обычное состояние: человек ещё не подключился или закрыл терминал.
-      const светлана = await person("Светлана");
-      const ответ = await ask(светлана.cookie, "привет");
+      const svetlana = await person("Светлана");
+      const response = await ask(svetlana.cookie, "привет");
 
-      expect(ответ.status).toBe(503);
-      expect(((await ответ.json()) as { error: string }).error).toBe("bridge_offline");
+      expect(response.status).toBe(503);
+      expect(((await response.json()) as { error: string }).error).toBe("bridge_offline");
     });
 
     it(
       "мост взял задание и не ответил — срок выходит, вопрос не висит",
       async () => {
-        const светлана = await person("Светлана");
-        const мост = await connect(светлана.cookie, "молчаливый");
+        const svetlana = await person("Светлана");
+        const silentBridge = await connect(svetlana.cookie, "молчаливый");
 
-        const начало = Date.now();
-        const вопрос = ask(светлана.cookie, "привет");
-        await мост.next();
+        const startedAt = Date.now();
+        const question = ask(svetlana.cookie, "привет");
+        await silentBridge.next();
 
-        const ответ = await вопрос;
-        expect(ответ.status).toBe(504);
-        expect(Date.now() - начало).toBeLessThan(WAIT_MS * 2);
+        const response = await question;
+        expect(response.status).toBe(504);
+        expect(Date.now() - startedAt).toBeLessThan(WAIT_MS * 2);
         // Тест намеренно ждёт весь срок: короче его не сделать, не сломав
         // то, что он проверяет. Отсюда и отдельный запас по времени.
       },
@@ -194,17 +194,17 @@ describe("мост участника", () => {
     );
 
     it("мост честно сообщил об отказе — причина доезжает до человека", async () => {
-      const светлана = await person("Светлана");
-      const мост = await connect(светлана.cookie, "сломанный");
+      const svetlana = await person("Светлана");
+      const silentBridge = await connect(svetlana.cookie, "сломанный");
 
-      const вопрос = ask(светлана.cookie, "привет");
-      const работа = await мост.next();
-      if (!работа) throw new Error("мост не получил задание");
-      await мост.failed(работа.jobId, "клиент не установлен");
+      const question = ask(svetlana.cookie, "привет");
+      const job = await silentBridge.next();
+      if (!job) throw new Error("мост не получил задание");
+      await silentBridge.failed(job.jobId, "клиент не установлен");
 
-      const ответ = await вопрос;
-      expect(ответ.status).toBe(502);
-      expect(((await ответ.json()) as { detail?: string }).detail).toContain(
+      const response = await question;
+      expect(response.status).toBe(502);
+      expect(((await response.json()) as { detail?: string }).detail).toContain(
         "клиент не установлен",
       );
     });
@@ -212,23 +212,23 @@ describe("мост участника", () => {
 
   describe("В-4 удостоверения не смешиваются", () => {
     it("токеном моста нельзя ходить в интерфейс человека", async () => {
-      const светлана = await person("Светлана");
-      const { code } = await issueCode(светлана.cookie);
+      const svetlana = await person("Светлана");
+      const { code } = await issueCode(svetlana.cookie);
       const joined = await join(code, "ноутбук");
       const { token } = (await joined.json()) as { token: string };
 
-      const ответ = await fetch(`${BASE}/v1/me`, {
+      const response = await fetch(`${BASE}/v1/me`, {
         headers: { authorization: `Bridge ${token}` },
       });
-      expect(ответ.status).toBe(401);
+      expect(response.status).toBe(401);
     });
 
     it("сессией браузера нельзя прийти за работой моста", async () => {
-      const светлана = await person("Светлана");
-      const ответ = await fetch(`${BASE}/v1/bridge/next`, {
-        headers: { cookie: светлана.cookie },
+      const svetlana = await person("Светлана");
+      const response = await fetch(`${BASE}/v1/bridge/next`, {
+        headers: { cookie: svetlana.cookie },
       });
-      expect(ответ.status).toBe(401);
+      expect(response.status).toBe(401);
     });
   });
 
@@ -237,45 +237,45 @@ describe("мост участника", () => {
       // Мост присылает то, что породила модель, а модель читала ленту.
       // Это недоверенный ввод по определению: он не должен ни исполняться,
       // ни подменять поля ответа.
-      const светлана = await person("Светлана");
-      const мост = await connect(светлана.cookie, "ноутбук");
-      const опасное = '<script>alert(1)</script> и {"text":"подмена"}';
+      const svetlana = await person("Светлана");
+      const silentBridge = await connect(svetlana.cookie, "ноутбук");
+      const dangerous = '<script>alert(1)</script> и {"text":"подмена"}';
 
-      const вопрос = ask(светлана.cookie, "привет");
-      const работа = await мост.next();
-      if (!работа) throw new Error("мост не получил задание");
-      await мост.answer(работа.jobId, опасное);
+      const question = ask(svetlana.cookie, "привет");
+      const job = await silentBridge.next();
+      if (!job) throw new Error("мост не получил задание");
+      await silentBridge.answer(job.jobId, dangerous);
 
-      const ответ = (await (await вопрос).json()) as { text: string };
-      expect(ответ.text).toBe(опасное);
+      const response = (await (await question).json()) as { text: string };
+      expect(response.text).toBe(dangerous);
     });
   });
 
   describe("состояние моста видно человеку", () => {
     it("подключённый мост показан на связи, с именем машины", async () => {
-      const светлана = await person("Светлана");
-      await connect(светлана.cookie, "ноутбук Светланы");
+      const svetlana = await person("Светлана");
+      await connect(svetlana.cookie, "ноутбук Светланы");
 
-      const список = (await (
-        await fetch(`${BASE}/v1/bridges`, { headers: { cookie: светлана.cookie } })
+      const list = (await (
+        await fetch(`${BASE}/v1/bridges`, { headers: { cookie: svetlana.cookie } })
       ).json()) as { items: Array<{ name: string | null; online: boolean }> };
 
-      expect(список.items).toHaveLength(1);
-      expect(список.items[0]?.name).toBe("ноутбук Светланы");
-      expect(список.items[0]?.online).toBe(true);
+      expect(list.items).toHaveLength(1);
+      expect(list.items[0]?.name).toBe("ноутбук Светланы");
+      expect(list.items[0]?.online).toBe(true);
     });
 
     it("выданный, но не погашенный код мостом не считается", async () => {
       // Иначе человек видит «мост есть», а спросить не может.
-      const светлана = await person("Светлана");
-      await issueCode(светлана.cookie);
+      const svetlana = await person("Светлана");
+      await issueCode(svetlana.cookie);
 
-      const список = (await (
-        await fetch(`${BASE}/v1/bridges`, { headers: { cookie: светлана.cookie } })
+      const list = (await (
+        await fetch(`${BASE}/v1/bridges`, { headers: { cookie: svetlana.cookie } })
       ).json()) as { items: Array<{ online: boolean; joined: boolean }> };
 
-      expect(список.items[0]?.joined).toBe(false);
-      expect(список.items[0]?.online).toBe(false);
+      expect(list.items[0]?.joined).toBe(false);
+      expect(list.items[0]?.online).toBe(false);
     });
   });
 });

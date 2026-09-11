@@ -67,8 +67,8 @@ export const SYSTEM = [
 
 function sign(turn: Turn): string {
   const mark = turn.authorKind === "agent" ? " (агент)" : "";
-  const где = turn.where ? `[${turn.where}] ` : "";
-  return `${где}${turn.authorName}${mark}: ${turn.body}`;
+  const wherePrefix = turn.where ? `[${turn.where}] ` : "";
+  return `${wherePrefix}${turn.authorName}${mark}: ${turn.body}`;
 }
 
 /**

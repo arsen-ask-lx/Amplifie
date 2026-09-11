@@ -47,10 +47,10 @@ function whoRoughly(request: FastifyRequest): string {
  * не проверяются — на стенде они другие. Проверяются те, чей ключ
  * человек или почта, а это как раз подбор пароля и перебор приглашений.
  */
-const стенд = config.multiWorkspace;
+const onStand = config.multiWorkspace;
 
 /** Общий потолок: за ним это уже не работа руками. */
-export const OVERALL = { max: стенд ? 5000 : 300, timeWindow: "1 minute" } as const;
+export const OVERALL = { max: onStand ? 5000 : 300, timeWindow: "1 minute" } as const;
 
 /**
  * Вход: ключ — пара «почта и адрес».
@@ -72,7 +72,7 @@ export const LOGIN = {
 } as const;
 
 /** Регистрация: на коробке она срабатывает один раз за жизнь установки. */
-export const REGISTER = { max: стенд ? 500 : 3, timeWindow: "1 hour" } as const;
+export const REGISTER = { max: onStand ? 500 : 3, timeWindow: "1 hour" } as const;
 
 /**
  * Вход по приглашению.
@@ -91,7 +91,7 @@ export const REGISTER = { max: стенд ? 500 : 3, timeWindow: "1 hour" } as c
  * в минуту с одного адреса — быстрее, чем успевает толпа с одной ссылкой,
  * и медленнее, чем нужно, чтобы завалить сервер счётом хешей.
  */
-export const JOIN = { max: стенд ? 500 : 30, timeWindow: "1 minute" } as const;
+export const JOIN = { max: onStand ? 500 : 30, timeWindow: "1 minute" } as const;
 
 /** Выдача ссылок: их раздаёт человек руками, не машина. */
 export const INVITE = {

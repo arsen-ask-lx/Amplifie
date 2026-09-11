@@ -75,6 +75,50 @@
           }
         }
       }
+    },
+    {
+      "includes": ["backend/**", "packages/**", "bridge/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": {
+              "level": "error",
+              "options": {
+                "requireAscii": true,
+                "strictCase": false,
+                "conventions": [
+                  {
+                    "selector": {
+                      "kind": "objectLiteralProperty"
+                    },
+                    "formats": ["camelCase", "CONSTANT_CASE", "PascalCase", "snake_case"]
+                  },
+                  {
+                    "selector": {
+                      "kind": "typeProperty"
+                    },
+                    "formats": ["camelCase", "CONSTANT_CASE", "PascalCase", "snake_case"]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "backend/src/agent/answering/envelope.ts",
+        "backend/src/agent/answering/envelope.test.ts",
+        "backend/tests/task-from-chat.e2e.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
     }
   ]
 }

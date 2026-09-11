@@ -33,7 +33,7 @@ import pg from "pg";
  * Число произвольное, но постоянное: замок опознаётся по нему, и менять
  * его нельзя — иначе старая и новая версия перестанут видеть друг друга.
  */
-const ЗАМОК = 4_771_030;
+const LOCK_KEY = 4_771_030;
 
 /**
  * Сколько ждём чужой миграции, прежде чем сдаться.
@@ -42,7 +42,7 @@ const ЗАМОК = 4_771_030;
  * молчащий контейнер и не знает, работать ему или чинить. Пять минут —
  * заведомо больше любой нашей миграции и заведомо меньше терпения.
  */
-const ЖДЁМ_ЗАМОК = "5min";
+const LOCK_WAIT = "5min";
 
 /**
  * Где лежат файлы миграций.
@@ -52,7 +52,7 @@ const ЖДЁМ_ЗАМОК = "5min";
  * здесь быть не должно — тот же урок, что у `make migrate`, где расхождение
  * порта приводило к молчаливому походу не туда.
  */
-const МИГРАЦИИ = fileURLToPath(new URL("../migrations", import.meta.url));
+const MIGRATIONS_DIR = fileURLToPath(new URL("../migrations", import.meta.url));
 
 /**
  * ⚠️ ОТДЕЛЬНОЕ СОЕДИНЕНИЕ, А НЕ ИЗ ПУЛА. Сеансовый `pg_advisory_lock` живёт
@@ -69,23 +69,23 @@ const МИГРАЦИИ = fileURLToPath(new URL("../migrations", import.meta.url)
  * замка падала на импорте, не дойдя до самого замка. Функция зависит
  * от значения, а не от того, откуда оно взялось.
  */
-export async function накатить(адрес: string): Promise<number> {
-  const client = new pg.Client({ connectionString: адрес });
+export async function runMigrations(databaseUrl: string): Promise<number> {
+  const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
 
   try {
     // Применяется и к advisory-замкам: без него ожидание бесконечно.
-    await client.query(`SET lock_timeout = '${ЖДЁМ_ЗАМОК}'`);
-    await client.query("SELECT pg_advisory_lock($1)", [ЗАМОК]);
+    await client.query(`SET lock_timeout = '${LOCK_WAIT}'`);
+    await client.query("SELECT pg_advisory_lock($1)", [LOCK_KEY]);
 
     try {
-      const было = await применённых(client);
-      await migrate(drizzle(client), { migrationsFolder: МИГРАЦИИ });
-      return (await применённых(client)) - было;
+      const before = await countApplied(client);
+      await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_DIR });
+      return (await countApplied(client)) - before;
     } finally {
       // Первая сеть. Вторая — сам Postgres: если процесс убит, сеанс умирает
       // и замок отпускается без нас. Две сети, потому что первая рвётся.
-      await client.query("SELECT pg_advisory_unlock($1)", [ЗАМОК]);
+      await client.query("SELECT pg_advisory_unlock($1)", [LOCK_KEY]);
     }
   } finally {
     await client.end();
@@ -93,7 +93,7 @@ export async function накатить(адрес: string): Promise<number> {
 }
 
 /** Postgres: «нет такой таблицы». На пустой базе это норма, а не поломка. */
-const НЕТ_ТАБЛИЦЫ = "42P01";
+const UNDEFINED_TABLE = "42P01";
 
 /**
  * Сколько миграций уже применено.
@@ -102,14 +102,14 @@ const НЕТ_ТАБЛИЦЫ = "42P01";
  * ровно этот код, а не любую ошибку: проглоченный отказ прав или обрыв связи
  * выглядели бы как «применено ноль» и увели бы разбор в сторону.
  */
-async function применённых(client: pg.Client): Promise<number> {
+async function countApplied(client: pg.Client): Promise<number> {
   try {
     const { rows } = await client.query<{ n: string }>(
       "SELECT count(*)::text AS n FROM drizzle.__drizzle_migrations",
     );
     return Number(rows[0]?.n ?? 0);
   } catch (error) {
-    if ((error as { code?: string }).code === НЕТ_ТАБЛИЦЫ) return 0;
+    if ((error as { code?: string }).code === UNDEFINED_TABLE) return 0;
     throw error;
   }
 }
@@ -124,8 +124,8 @@ if (process.argv[1]?.endsWith("migrate.js") || process.argv[1]?.endsWith("migrat
   // всякий, кто взял отсюда функцию.
   const { config } = await import("./platform/config.js");
   try {
-    const применено = await накатить(config.databaseUrl);
-    console.log(применено > 0 ? `миграции накатаны: ${применено}` : "миграции накатывать не нужно");
+    const applied = await runMigrations(config.databaseUrl);
+    console.log(applied > 0 ? `миграции накатаны: ${applied}` : "миграции накатывать не нужно");
     process.exit(0);
   } catch (error) {
     console.error("МИГРАЦИЯ НЕ ПРОШЛА. Приложение не запускается намеренно:");

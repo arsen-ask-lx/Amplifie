@@ -33,21 +33,21 @@ describe("ветка наследует видимость корня", () => {
   beforeAll(requireStand);
 
   it("ветку приватного канала посторонний не видит, не читает и не пишет в неё", async () => {
-    const хозяин = await newPerson("Хозяин");
-    const сосед = await colleague(хозяин, "Сосед");
-    const канал = await newPrivateChannel(хозяин, "Зарплаты");
-    const ветка = await newThread(хозяин, канал, "Премии за квартал");
+    const owner = await newPerson("Хозяин");
+    const neighbour = await colleague(owner, "Сосед");
+    const channel = await newPrivateChannel(owner, "Зарплаты");
+    const thread = await newThread(owner, channel, "Премии за квартал");
 
-    expect(await titlesSeenBy(сосед), "ветка закрытого канала в чужом списке").not.toContain(
+    expect(await titlesSeenBy(neighbour), "ветка закрытого канала в чужом списке").not.toContain(
       "Премии за квартал",
     );
     expect(
-      (await call("GET", `/v1/conversations/${ветка}/messages`, сосед)).status,
+      (await call("GET", `/v1/conversations/${thread}/messages`, neighbour)).status,
       "ветку закрытого канала читает посторонний",
     ).toBe(404);
     expect(
       (
-        await call("POST", `/v1/conversations/${ветка}/messages`, сосед, {
+        await call("POST", `/v1/conversations/${thread}/messages`, neighbour, {
           body: "я тут",
           clientMsgId: crypto.randomUUID(),
         })
@@ -57,21 +57,21 @@ describe("ветка наследует видимость корня", () => {
   });
 
   it("участник закрытого канала видит его ветку и зовёт в ней только своих", async () => {
-    const хозяин = await newPerson("Хозяин");
-    const сосед = await colleague(хозяин, "Сосед");
-    const канал = await newPrivateChannel(хозяин, "Зарплаты");
-    const ветка = await newThread(хозяин, канал, "Премии за квартал");
+    const owner = await newPerson("Хозяин");
+    const neighbour = await colleague(owner, "Сосед");
+    const channel = await newPrivateChannel(owner, "Зарплаты");
+    const thread = await newThread(owner, channel, "Премии за квартал");
 
-    expect(await titlesSeenBy(хозяин)).toContain("Премии за квартал");
-    expect((await call("GET", `/v1/conversations/${ветка}/messages`, хозяин)).status).toBe(200);
+    expect(await titlesSeenBy(owner)).toContain("Премии за квартал");
+    expect((await call("GET", `/v1/conversations/${thread}/messages`, owner)).status).toBe(200);
 
     // Кого звать в ветке — тот же вопрос «кто её видит», заданный с другой
     // стороны. Ответ обязан совпасть с правом читать: соседа звать нельзя.
-    const people = await call("GET", `/v1/conversations/${ветка}/people`, хозяин);
+    const people = await call("GET", `/v1/conversations/${thread}/people`, owner);
     expect(people.status).toBe(200);
     const ids = ((await people.json()) as { items: { id: string }[] }).items.map((one) => one.id);
     expect(ids, "в ветке закрытого канала предлагают позвать постороннего").not.toContain(
-      сосед.participantId,
+      neighbour.participantId,
     );
   });
 });
