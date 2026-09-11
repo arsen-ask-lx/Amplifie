@@ -14,29 +14,50 @@ import { conversation, conversationRead, message, messageMention } from "./schem
  */
 const UNREAD_CAP = 1000;
 
-/**
- * Единственное правило «человек этой реплики ещё не видел» (Р-029): чужая,
- * живая и дальше его номера прочтения. Число не хранится, а считается —
- * хранимое разошлось бы с репликами при первом удалении. Свои не считаются.
- */
-export function unseenBy(conversationId: PgColumn | SQL | string, participantId: string): SQL {
-  return sql`${message.authorParticipantId} <> ${participantId}
-    AND ${message.deletedAt} IS NULL
-    AND ${message.seq} > COALESCE((
+type ConversationRef = PgColumn | SQL | string;
+
+/** Часть правила: реплика дальше номера прочтения этого человека. */
+function afterReadMark(conversationId: ConversationRef, participantId: string): SQL {
+  return sql`${message.seq} > COALESCE((
       SELECT ${conversationRead.readSeq} FROM ${conversationRead}
       WHERE ${conversationRead.conversationId} = ${conversationId}
         AND ${conversationRead.participantId} = ${participantId}
     ), 0)`;
 }
 
-export function unreadOf(conversationId: PgColumn | SQL | string, participantId: string) {
+/** Часть правила: реплика чужая и живая. */
+function othersAlive(participantId: string): SQL {
+  return sql`${message.authorParticipantId} <> ${participantId}
+    AND ${message.deletedAt} IS NULL`;
+}
+
+/**
+ * Единственное правило «человек этой реплики ещё не видел» (Р-029): чужая,
+ * живая и дальше его номера прочтения — две части выше. Число не хранится,
+ * а считается: хранимое разошлось бы с репликами при первом удалении.
+ */
+export function unseenBy(conversationId: ConversationRef, participantId: string): SQL {
+  return sql`${othersAlive(participantId)} AND ${afterReadMark(conversationId, participantId)}`;
+}
+
+/**
+ * Сколько не видел. Сначала по индексу `(conversation_id, seq)` берётся
+ * не больше тысячи реплик после отметки, и только среди них отсеиваются
+ * свои и удалённые. Вместе условия давали бы план по статистике: где один
+ * человек написал почти всё, планировщик выбирал обход всей таблицы.
+ * `LIMIT` во вложенном запросе — граница, через которую условия не перетекут;
+ * псевдоним `message` — чтобы внешнее условие читало колонки вложенного.
+ */
+export function unreadOf(conversationId: ConversationRef, participantId: string) {
   return sql<number>`(
     SELECT count(*)::int FROM (
-      SELECT 1 FROM ${message}
+      SELECT ${message.authorParticipantId}, ${message.deletedAt} FROM ${message}
       WHERE ${message.conversationId} = ${conversationId}
-        AND ${unseenBy(conversationId, participantId)}
+        AND ${afterReadMark(conversationId, participantId)}
+      ORDER BY ${message.seq}
       LIMIT ${UNREAD_CAP}
-    ) AS unseen
+    ) AS ${message}
+    WHERE ${othersAlive(participantId)}
   )`;
 }
 
@@ -61,7 +82,7 @@ export async function countUnread(
  * Сколько раз в разговоре позвали этого человека и он этого не видел.
  * Своего «прочитано» у зова нет: он неувиден, пока не увидена реплика.
  */
-export function mentionsOf(conversationId: PgColumn | SQL | string, participantId: string) {
+export function mentionsOf(conversationId: ConversationRef, participantId: string) {
   return sql<number>`(
     SELECT count(*)::int FROM (
       SELECT 1 FROM ${message}

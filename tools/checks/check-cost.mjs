@@ -172,6 +172,15 @@ async function main() {
          FROM generate_series($4::int, $5::int) g`,
         [wid, cid, pid, from, to],
       );
+      // Реплики — свои, а отправка сдвигает отметку прочтения автора
+      // (своих непрочитанных не бывает). Сеем тем же правилом, что держит
+      // продукт: иначе гейт мерил бы мир, которого в продукте нет.
+      await client.query(
+        `INSERT INTO conversation_read (conversation_id, participant_id, read_seq)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (conversation_id, participant_id) DO UPDATE SET read_seq = $3`,
+        [cid, pid, to],
+      );
       await client.query("ANALYZE message");
       const { rows: plan } = await client.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params);
       return planRows(plan[0]["QUERY PLAN"][0].Plan);

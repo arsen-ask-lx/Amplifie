@@ -128,7 +128,7 @@ describe("непрочитанное", () => {
   });
 
   describe("счётчик", () => {
-    it("растёт от чужих реплик и НЕ растёт от своих", async () => {
+    it("растёт от чужих реплик, а своя реплика гасит всё до неё", async () => {
       const owner = await newPerson("Хозяин");
       const guest = await invite(owner, "Гость");
       const channel = await channelOf(owner);
@@ -137,11 +137,13 @@ describe("непрочитанное", () => {
       await say(guest, channel.id, "второе чужое");
       expect(await unreadOf(owner, channel.id), "чужие реплики не посчитались").toBe(2);
 
+      // Ответил — значит видел, что было до ответа. Так у Slack и Telegram;
+      // своих непрочитанных не бывает вовсе (владелец, 11.09).
       await say(owner, channel.id, "своё");
       expect(
         await unreadOf(owner, channel.id),
-        "счётчик вырос от собственной реплики — человек уже видел то, что написал",
-      ).toBe(2);
+        "после своей реплики остались непрочитанные — отправка не сдвинула отметку",
+      ).toBe(0);
 
       // У гостя своё непрочитанное: чужой здесь — хозяин.
       expect(await unreadOf(guest, channel.id)).toBe(1);

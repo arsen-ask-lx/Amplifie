@@ -165,6 +165,11 @@ async function writeMessage(
 
   await setMentions(tx, created.id, await mentionedWhoSee(tx, input.conversationId, input.body));
 
+  // Ответил — значит видел всё до ответа (как у Slack и Telegram). Своих
+  // непрочитанных тогда не бывает, и счётчику не нужно перебирать свои
+  // реплики, чтобы их отбросить (task-039, находка гейта цены).
+  await repo.markRead(tx, input.conversationId, input.authorParticipantId, seq);
+
   // Состояние и событие — в одной транзакции. Всегда (Р-2).
   await appendEvent(tx, {
     kind: "message.sent",
