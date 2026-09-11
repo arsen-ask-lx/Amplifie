@@ -76,7 +76,7 @@ export function canSee(
  * пространства или владелец канала-корня. Им отвечает и проверка удаления,
  * и признак в панели — один ответ о правах.
  */
-export function moderates(
+function moderates(
   conversationId: SQLWrapper,
   parentId: SQLWrapper,
   participantId: SQLWrapper | string,
