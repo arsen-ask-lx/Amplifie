@@ -552,7 +552,6 @@
     flex: 0 0 auto;
   }
 
-
   @media (prefers-reduced-motion: no-preference) {
     .msg-fresh {
       animation: settle 220ms ease-out;
