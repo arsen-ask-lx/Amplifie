@@ -1,4 +1,5 @@
 import { publish } from "../../platform/bus.js";
+import { change } from "../../platform/change.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
@@ -395,7 +396,7 @@ export async function sendAsAgent(
 }
 
 export async function createThread(viewer: Viewer, parentId: string, title: string) {
-  return withTransaction(async (tx) => {
+  return change(viewer.workspaceId, async (tx) => {
     const parent = await requireVisible(tx, viewer, parentId);
     if (parent.parentId) {
       // Ветка от ветки не заводится: дерево ровно двухуровневое, иначе
@@ -513,7 +514,7 @@ async function openConversation(
   viewer: Viewer,
   input: { kind: string; title: string; visibility: Visibility; projectId?: string | undefined },
 ) {
-  return withTransaction(async (tx) => {
+  return change(viewer.workspaceId, async (tx) => {
     // ⚠️ ПРОЕКТ ПРОВЕРЯЕТСЯ ДО ВСТАВКИ И ТОЙ ЖЕ ПРОВЕРКОЙ, ЧТО И ПЕРЕНОС.
     // Иначе по номеру проекта из соседней компании можно было бы завести
     // канал прямо к ним в панель.
@@ -558,17 +559,12 @@ export async function createChannel(
   viewer: Viewer,
   input: { title: string; visibility?: Visibility | undefined; projectId?: string | undefined },
 ) {
-  const created = await openConversation(viewer, {
+  return openConversation(viewer, {
     kind: "channel",
     title: input.title,
     visibility: input.visibility ?? "workspace",
     projectId: input.projectId,
   });
-
-  // Звонок ТОЛЬКО после фиксации: новый канал обязан появиться у всех,
-  // кому он виден, без перезагрузки страницы.
-  publish(viewer.workspaceId);
-  return created;
 }
 
 /**
@@ -587,7 +583,7 @@ export async function createChannel(
  * из других каналов; каскад превратил бы их в цитаты в пустоту.
  */
 export async function deleteConversation(viewer: Viewer, conversationId: string): Promise<void> {
-  await withTransaction(async (tx) => {
+  await change(viewer.workspaceId, async (tx) => {
     const found = await repo.findVisibleConversation(tx, conversationId, viewer.participantId);
     if (!found) throw new ConversationNotVisibleError();
 
@@ -611,10 +607,6 @@ export async function deleteConversation(viewer: Viewer, conversationId: string)
       payload: { title: found.title },
     });
   });
-
-  // Звонок только после фиксации: канал обязан исчезнуть у всех, кто его
-  // видел, без перезагрузки страницы.
-  publish(viewer.workspaceId);
 }
 
 /**
@@ -630,7 +622,6 @@ export async function deleteConversation(viewer: Viewer, conversationId: string)
  */
 export async function createTaskDiscussion(viewer: Viewer, title: string): Promise<{ id: string }> {
   const created = await openConversation(viewer, { kind: "task", title, visibility: "workspace" });
-  publish(viewer.workspaceId);
   return { id: created.id };
 }
 
@@ -700,7 +691,7 @@ export async function editMessage(
   messageId: string,
   body: string,
 ): Promise<MessageView> {
-  const view = await withTransaction(async (tx) => {
+  return change(viewer.workspaceId, async (tx) => {
     const found = await requireMine(tx, viewer, messageId);
     const changed = await repo.updateMessageBody(tx, viewer.workspaceId, messageId, body);
     if (!changed) throw new ConversationNotVisibleError();
@@ -712,9 +703,6 @@ export async function editMessage(
     await logMessageEvent(tx, viewer, "message.edited", messageId, found);
     return viewOf(tx, messageId);
   });
-
-  publish(viewer.workspaceId);
-  return view;
 }
 
 /**
@@ -725,15 +713,13 @@ export async function editMessage(
  * либо оставило висеть в пустоту.
  */
 export async function deleteMessage(viewer: Viewer, messageId: string): Promise<void> {
-  await withTransaction(async (tx) => {
+  await change(viewer.workspaceId, async (tx) => {
     const found = await requireMine(tx, viewer, messageId);
     const gone = await repo.softDeleteMessage(tx, viewer.workspaceId, messageId);
     if (!gone) throw new ConversationNotVisibleError();
 
     await logMessageEvent(tx, viewer, "message.deleted", messageId, found);
   });
-
-  publish(viewer.workspaceId);
 }
 
 /**
@@ -748,7 +734,7 @@ export async function pinMessage(
   messageId: string,
   pinned: boolean,
 ): Promise<void> {
-  await withTransaction(async (tx) => {
+  await change(viewer.workspaceId, async (tx) => {
     const found = await repo.findMessage(tx, messageId);
     if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
     await requireVisible(tx, viewer, found.conversationId);
@@ -765,8 +751,6 @@ export async function pinMessage(
       found,
     );
   });
-
-  publish(viewer.workspaceId);
 }
 
 /** Закреплённое разговора, свежее сверху. */

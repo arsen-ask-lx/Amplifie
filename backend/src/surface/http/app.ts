@@ -4,13 +4,15 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
 import { setBusFailureReporter } from "../../platform/bus.js";
 import { config } from "../../platform/config.js";
+import { answerKnownFailures } from "./failures.js";
 import { OVERALL } from "./limits.js";
 import { registerAgentRoutes } from "./routes/agents.js";
-import { registerAuthRoutes } from "./routes/auth.js";
-import { registerBridgeRoutes } from "./routes/bridge.js";
+import { registerAccountRoutes, registerAuthRoutes } from "./routes/auth.js";
+import { registerBridgeHumanRoutes, registerBridgeMachineRoutes } from "./routes/bridge.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerStreamRoutes } from "./routes/stream.js";
+import { requireSession } from "./routes/viewer.js";
 import { registerWorkRoutes } from "./routes/work.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -79,13 +81,24 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.warn({ err: error }, "слушатель живых обновлений упал");
   });
 
+  answerKnownFailures(app);
+
+  // Открытые двери: здоровье, вход и машина моста со своим удостоверением.
   registerHealthRoutes(app);
   registerAuthRoutes(app);
-  registerBridgeRoutes(app);
-  registerAgentRoutes(app);
-  registerChatRoutes(app);
-  registerStreamRoutes(app);
-  registerWorkRoutes(app);
+  registerBridgeMachineRoutes(app);
+
+  // Всё остальное — только с сессией. Проверка стоит у области, а не
+  // в каждой двери: новая дверь, объявленная здесь, не может её забыть.
+  await app.register(async (signedIn) => {
+    requireSession(signedIn);
+    registerAccountRoutes(signedIn);
+    registerBridgeHumanRoutes(signedIn);
+    registerAgentRoutes(signedIn);
+    registerChatRoutes(signedIn);
+    registerStreamRoutes(signedIn);
+    registerWorkRoutes(signedIn);
+  });
 
   return app;
 }

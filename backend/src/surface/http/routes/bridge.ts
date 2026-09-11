@@ -1,21 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { NoBridgeError } from "../../../agent/model/bridge.js";
 import { askOwnBridge } from "../../../app/bridging.js";
 import {
   issueBridgeCode,
   joinBridge,
   listBridges,
   markBridgeSeen,
-  resolveActor,
   resolveBridge,
 } from "../../../kernel/identity/index.js";
-import {
-  BridgeFailedError,
-  BridgeSilentError,
-  deliver,
-  nextJob,
-} from "../../../platform/rendezvous.js";
-import { SESSION_COOKIE } from "./viewer.js";
+import { deliver, nextJob } from "../../../platform/rendezvous.js";
+import { actorOf } from "./viewer.js";
 
 /**
  * Мост участника: своя подписка у каждого (task-001).
@@ -30,35 +23,6 @@ import { SESSION_COOKIE } from "./viewer.js";
 
 /** Сколько мост стоит с открытой рукой, прежде чем уйти ни с чем. */
 const HOLD_MS = 25_000;
-
-/**
- * Отказ модели наружу: код и причина.
- *
- * Три разных состояния — три разных ответа. «Что-то пошло не так» здесь
- * бесполезно: чинит их человек, и чинит по-разному — один запускает мост,
- * другой ждёт, третий устанавливает клиент.
- */
-function askFailure(error: unknown): { code: number; body: object } | null {
-  if (error instanceof NoBridgeError) {
-    return { code: 503, body: { error: "bridge_offline" } };
-  }
-  if (error instanceof BridgeSilentError) {
-    return { code: 504, body: { error: "bridge_silent", detail: error.message } };
-  }
-  if (error instanceof BridgeFailedError) {
-    return { code: 502, body: { error: "bridge_failed", detail: error.message } };
-  }
-  return null;
-}
-
-async function humanOf(request: FastifyRequest, reply: FastifyReply) {
-  const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
-  if (!actor) {
-    reply.code(401).send({ error: "not_authenticated" });
-    return null;
-  }
-  return actor;
-}
 
 /** Токен машины из заголовка. Схема `Bridge`, а не `Bearer`: это не сессия. */
 function bridgeToken(request: FastifyRequest): string | undefined {
@@ -76,12 +40,10 @@ async function machineOf(request: FastifyRequest, reply: FastifyReply) {
   return machine;
 }
 
-export function registerBridgeRoutes(app: FastifyInstance): void {
-  /* ── половина человека ───────────────────────────────────────────── */
-
+/** Половина человека: сессию проверяет область дверей. */
+export function registerBridgeHumanRoutes(app: FastifyInstance): void {
   app.post("/v1/bridges", async (request, reply) => {
-    const actor = await humanOf(request, reply);
-    if (!actor) return reply;
+    const actor = actorOf(request);
 
     const issued = await issueBridgeCode({
       workspaceId: actor.workspaceId,
@@ -99,32 +61,25 @@ export function registerBridgeRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.get("/v1/bridges", async (request, reply) => {
-    const actor = await humanOf(request, reply);
-    if (!actor) return reply;
+  app.get("/v1/bridges", async (request, _reply) => {
+    const actor = actorOf(request);
     return { items: await listBridges(actor.participantId) };
   });
 
   /** Живая проверка: спросить настоящую модель через свой мост. */
-  app.post<{ Body: { prompt?: string } }>("/v1/model/check", async (request, reply) => {
-    const actor = await humanOf(request, reply);
-    if (!actor) return reply;
+  app.post<{ Body: { prompt?: string } }>("/v1/model/check", async (request, _reply) => {
+    const actor = actorOf(request);
 
     const prompt = request.body?.prompt?.trim() || "Ответь одним словом: работает";
 
-    try {
-      return await askOwnBridge(actor.participantId, prompt);
-    } catch (error) {
-      const known = askFailure(error);
-      // Незнакомая ошибка пробрасывается: глотать её здесь значит
-      // превратить настоящую поломку в вежливый ответ.
-      if (!known) throw error;
-      return reply.code(known.code).send(known.body);
-    }
+    // Нет моста — 503, молчит — 504, отказал — 502 (`failures.ts`):
+    // чинит это человек, и чинит по-разному.
+    return askOwnBridge(actor.participantId, prompt);
   });
+}
 
-  /* ── половина машины ─────────────────────────────────────────────── */
-
+/** Половина машины: удостоверение — заголовок `Authorization: Bridge`. */
+export function registerBridgeMachineRoutes(app: FastifyInstance): void {
   app.post<{ Body: { code?: string; name?: string } }>(
     "/v1/bridge/join",
     async (request, reply) => {

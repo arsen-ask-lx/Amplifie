@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
-import { publish } from "../../platform/bus.js";
-import { db, type Executor, withTransaction } from "../../platform/db.js";
+import { change } from "../../platform/change.js";
+import { db, type Executor } from "../../platform/db.js";
 import { appendEvent } from "../journal/index.js";
 import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
 import * as repo from "./repo.js";
@@ -83,7 +83,7 @@ export async function createProject(
   viewer: Viewer,
   input: { title: string; icon?: string | undefined; color?: string | undefined },
 ): Promise<{ id: string }> {
-  const created = await withTransaction(async (tx) => {
+  return change(viewer.workspaceId, async (tx) => {
     const rows = await tx
       .insert(project)
       .values({
@@ -106,9 +106,6 @@ export async function createProject(
     });
     return created;
   });
-
-  publish(viewer.workspaceId);
-  return created;
 }
 
 /**
@@ -170,7 +167,7 @@ export async function renameProject(
     color?: string | null | undefined;
   },
 ): Promise<{ id: string }> {
-  const переименован = await withTransaction(async (tx) => {
+  return change(viewer.workspaceId, async (tx) => {
     await требуетсяПроект(tx, viewer.workspaceId, projectId);
     // Не переданное не трогаем: «не указано» и «убрать» — разные вещи,
     // и первое не должно молча стирать второе.
@@ -193,9 +190,6 @@ export async function renameProject(
     });
     return { id: projectId };
   });
-
-  publish(viewer.workspaceId);
-  return переименован;
 }
 
 /**
@@ -212,7 +206,7 @@ export async function renameProject(
  * он не относится. В панели он просто пропал бы.
  */
 export async function removeProject(viewer: Viewer, projectId: string): Promise<void> {
-  await withTransaction(async (tx) => {
+  await change(viewer.workspaceId, async (tx) => {
     await требуетсяПроект(tx, viewer.workspaceId, projectId);
 
     await tx
@@ -230,8 +224,6 @@ export async function removeProject(viewer: Viewer, projectId: string): Promise<
       payload: {},
     });
   });
-
-  publish(viewer.workspaceId);
 }
 
 export async function setProject(
@@ -239,7 +231,7 @@ export async function setProject(
   conversationId: string,
   projectId: string | null,
 ): Promise<{ id: string; projectId: string | null }> {
-  const переложен = await withTransaction(async (tx) => {
+  return change(viewer.workspaceId, async (tx) => {
     await requireVisible(tx, viewer, conversationId);
     if (projectId !== null) await требуетсяПроект(tx, viewer.workspaceId, projectId);
 
@@ -261,9 +253,6 @@ export async function setProject(
 
     return { id: conversationId, projectId };
   });
-
-  publish(viewer.workspaceId);
-  return переложен;
 }
 
 /**

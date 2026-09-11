@@ -86,6 +86,43 @@ export async function colleague(owner: Person, name: string): Promise<Person> {
   return asPerson(entered, name);
 }
 
+/**
+ * Слушать поток человека и сказать, пришёл ли звонок «изменилось».
+ *
+ * Возвращает функцию ожидания: поток открывается ДО действия, иначе звонок
+ * успел бы пролететь раньше подписки. Читается сырой поток, а не
+ * EventSource: его в тестовой среде нет.
+ */
+export async function listen(person: Person): Promise<(timeoutMs?: number) => Promise<boolean>> {
+  const stop = new AbortController();
+  const response = await fetch(`${BASE}/v1/stream`, {
+    headers: { cookie: person.cookie },
+    signal: stop.signal,
+  });
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("у потока нет тела");
+  const decoder = new TextDecoder();
+
+  return async (timeoutMs = 3000) => {
+    const timer = setTimeout(() => stop.abort(), timeoutMs);
+    let seen = "";
+    try {
+      while (!seen.includes("event: changed")) {
+        const { done, value } = await reader.read();
+        if (done) return false;
+        seen += decoder.decode(value, { stream: true });
+      }
+      return true;
+    } catch {
+      // Оборвали по сроку — звонка не было. Это ответ, а не поломка.
+      return false;
+    } finally {
+      clearTimeout(timer);
+      stop.abort();
+    }
+  };
+}
+
 /** Стенд поднят — иначе тесты падают с непонятной ошибкой сети. */
 export async function requireStand(): Promise<void> {
   const health = await call("GET", "/health");

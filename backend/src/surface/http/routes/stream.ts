@@ -1,8 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import { resolveActor } from "../../../kernel/identity/index.js";
 import { subscribe } from "../../../platform/bus.js";
 import { STREAM } from "../limits.js";
-import { SESSION_COOKIE } from "./viewer.js";
+import { actorOf } from "./viewer.js";
 
 /**
  * Поток живых обновлений (Р-006). Звонок, а не доставка.
@@ -23,12 +22,10 @@ export function registerStreamRoutes(app: FastifyInstance): void {
     // и запросом больше не считается.
     { config: { rateLimit: STREAM } },
     async (request, reply) => {
-      const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
-      if (!actor) {
-        // Именно отказ, а не пустой поток: висящий пустой поток снаружи
-        // неотличим от исправного, и клиент будет ждать звонка вечно.
-        return reply.code(401).send({ error: "not_authenticated" });
-      }
+      // Без сессии сюда не доходят: отказ 401 ставит область дверей,
+      // и это именно отказ, а не пустой поток — висящий пустой поток
+      // снаружи неотличим от исправного.
+      const actor = actorOf(request);
 
       reply.raw.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",

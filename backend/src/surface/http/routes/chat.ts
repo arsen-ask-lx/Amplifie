@@ -1,15 +1,8 @@
 import { PROJECT_COLORS, PROJECT_ICONS } from "@amplifie/contract";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
+import { answerIfAddressed, NotAddressedError, type Scope } from "../../../app/answering.js";
 import {
-  answerIfAddressed,
-  ModelUnavailableError,
-  NotAddressedError,
-  type Scope,
-} from "../../../app/answering.js";
-import { resolveActor } from "../../../kernel/identity/index.js";
-import {
-  ConversationNotVisibleError,
   createChannel,
   createProject,
   createThread,
@@ -19,7 +12,6 @@ import {
   listConversations,
   listMessages,
   listPinned,
-  MentionNotAllowedError,
   markRead,
   peopleToMention,
   pinMessage,
@@ -30,13 +22,11 @@ import {
   setProject,
   setProjectPin,
   sync,
-  type Viewer,
   whereMentioned,
 } from "../../../kernel/talk/index.js";
-import { BridgeFailedError, BridgeSilentError } from "../../../platform/rendezvous.js";
 import { READ, SEND, SYNC } from "../limits.js";
 import { parse } from "./parse.js";
-import { SESSION_COOKIE } from "./viewer.js";
+import { actorOf } from "./viewer.js";
 
 const MAX_PAGE = 200;
 const DEFAULT_PAGE = 50;
@@ -120,51 +110,10 @@ const threadSchema = z.object({
   title: z.string().trim().min(1, "у ветки нужно название").max(200),
 });
 
-/** Кто пришёл. Без сессии дальше не пускаем. */
-async function viewerOf(
-  request: FastifyRequest,
-  reply: FastifyReply,
-): Promise<(Viewer & { kind: string }) | null> {
-  const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
-  if (!actor) {
-    reply.code(401).send({ error: "not_authenticated" });
-    return null;
-  }
-  return {
-    participantId: actor.participantId,
-    workspaceId: actor.workspaceId,
-    kind: actor.kind,
-  };
-}
-
 function clampLimit(raw: unknown): number {
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) return DEFAULT_PAGE;
   return Math.min(Math.trunc(value), MAX_PAGE);
-}
-
-/**
- * Разговора нет ЛИБО он тебе не виден — снаружи одно и то же, 404.
- * 403 сказал бы «такой разговор существует», и по нему можно перебирать.
- *
- * Обёртка, а не try/catch в каждом обработчике: одно знание — одно место.
- */
-/**
- * Отказ модели → код причины. Ни один из них НЕ рождает сообщения в ленте:
- * реплика «извините, ошибка» от имени участника — это ложь про то, кто
- * говорил. Такому место в журнале, а не в разговоре.
- */
-function modelFailure(error: unknown): { code: number; body: object } | null {
-  if (error instanceof ModelUnavailableError) {
-    return { code: 503, body: { error: "model_unavailable" } };
-  }
-  if (error instanceof BridgeSilentError) {
-    return { code: 504, body: { error: "model_silent", detail: error.message } };
-  }
-  if (error instanceof BridgeFailedError) {
-    return { code: 502, body: { error: "model_failed", detail: error.message } };
-  }
-  return null;
 }
 
 /**
@@ -188,39 +137,13 @@ async function answerOrExplain(
     // Обращения не было — это не ошибка, а обычный ход событий: клиент
     // зовёт после каждой отправки и не обязан сам разбирать текст.
     if (error instanceof NotAddressedError) return reply.code(204).send();
-    const known = modelFailure(error);
-    if (known) return reply.code(known.code).send(known.body);
-    throw error;
-  }
-}
-
-async function orNotFound<T>(
-  reply: FastifyReply,
-  work: () => Promise<T>,
-): Promise<T | FastifyReply> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof ConversationNotVisibleError) {
-      return reply.code(404).send({ error: "not_found" });
-    }
-    /**
-     * ⚠️ 422, А НЕ 404 И НЕ 403. Разговор человек видит — иначе он бы
-     * сюда не дошёл; неверен не доступ, а само сообщение: в нём позван
-     * тот, кому его нельзя показывать. 403 сказал бы «такой участник
-     * существует», и по нему можно было бы перебирать чужие номера.
-     */
-    if (error instanceof MentionNotAllowedError) {
-      return reply.code(422).send({ error: "mention_not_allowed", detail: error.message });
-    }
     throw error;
   }
 }
 
 export function registerChatRoutes(app: FastifyInstance): void {
-  app.get("/v1/conversations", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+  app.get("/v1/conversations", async (request) => {
+    const viewer = actorOf(request);
     return listConversations(viewer);
   });
 
@@ -243,13 +166,12 @@ export function registerChatRoutes(app: FastifyInstance): void {
     "/v1/conversations/:id/read",
     { config: { rateLimit: READ } },
     async (request, reply) => {
-      const viewer = await viewerOf(request, reply);
-      if (!viewer) return reply;
+      const viewer = actorOf(request);
 
       const input = parse(readSchema, request.body, reply);
       if (!input) return reply;
 
-      return orNotFound(reply, async () => markRead(viewer, request.params.id, input.seq));
+      return markRead(viewer, request.params.id, input.seq);
     },
   );
 
@@ -262,12 +184,11 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * тех, кого в приватном канале звать нельзя, — и подсказка предлагала
    * бы действие, которое сервер обязан отклонить.
    */
-  app.get<{ Params: { id: string } }>("/v1/conversations/:id/people", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, async () => ({
+  app.get<{ Params: { id: string } }>("/v1/conversations/:id/people", async (request) => {
+    const viewer = actorOf(request);
+    return {
       items: await peopleToMention(viewer, request.params.id),
-    }));
+    };
   });
 
   /**
@@ -277,10 +198,9 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * может лежать за его краем. У Телеграма ровно по этой причине есть
    * `messages.getUnreadMentions`.
    */
-  app.get<{ Params: { id: string } }>("/v1/conversations/:id/mention", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, async () => whereMentioned(viewer, request.params.id));
+  app.get<{ Params: { id: string } }>("/v1/conversations/:id/mention", async (request) => {
+    const viewer = actorOf(request);
+    return whereMentioned(viewer, request.params.id);
   });
 
   /**
@@ -288,8 +208,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * может любой участник — как и канал.
    */
   app.post("/v1/projects", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
     const input = parse(projectSchema, request.body, reply);
     if (!input) return reply;
@@ -305,13 +224,12 @@ export function registerChatRoutes(app: FastifyInstance): void {
 
   /** Переименовать проект. */
   app.patch<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
     const input = parse(projectPatchSchema, request.body, reply);
     if (!input) return reply;
 
-    return orNotFound(reply, async () => renameProject(viewer, request.params.id, input));
+    return renameProject(viewer, request.params.id, input);
   });
 
   /**
@@ -319,13 +237,10 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * к чатам вне проектов (Р-032).
    */
   app.delete<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
-    return orNotFound(reply, async () => {
-      await removeProject(viewer, request.params.id);
-      return reply.code(204).send();
-    });
+    await removeProject(viewer, request.params.id);
+    return reply.code(204).send();
   });
 
   /**
@@ -335,49 +250,42 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * такого же, как название, — а не отдельное действие над ним.
    */
   app.patch<{ Params: { id: string } }>("/v1/conversations/:id", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
     const input = parse(moveSchema, request.body, reply);
     if (!input) return reply;
 
-    return orNotFound(reply, async () => setProject(viewer, request.params.id, input.projectId));
+    return setProject(viewer, request.params.id, input.projectId);
   });
 
   app.post("/v1/conversations", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
     const input = parse(channelSchema, request.body, reply);
     if (!input) return reply;
 
-    return orNotFound(reply, async () => {
-      const created = await createChannel(viewer, input);
-      return reply.code(201).send({
-        id: created.id,
-        kind: created.kind,
-        title: created.title,
-        parentId: created.parentId,
-        projectId: created.projectId,
-      });
+    const created = await createChannel(viewer, input);
+    return reply.code(201).send({
+      id: created.id,
+      kind: created.kind,
+      title: created.title,
+      parentId: created.parentId,
+      projectId: created.projectId,
     });
   });
 
   app.get<{ Params: { id: string }; Querystring: { limit?: string; before?: string } }>(
     "/v1/conversations/:id/messages",
-    async (request, reply) => {
-      const viewer = await viewerOf(request, reply);
-      if (!viewer) return reply;
+    async (request) => {
+      const viewer = actorOf(request);
       // before — курсор листания назад. Мусор в нём означает «с конца»,
       // а не ошибку: сломанная ссылка не должна ронять экран.
       const before = Number(request.query.before);
-      return orNotFound(reply, async () =>
-        listMessages(
-          viewer,
-          request.params.id,
-          clampLimit(request.query.limit),
-          Number.isFinite(before) && before > 0 ? before : undefined,
-        ),
+      return listMessages(
+        viewer,
+        request.params.id,
+        clampLimit(request.query.limit),
+        Number.isFinite(before) && before > 0 ? before : undefined,
       );
     },
   );
@@ -386,44 +294,31 @@ export function registerChatRoutes(app: FastifyInstance): void {
     "/v1/conversations/:id/messages",
     { config: { rateLimit: SEND } },
     async (request, reply) => {
-      const viewer = await viewerOf(request, reply);
-      if (!viewer) return reply;
+      const viewer = actorOf(request);
 
       const input = parse(sendSchema, request.body, reply);
       if (!input) return reply;
 
-      return orNotFound(reply, async () => {
-        const result = await sendMessage(viewer, request.params.id, input);
-        // 200 на повтор, 201 на новое: клиент по коду понимает, что произошло,
-        // а повтор после разрыва — нормальная работа, а не ошибка.
-        return reply.code(result.replayed ? 200 : 201).send(result.message);
-      });
+      const result = await sendMessage(viewer, request.params.id, input);
+      // 200 на повтор, 201 на новое: клиент по коду понимает, что произошло,
+      // а повтор после разрыва — нормальная работа, а не ошибка.
+      return reply.code(result.replayed ? 200 : 201).send(result.message);
     },
   );
 
-  /**
-   * Удалить канал. Чужое и несуществующее — оба 404: см. ядро.
-   */
+  /** Удалить канал. Чужое и несуществующее — оба 404: см. ядро. */
   app.delete<{ Params: { id: string } }>("/v1/conversations/:id", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-
-    return orNotFound(reply, async () => {
-      await deleteConversation(viewer, request.params.id);
-      return reply.code(204).send();
-    });
+    await deleteConversation(actorOf(request), request.params.id);
+    return reply.code(204).send();
   });
 
   app.post<{ Params: { id: string } }>("/v1/conversations/:id/threads", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
     const input = parse(threadSchema, request.body, reply);
     if (!input) return reply;
 
-    return orNotFound(reply, async () =>
-      reply.code(201).send(await createThread(viewer, request.params.id, input.title)),
-    );
+    return reply.code(201).send(await createThread(viewer, request.params.id, input.title));
   });
 
   /**
@@ -438,25 +333,21 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * и заводить ради одного случая рано (task-006 §3).
    */
   app.post<{ Params: { id: string } }>("/v1/conversations/:id/ask", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
     const input = parse(askSchema, request.body ?? {}, reply);
     if (!input) return reply;
 
-    return orNotFound(reply, () =>
-      answerOrExplain(reply, viewer, request.params.id, input.scope ?? "conversation"),
-    );
+    return answerOrExplain(reply, viewer, request.params.id, input.scope ?? "conversation");
   });
 
   /**
    * Закреплённое разговора. Отдельной дверью, а не полем в ленте: полоска
    * сверху нужна с первого кадра, а лента доезжает страницами.
    */
-  app.get<{ Params: { id: string } }>("/v1/conversations/:id/pinned", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, () => listPinned(viewer, request.params.id));
+  app.get<{ Params: { id: string } }>("/v1/conversations/:id/pinned", async (request) => {
+    const viewer = actorOf(request);
+    return listPinned(viewer, request.params.id);
   });
 
   /**
@@ -467,31 +358,21 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * Рубеж «только своё» стоит в ядре, здесь только перевод отказа в код.
    */
   app.patch<{ Params: { id: string } }>("/v1/messages/:id", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
     const input = parse(editSchema, request.body, reply);
     if (!input) return reply;
 
-    return orNotFound(reply, async () =>
-      reply.code(200).send(await editMessage(viewer, request.params.id, input.body)),
-    );
+    return reply.code(200).send(await editMessage(viewer, request.params.id, input.body));
   });
 
   app.delete<{ Params: { id: string } }>("/v1/messages/:id", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
+    const viewer = actorOf(request);
 
-    return orNotFound(reply, async () => {
-      await deleteMessage(viewer, request.params.id);
-      return reply.code(204).send();
-    });
+    await deleteMessage(viewer, request.params.id);
+    return reply.code(204).send();
   });
 
-  /**
-   * Закрепить и открепить. Две двери, а не одна с полем: «закрепить» —
-   * это не правка сообщения, а другое действие, и повтор у него безобиден.
-   */
   /**
    * Закрепить разговор или проект в СВОЕЙ панели (task-038).
    *
@@ -501,57 +382,43 @@ export function registerChatRoutes(app: FastifyInstance): void {
    * не нужно держать в голове два способа сказать одно и то же.
    */
   app.post<{ Params: { id: string } }>("/v1/conversations/:id/pin", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, async () => {
-      await setConversationPin(viewer, request.params.id, true);
-      return reply.code(204).send();
-    });
+    const viewer = actorOf(request);
+    await setConversationPin(viewer, request.params.id, true);
+    return reply.code(204).send();
   });
 
   app.delete<{ Params: { id: string } }>("/v1/conversations/:id/pin", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, async () => {
-      await setConversationPin(viewer, request.params.id, false);
-      return reply.code(204).send();
-    });
+    const viewer = actorOf(request);
+    await setConversationPin(viewer, request.params.id, false);
+    return reply.code(204).send();
   });
 
   app.post<{ Params: { id: string } }>("/v1/projects/:id/pin", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, async () => {
-      await setProjectPin(viewer, request.params.id, true);
-      return reply.code(204).send();
-    });
+    const viewer = actorOf(request);
+    await setProjectPin(viewer, request.params.id, true);
+    return reply.code(204).send();
   });
 
   app.delete<{ Params: { id: string } }>("/v1/projects/:id/pin", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, async () => {
-      await setProjectPin(viewer, request.params.id, false);
-      return reply.code(204).send();
-    });
+    const viewer = actorOf(request);
+    await setProjectPin(viewer, request.params.id, false);
+    return reply.code(204).send();
   });
 
+  /**
+   * Закрепить реплику для всех в разговоре. Две двери, а не одна с полем:
+   * «закрепить» — не правка сообщения, и повтор у него безобиден.
+   */
   app.post<{ Params: { id: string } }>("/v1/messages/:id/pin", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, async () => {
-      await pinMessage(viewer, request.params.id, true);
-      return reply.code(204).send();
-    });
+    const viewer = actorOf(request);
+    await pinMessage(viewer, request.params.id, true);
+    return reply.code(204).send();
   });
 
   app.delete<{ Params: { id: string } }>("/v1/messages/:id/pin", async (request, reply) => {
-    const viewer = await viewerOf(request, reply);
-    if (!viewer) return reply;
-    return orNotFound(reply, async () => {
-      await pinMessage(viewer, request.params.id, false);
-      return reply.code(204).send();
-    });
+    const viewer = actorOf(request);
+    await pinMessage(viewer, request.params.id, false);
+    return reply.code(204).send();
   });
 
   /**
@@ -562,9 +429,8 @@ export function registerChatRoutes(app: FastifyInstance): void {
   app.get<{ Querystring: { after?: string; limit?: string } }>(
     "/v1/sync",
     { config: { rateLimit: SYNC } },
-    async (request, reply) => {
-      const viewer = await viewerOf(request, reply);
-      if (!viewer) return reply;
+    async (request) => {
+      const viewer = actorOf(request);
 
       const after = Number(request.query.after ?? 0);
       return sync(

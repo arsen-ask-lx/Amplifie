@@ -4,21 +4,16 @@ import { signUp } from "../../../app/signUp.js";
 import {
   type Actor,
   createInvite,
-  EmailTakenError,
-  InvalidCredentialsError,
-  InviteNotUsableError,
   joinByInvite,
   login,
   logout,
-  RegistrationClosedError,
   registrationOpen,
-  resolveActor,
   revokeInvite,
 } from "../../../kernel/identity/index.js";
 import { config } from "../../../platform/config.js";
 import { INVITE, JOIN, LOGIN, REGISTER } from "../limits.js";
 import { parse } from "./parse.js";
-import { SESSION_COOKIE, viewerOf } from "./viewer.js";
+import { actorOf, SESSION_COOKIE } from "./viewer.js";
 
 const registerSchema = z.object({
   email: z.email("нужен корректный адрес почты"),
@@ -105,41 +100,22 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const input = parse(registerSchema, request.body, reply);
     if (!input) return reply;
 
-    try {
-      const { actor, token } = await signUp(input);
-      setSessionCookie(reply, token);
-      return reply.code(201).send(present(actor));
-    } catch (error) {
-      if (error instanceof RegistrationClosedError) {
-        // ⚠️ ГОВОРИМ ПРЯМО, А НЕ МОЛЧИМ. Скрывать тут нечего: «на этом
-        // сервере уже есть компания» видно и по тому, что открывается
-        // страница входа. Зато человек узнаёт, что делать дальше —
-        // просить ссылку, а не подбирать пароль.
-        return reply.code(403).send({ error: "registration_closed" });
-      }
-      if (error instanceof EmailTakenError) {
-        return reply.code(409).send({ error: "email_taken" });
-      }
-      throw error;
-    }
+    // Закрытая регистрация отвечает 403 прямо (`failures.ts`): скрывать
+    // нечего, а человек узнаёт, что просить надо ссылку, а не пароль.
+    const { actor, token } = await signUp(input);
+    setSessionCookie(reply, token);
+    return reply.code(201).send(present(actor));
   });
 
   app.post("/v1/auth/login", { config: { rateLimit: LOGIN } }, async (request, reply) => {
     const input = parse(loginSchema, request.body, reply);
     if (!input) return reply;
 
-    try {
-      const { actor, token } = await login(input.email, input.password);
-      setSessionCookie(reply, token);
-      return reply.code(200).send(present(actor));
-    } catch (error) {
-      if (error instanceof InvalidCredentialsError) {
-        // Один и тот же ответ на «нет такой почты» и «неверный пароль».
-        // Иначе по ответу перебирают, кто зарегистрирован.
-        return reply.code(401).send({ error: "invalid_credentials" });
-      }
-      throw error;
-    }
+    // «Нет такой почты» и «неверный пароль» — один отказ 401: иначе
+    // по ответу перебирают, кто зарегистрирован.
+    const { actor, token } = await login(input.email, input.password);
+    setSessionCookie(reply, token);
+    return reply.code(200).send(present(actor));
   });
 
   app.post("/v1/auth/logout", async (request, reply) => {
@@ -158,24 +134,16 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const input = parse(joinSchema, request.body, reply);
     if (!input) return reply;
 
-    try {
-      const { actor, token } = await joinByInvite(input);
-      setSessionCookie(reply, token);
-      return reply.code(201).send(present(actor));
-    } catch (error) {
-      if (error instanceof InviteNotUsableError) {
-        return reply.code(404).send({ error: "not_found" });
-      }
-      if (error instanceof EmailTakenError) {
-        return reply.code(409).send({ error: "email_taken" });
-      }
-      throw error;
-    }
+    const { actor, token } = await joinByInvite(input);
+    setSessionCookie(reply, token);
+    return reply.code(201).send(present(actor));
   });
+}
 
+/** Двери того, кто уже вошёл: приглашения и «кто я». Сессию проверяет область. */
+export function registerAccountRoutes(app: FastifyInstance): void {
   app.post("/v1/invites", { config: { rateLimit: INVITE } }, async (request, reply) => {
-    const who = await viewerOf(request, reply);
-    if (!who) return reply;
+    const who = actorOf(request);
     const input = parse(inviteSchema, request.body ?? {}, reply);
     if (!input) return reply;
 
@@ -191,8 +159,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   });
 
   app.delete("/v1/invites/:id", async (request, reply) => {
-    const who = await viewerOf(request, reply);
-    if (!who) return reply;
+    const who = actorOf(request);
 
     const { id } = request.params as { id: string };
     // Чужое приглашение не находится — ровно как несуществующее.
@@ -200,9 +167,5 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return revoked ? reply.code(204).send() : reply.code(404).send({ error: "not_found" });
   });
 
-  app.get("/v1/me", async (request, reply) => {
-    const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
-    if (!actor) return reply.code(401).send({ error: "not_authenticated" });
-    return present(actor);
-  });
+  app.get("/v1/me", async (request) => present(actorOf(request)));
 }
