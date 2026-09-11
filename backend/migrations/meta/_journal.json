@@ -176,6 +176,13 @@
       "when": 1788952390238,
       "tag": "0024_project_look",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789108842865,
+      "tag": "0025_snapshot_catch_up",
+      "breakpoints": true
     }
   ]
 }

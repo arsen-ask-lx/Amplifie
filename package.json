@@ -30,7 +30,6 @@
     "model": "node tools/checks/check-model.mjs",
     "cost": "node tools/checks/check-cost.mjs",
     "duplicates": "node tools/checks/check-duplicates.mjs",
-    "gates": "node tools/checks/run-gates.mjs",
     "arbiter:check": "node --test tools/arbiter/*.test.mjs",
     "arbiter": "node tools/arbiter/report.mjs",
     "label": "node tools/arbiter/label.mjs",

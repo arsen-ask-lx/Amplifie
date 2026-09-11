@@ -230,8 +230,17 @@ model: ## спросить подключённую модель вживую (�
 duplicates: ## повторы в прод-коде под храповиком
 > npm run duplicates
 
-gates: ## вшитые записи каталога AQK (размер файла, TODO, ссылки, мёртвый код, цвет…)
-> npm run gates
+# ⚠️ ВСЕ ОБЪЯВЛЕННЫЕ ПРОВЕРКИ — ОДНИМ ПРОГОНОМ AQK, ПО СПИСКУ ИЗ .aqk.yml.
+# Прежде тут стояла своя обёртка (tools/checks/run-gates.mjs), а `make check`
+# перечислял проверки вторым списком — и списки разошлись: `rhythm` был
+# в `make check`, но не в манифесте, и конвейер его не гонял. AQK 0.12 сам
+# запускает гейты под Windows через Git Bash (task-029), и своя обёртка стала
+# вторым способом сделать то же самое.
+#
+# `AQK_PROBE=0` — быстрая проверка остаётся быстрой: подсадку дефектов
+# (минуты) AQK запускает раз в сто коммитов, это делает конвейер.
+gates: ## все проверки из .aqk.yml одним прогоном AQK (без стенда)
+> AQK_PROBE=0 npx --yes agent-quality-kit@0.12.0 doctor --run
 
 arbiter-check: ## проверки самого счётчика согласия (числа посчитаны руками)
 > npm run arbiter:check
@@ -241,10 +250,6 @@ arbiter: ## отчёт арбитра К2 — согласие людей и ч�
 
 label: ## выпустить лист второй разметки К2 (правится в редакторе)
 > npm run label
-
-ci-gates: ## гейты каталога AQK, поставленные пакетом (образцы — в tools/gates/)
-> bash tools/gates/gates-run-in-ci/check.sh .
-> bash tools/gates/personal-config-not-shared/check.sh .
 
 aqk: ## ступень соответствия AQK и что до следующей
 > npx --yes agent-quality-kit@0.12.0 doctor
@@ -294,7 +299,7 @@ test-ui: ## проверки интерфейса настоящим брауз�
 delivery: ## пройти путь клиента: архив образов → голый up → живая установка
 > bash tools/ops/check-delivery.sh $${DELIVERY_PORT:-8479}
 
-check: lint typecheck arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check env-check openspec duplicates gates ci-gates arbiter-check model ## всё быстрое разом — то же, что гоняет CI
+check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env env-box env-check delivery hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates ci-gates arbiter-check model arbiter label aqk test test-ui load check
+.PHONY: help env env-box env-check delivery hooks up work dev dev-api down reset logs ps health demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map stages favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk test test-ui load check
