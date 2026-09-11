@@ -1,15 +1,11 @@
 import { mentionedIds } from "@amplifie/contract";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db, type Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { requireVisible, type Viewer } from "./access.js";
-import {
-  conversation,
-  conversationMember,
-  conversationRead,
-  message,
-  messageMention,
-} from "./schema.js";
+import { canSee } from "./repo.js";
+import { conversation, message, messageMention } from "./schema.js";
+import { unseenBy } from "./unread.js";
 
 /**
  * Упоминания: кого позвали, кого звать можно и куда вести кнопку перехода
@@ -21,51 +17,39 @@ import {
  * знание расползлось бы по двум файлам, каждый из которых и без того
  * упёрся в предел размера.
  *
- * Само число упоминаний считается не здесь, а в `repo.ts`: оно едет
- * вместе со списком разговоров одним запросом, и разлучать их значило бы
- * ходить в базу дважды за одним экраном.
+ * Само число упоминаний считается в `unread.ts`: оно едет вместе
+ * со списком разговоров одним запросом.
  */
 
 /**
  * Кто видит этот разговор — то есть кого в нём можно позвать (Р-031).
  *
- * ⚠️ ВОПРОС ТОТ ЖЕ, ЧТО У `visibleTo`, НО ЗАДАН С ДРУГОЙ СТОРОНЫ.
- * Там «какие разговоры видит вот этот человек», здесь «какие люди видят
- * вот этот разговор». Отвечать на второй перебором первого — значит
- * задать по запросу на каждого участника пространства.
- *
- * Право читается у КОРНЯ дерева: у ветки своих участников нет, она
- * наследует видимость канала (dock/06-разбор-мессенджеров.md).
+ * Тот же вопрос, что у `visibleTo`, заданный с другой стороны, — и ответ
+ * на него даёт ТО ЖЕ правило (`canSee`), а не своя копия. Своя копия
+ * здесь уже была и расходилась с первой: одна читала видимость корня,
+ * другая — ветки (task-039).
  */
 async function peopleWhoSee(
   tx: Executor,
   conversationId: string,
 ): Promise<{ id: string; name: string; kind: string }[]> {
-  const корни = await tx
-    .select({
-      root: sql<string>`COALESCE(${conversation.parentId}, ${conversation.id})`,
-      workspaceId: conversation.workspaceId,
-    })
+  const найден = await tx
+    .select({ workspaceId: conversation.workspaceId, parentId: conversation.parentId })
     .from(conversation)
-    .where(and(eq(conversation.id, conversationId), isNull(conversation.deletedAt)))
+    .where(eq(conversation.id, conversationId))
     .limit(1);
-  const это = корни[0];
+  const это = найден[0];
   if (!это) return [];
-
-  const открыт = sql`EXISTS (
-    SELECT 1 FROM ${conversation} AS root
-    WHERE root.id = ${это.root} AND root.visibility = 'workspace'
-  )`;
-  const состоит = sql`EXISTS (
-    SELECT 1 FROM ${conversationMember}
-    WHERE ${conversationMember.conversationId} = ${это.root}
-      AND ${conversationMember.participantId} = ${participant.id}
-  )`;
 
   return tx
     .select({ id: participant.id, name: participant.displayName, kind: participant.kind })
     .from(participant)
-    .where(and(eq(participant.workspaceId, это.workspaceId), sql`(${открыт} OR ${состоит})`))
+    .where(
+      and(
+        eq(participant.workspaceId, это.workspaceId),
+        canSee(sql`${conversationId}::uuid`, sql`${это.parentId}::uuid`, participant.id),
+      ),
+    )
     .orderBy(asc(participant.displayName));
 }
 
@@ -109,13 +93,7 @@ async function nearestMention(
       and(
         eq(message.conversationId, conversationId),
         eq(messageMention.participantId, participantId),
-        sql`${message.authorParticipantId} <> ${participantId}`,
-        isNull(message.deletedAt),
-        sql`${message.seq} > COALESCE((
-          SELECT ${conversationRead.readSeq} FROM ${conversationRead}
-          WHERE ${conversationRead.conversationId} = ${conversationId}
-            AND ${conversationRead.participantId} = ${participantId}
-        ), 0)`,
+        unseenBy(conversationId, participantId),
       ),
     )
     .orderBy(asc(message.seq))

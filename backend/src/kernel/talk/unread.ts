@@ -28,18 +28,30 @@ import { conversation, conversationRead, message, messageMention } from "./schem
  */
 const UNREAD_CAP = 1000;
 
+/**
+ * ЕДИНСТВЕННОЕ правило «человек этой реплики ещё не видел» (Р-029):
+ * чужая, живая и дальше его номера прочтения. Условие на строку `message`.
+ *
+ * Одно выражение на все три вопроса — сколько непрочитанного, сколько
+ * зовов, где первый зов. Прежде оно стояло тремя копиями, и поправка
+ * в одной (скажем, «свои не считаются») не доходила бы до остальных.
+ */
+export function unseenBy(conversationId: PgColumn | SQL | string, participantId: string): SQL {
+  return sql`${message.authorParticipantId} <> ${participantId}
+    AND ${message.deletedAt} IS NULL
+    AND ${message.seq} > COALESCE((
+      SELECT ${conversationRead.readSeq} FROM ${conversationRead}
+      WHERE ${conversationRead.conversationId} = ${conversationId}
+        AND ${conversationRead.participantId} = ${participantId}
+    ), 0)`;
+}
+
 export function unreadOf(conversationId: PgColumn | SQL | string, participantId: string) {
   return sql<number>`(
     SELECT count(*)::int FROM (
       SELECT 1 FROM ${message}
       WHERE ${message.conversationId} = ${conversationId}
-        AND ${message.authorParticipantId} <> ${participantId}
-        AND ${message.deletedAt} IS NULL
-        AND ${message.seq} > COALESCE((
-          SELECT ${conversationRead.readSeq} FROM ${conversationRead}
-          WHERE ${conversationRead.conversationId} = ${conversationId}
-            AND ${conversationRead.participantId} = ${participantId}
-        ), 0)
+        AND ${unseenBy(conversationId, participantId)}
       LIMIT ${UNREAD_CAP}
     ) AS невидённые
   )`;
@@ -73,13 +85,9 @@ export async function countUnread(
 /**
  * Сколько раз в разговоре позвали этого человека и он этого не видел.
  *
- * ⚠️ СВОИ ЗОВЫ НЕ СЧИТАЮТСЯ — по той же причине, что и свои реплики
- * в непрочитанном: человек уже видел то, что написал сам.
- *
- * ⚠️ ВТОРОГО СОСТОЯНИЯ ПРОЧТЕНИЯ НЕТ. Упоминание неувидено ровно до тех
- * пор, пока номер прочтения не прошёл дальше номера сообщения (Р-029).
- * Заведи мы отдельную отметку — у человека появилось бы два разных
- * «прочитано», и они разошлись бы молча.
+ * ⚠️ ВТОРОГО СОСТОЯНИЯ ПРОЧТЕНИЯ НЕТ. Зов неувиден ровно до тех пор,
+ * пока не увидена сама реплика (`unseenBy`), — отдельная отметка дала бы
+ * человеку два разных «прочитано», и они разошлись бы молча.
  */
 export function mentionsOf(conversationId: PgColumn | SQL | string, participantId: string) {
   return sql<number>`(
@@ -88,13 +96,7 @@ export function mentionsOf(conversationId: PgColumn | SQL | string, participantI
       JOIN ${messageMention} ON ${messageMention.messageId} = ${message.id}
       WHERE ${message.conversationId} = ${conversationId}
         AND ${messageMention.participantId} = ${participantId}
-        AND ${message.authorParticipantId} <> ${participantId}
-        AND ${message.deletedAt} IS NULL
-        AND ${message.seq} > COALESCE((
-          SELECT ${conversationRead.readSeq} FROM ${conversationRead}
-          WHERE ${conversationRead.conversationId} = ${conversationId}
-            AND ${conversationRead.participantId} = ${participantId}
-        ), 0)
+        AND ${unseenBy(conversationId, participantId)}
       LIMIT ${UNREAD_CAP}
     ) AS незамеченные
   )`;

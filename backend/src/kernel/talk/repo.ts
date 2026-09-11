@@ -1,4 +1,18 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  type SQL,
+  type SQLWrapper,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
@@ -33,50 +47,46 @@ export async function nextSeq(tx: Executor, workspaceId: string): Promise<number
 }
 
 /**
- * ЕДИНСТВЕННОЕ условие видимости (Р-010). Всё, что спрашивает «можно ли
- * это читать», обязано спрашивать здесь — иначе ответов станет два.
+ * ЕДИНСТВЕННОЕ правило видимости (Р-010): разговор виден человеку.
  *
- * Два повода сказать «да», но арбитр по-прежнему один:
- *   ① канал открыт всему пространству, и участник — из этого пространства;
- *   ② есть строка членства в КОРНЕ дерева (ветка своих участников не имеет).
+ * Всё читается у КОРНЯ — видимость, пространство, удалённость и членство:
+ * у ветки своих прав нет. Прежде видимость читалась у самой ветки, и ветка
+ * закрытого канала (у неё значение по умолчанию «всем») была видна всему
+ * пространству (task-027 №1, task-039).
  *
- * Членство при этом продолжает отвечать на свой отдельный вопрос —
- * «канал у меня в списке», см. listConversationsFor.
+ * Два поворота одного правила — «что видит этот человек» (`visibleTo`)
+ * и «кто видит этот разговор» (`mentions.ts`) — оба зовут эту функцию:
+ * два способа сказать одно о правах однажды расходятся, и уже разошлись.
+ *
+ * Внутри — псевдонимы `root` и `asker`, а не имена таблиц: правило
+ * вставляется в запросы, где `conversation` и `participant` уже заняты
+ * внешней строкой, и без псевдонима условие молча сравнило бы строку
+ * саму с собой.
  */
-export function visibleTo(participantId: string) {
-  const rootOf = sql`COALESCE(${conversation.parentId}, ${conversation.id})`;
-
-  const openToMyWorkspace = sql`
-    ${conversation.visibility} = 'workspace'
-    AND ${conversation.workspaceId} = (
-      SELECT ${participant.workspaceId} FROM ${participant}
-      WHERE ${participant.id} = ${participantId}
-    )`;
-
-  const iAmMemberOfRoot = sql`EXISTS (
-    SELECT 1 FROM ${conversationMember}
-    WHERE ${conversationMember.conversationId} = ${rootOf}
-      AND ${conversationMember.participantId} = ${participantId}
-  )`;
-
-  // ⚠️ УДАЛЁННЫЙ КАНАЛ НЕВИДИМ, И ЭТО СКАЗАНО ЗДЕСЬ, А НЕ В КАЖДОМ ЗАПРОСЕ.
-  // Видимость — один вопрос и одно место, где на него отвечают. Условие,
-  // размазанное по вызывающим, однажды не поставится в одном из них,
-  // и удалённый канал вернётся к жизни в каком-нибудь углу.
-  //
-  // Удалённой считается и ВЕТКА удалённого корня: право читается у корня,
-  // значит и смерть — тоже у корня.
-  const rootAlive = sql`NOT EXISTS (
+export function canSee(
+  conversationId: SQLWrapper,
+  parentId: SQLWrapper,
+  participantId: SQLWrapper | string,
+): SQL {
+  return sql`EXISTS (
     SELECT 1 FROM ${conversation} AS root
-    WHERE root.id = ${rootOf} AND root.deleted_at IS NOT NULL
+    WHERE root.id = COALESCE(${parentId}, ${conversationId})
+      AND root.deleted_at IS NULL
+      AND (
+        (root.visibility = 'workspace' AND root.workspace_id = (
+          SELECT asker.workspace_id FROM ${participant} AS asker WHERE asker.id = ${participantId}
+        ))
+        OR EXISTS (
+          SELECT 1 FROM ${conversationMember} AS m
+          WHERE m.conversation_id = root.id AND m.participant_id = ${participantId}
+        )
+      )
   )`;
+}
 
-  // ⚠️ ВНЕШНИЕ СКОБКИ ОБЯЗАТЕЛЬНЫ. Без них `and(eq(id, ...), visibleTo(...))`
-  // склеивается в `id = $1 AND A OR B`, а по приоритету это `(id = $1 AND A)
-  // OR B` — и доступ начинает давать членство в ЛЮБОМ другом разговоре.
-  // Так и было: чужой канал открывался тому, у кого есть свой.
-  // Найдено приёмочным тестом «чужой канал не виден и не читается».
-  return sql`(${rootAlive} AND ((${openToMyWorkspace}) OR (${iAmMemberOfRoot})))`;
+/** Разговоры (строки `conversation` запроса), видимые этому человеку. */
+export function visibleTo(participantId: string): SQL {
+  return canSee(conversation.id, conversation.parentId, participantId);
 }
 
 /**
@@ -612,8 +622,8 @@ export async function listMessagesIn(tx: Executor, conversationIds: string[], li
 }
 
 /**
- * Догон: всё, что появилось в пространстве после номера — но только в тех
- * разговорах, где участник состоит. Проверка членства идёт по КОРНЮ.
+ * Догон: всё, что изменилось в пространстве после номера, — только
+ * в разговорах, которые человек видит (`visibleTo`).
  *
  * Выборка ограничена сверху `upToSeq` — той самой границей, которую получит
  * клиент. Без верхней границы это два разных снимка базы: сообщение,

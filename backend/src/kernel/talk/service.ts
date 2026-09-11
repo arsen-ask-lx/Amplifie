@@ -672,7 +672,7 @@ async function requireMine(tx: Executor, viewer: Viewer, messageId: string) {
  * и читается шире разговора. Одна функция на три действия, чтобы это
  * правило не приходилось помнить трижды: три копии нашёл гейт повторов.
  */
-async function вЖурналРеплики(
+async function logMessageEvent(
   tx: Executor,
   viewer: Viewer,
   kind: string,
@@ -709,7 +709,7 @@ export async function editMessage(
     // у человека остаться не должно.
     await setMentions(tx, messageId, await зовущиеся(tx, found.conversationId, body));
 
-    await вЖурналРеплики(tx, viewer, "message.edited", messageId, found);
+    await logMessageEvent(tx, viewer, "message.edited", messageId, found);
     return viewOf(tx, messageId);
   });
 
@@ -730,7 +730,7 @@ export async function deleteMessage(viewer: Viewer, messageId: string): Promise<
     const gone = await repo.softDeleteMessage(tx, viewer.workspaceId, messageId);
     if (!gone) throw new ConversationNotVisibleError();
 
-    await вЖурналРеплики(tx, viewer, "message.deleted", messageId, found);
+    await logMessageEvent(tx, viewer, "message.deleted", messageId, found);
   });
 
   publish(viewer.workspaceId);
@@ -757,7 +757,7 @@ export async function pinMessage(
     // закреплено», и результат тот же.
     await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
 
-    await вЖурналРеплики(
+    await logMessageEvent(
       tx,
       viewer,
       pinned ? "message.pinned" : "message.unpinned",
