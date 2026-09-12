@@ -1,0 +1,145 @@
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Logo } from "../../shared/Logo.js";
+import { apply, chosen } from "../../shared/theme.js";
+import { Halftone } from "./Halftone.js";
+import { BRIDGE_PICTURE, type Picture } from "./pictures.js";
+
+/**
+ * Рама входа: слева имя и форма, справа растровая картинка (task-022).
+ *
+ * ⚠️ ВХОД ВСЕГДА СВЕТЛЫЙ, ПРИ ЛЮБОЙ ВЫБРАННОЙ ТЕМЕ (владелец, 09.09).
+ * Нейтральная светлая тема у нас основная, остальные — дополнение
+ * и живут ВНУТРИ продукта. Дверь у продукта одна, и она не перекрашивается
+ * ни цветом, ни светлотой: у входа нет ни выбора темы, ни человека,
+ * чей выбор можно было бы прочитать.
+ *
+ * Одна рама на три события — вход, установку и приход по приглашению.
+ * Не потому, что они похожи, а потому что человек за экраном один и тот же
+ * и узнаёт продукт по одной картинке.
+ */
+
+/**
+ * ⚠️ ШИРИНА ПОРОГА НАПИСАНА В КЛАССАХ БУКВАЛЬНО (`min-[800px]:`), И СОБРАТЬ
+ * ЕЁ ИЗ ПЕРЕМЕННОЙ НЕЛЬЗЯ. Tailwind ищет имена классов в исходном тексте;
+ * склеенное во время работы имя он не увидит, и правило не попадёт в стиль
+ * вовсе. Отказ при этом тихий: класс есть, стиля нет.
+ */
+
+/** Тема двери. Не выбирается и не запоминается — она одна. */
+const ENTRY = "светлая";
+
+/** Сколько длится растворение при смене картинки. */
+const FADE_MS = 200;
+
+/**
+ * Показывать ли переход.
+ *
+ * ⚠️ ЭТО НЕ УКРАШЕНИЕ, А ТРЕБОВАНИЕ ДОСТУПНОСТИ. У кого движение
+ * выключено в системе, тот получает мгновенную смену: для части людей
+ * анимация — не «приятнее», а физически плохо.
+ */
+function motionAllowed(): boolean {
+  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Растворение между картинками.
+ *
+ * Уходящая держится на месте, приходящая проявляется поверх неё. Так
+ * не бывает пустого кадра: подмена без перекрытия читается как моргание.
+ *
+ * Переход отвечает на действие человека и показывает, что изменилось, —
+ * ровно то, что свод разрешает. Эффектов на каждом блоке здесь нет.
+ */
+function PictureLayer({ picture, className }: { picture: Picture; className: string }) {
+  const [leaving, setLeaving] = useState<Picture | null>(null);
+  /** Проявилась ли приходящая. Ноль → единица и есть всё растворение. */
+  const [visible, setVisible] = useState(true);
+  const previousRef = useRef(picture);
+
+  useEffect(() => {
+    if (previousRef.current === picture) return;
+    const previous = previousRef.current;
+    previousRef.current = picture;
+
+    if (!motionAllowed()) return;
+
+    setLeaving(previous);
+    setVisible(false);
+    // Следующим кадром — иначе браузер увидит сразу конечное состояние
+    // и переход не сыграет вовсе.
+    const frame = requestAnimationFrame(() => setVisible(true));
+    const timer = setTimeout(() => setLeaving(null), FADE_MS);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [picture]);
+
+  return (
+    <div className={`relative ${className}`}>
+      {leaving ? <Halftone picture={leaving} className="absolute inset-0" /> : null}
+      {/* ⚠️ ПЕРЕХОД ЗАДАН ЗДЕСЬ, А НЕ КЛЮЧЕВЫМ КАДРОМ В ОБЩЕМ СТИЛЕ.
+        Ради одного растворения заводить правило в `styles.css` значило бы
+        связать экран входа с общим файлом ради того, что дальше двери
+        нигде не используется. */}
+      <Halftone
+        key={picture.src}
+        picture={picture}
+        className="absolute inset-0 transition-opacity duration-200 ease-out"
+        style={{ opacity: visible ? 1 : 0 }}
+      />
+    </div>
+  );
+}
+
+export function EntryFrame({
+  children,
+  picture = BRIDGE_PICTURE,
+}: {
+  children: ReactNode;
+  /** Какая картинка справа. У каждого шага установки своя (task-026). */
+  picture?: Picture;
+}) {
+  /**
+   * ⚠️ ТЕМА СТАВИТСЯ ВСЕМУ ДОКУМЕНТУ, А НЕ ОБЁРТКЕ, И ЭТО ВТОРАЯ ПОПЫТКА.
+   *
+   * Первая была обёрткой с `data-theme` — и не работала: роли объявлены
+   * только у `:root`, а свойства наследуются уже вычисленными. Обёртка
+   * внутри «Океана» получала цветные роли, сколько бы ступеней ни
+   * переобъявила у себя.
+   *
+   * Чинить это расширением селектора в `styles.css` тоже нельзя: гейт
+   * контраста собирает монохромную основу ровно по `:root { … }`, и
+   * добавленная в тот же селектор строка оставляла его без ролей —
+   * восемнадцать пар разом переставали проверяться. Гейт был прав.
+   *
+   * ⚠️ ДО ОТРИСОВКИ, А НЕ ПОСЛЕ: у сидящего в тёмной теме иначе мигнёт
+   * первый кадр. Ровно та же причина, по которой тему ставит `main.tsx`.
+   */
+  useLayoutEffect(() => {
+    apply(ENTRY);
+    // Ушли со входа — человеку возвращается его выбор.
+    return () => apply(chosen());
+  }, []);
+
+  return (
+    <div className="grid min-h-dvh grid-cols-1 bg-card min-[800px]:grid-cols-2">
+      <div className="grid grid-rows-[auto_1fr] gap-8 p-8">
+        {/* Плакатная гарнитура — только на имени продукта, как в боковой
+          панели. Здесь она законна по той же причине: это имя, а не
+          заголовок экрана. Заголовок ниже её не берёт. */}
+        <div className="lockup text-ink">
+          <Logo />
+          <span className="font-brand">Amplifie</span>
+        </div>
+
+        <div className="w-full max-w-96 self-center justify-self-center">{children}</div>
+      </div>
+
+      {/* Картинка объявлена скрытой на узком окне, а не убрана условием:
+        холст должен пережить растягивание окна без пересборки дерева. */}
+      <PictureLayer picture={picture} className="hidden min-[800px]:block" />
+    </div>
+  );
+}

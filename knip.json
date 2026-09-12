@@ -1,0 +1,35 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "tools/checks/*.mjs",
+        "tools/arbiter/*.mjs",
+        "tools/dev/*.mjs",
+        "tools/load/*.mjs",
+        "tools/dependency-cruiser.cjs"
+      ],
+      "project": ["tools/**/*.{mjs,ts,cjs}"],
+      "ignore": ["tools/gates/**"],
+      "ignoreDependencies": ["dependency-cruiser", "@types/react"]
+    },
+    "backend": {
+      "entry": ["tests/**/*.test.ts", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "frontend": {
+      "entry": ["src/main.tsx", "src/**/*.test.ts"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["tailwindcss"]
+    },
+    "bridge": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/model": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/contract": {
+      "project": ["src/**/*.ts"]
+    }
+  }
+}

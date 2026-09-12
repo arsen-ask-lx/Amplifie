@@ -1,0 +1,25 @@
+{
+  "extends": "../tools/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "module": "ESNext",
+    // Фронт ничего не эмитит: сборку делает Vite, tsc только проверяет типы.
+    // Поэтому не composite — иначе TS требует эмита деклараций.
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "types": ["vite/client"],
+    // Тот же путь, что в alias у Vite: проверяльщик типов и сборщик
+    // обязаны видеть один и тот же файл, иначе разойдутся молча.
+    "paths": {
+      "@amplifie/contract": ["../packages/contract/src/index.ts"],
+      "@amplifie/contract/api": ["../packages/contract/src/api.ts"],
+      "@/*": ["./src/*"]
+    }
+  },
+  // Конфигурация сборщика проверяется отдельно — tsconfig.node.json:
+  // ей нужны типы Node, браузерному коду они не нужны.
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

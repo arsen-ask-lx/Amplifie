@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Дешёвое первым (fail fast): секунды, без базы и без Docker.
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      # ⚠️ ГЛУБИНА ДВА, А НЕ ОДИН. Гейт карты сравнивает коммит с родителем;
+      # в обрезанном до одного коммита клоне родителя нет, и `git show`
+      # считает коммит корневым — то есть перечисляет ВЕСЬ репозиторий.
+      # Гейт это распознаёт и падает с объяснением, а не врёт зелёным.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Формат и линтер
+        run: npm run lint
+      - name: Типы
+        run: npm run typecheck
+      - name: Архитектурные границы
+        run: npm run arch
+      - name: Решения со ссылками на источники
+        run: npm run decisions
+      - name: Контраст интерфейса
+        run: npm run contrast
+      - name: Быстрые проверки
+        run: npm run unit
+      - name: Запрет сырого HTML
+        run: npm run no-raw-html
+      # ⚠️ ОДИН ШАГ ВМЕСТО СПИСКА КОМАНД, И ЭТО НЕ ЛЕНЬ. `doctor --run`
+      # запускает ВСЁ, что объявлено в `.aqk.yml`. Перечислять гейты здесь
+      # поимённо значило бы завести второй список рядом с первым: добавил
+      # проверку в манифест, забыл в конвейер — и она молчит месяцами.
+      # Ровно эту дыру нашёл гейт `gates-run-in-ci`: четыре наши проверки
+      # (rhythm, failure-map, stages, duplicates) объявлены давно и НИ РАЗУ
+      # не гонялись конвейером.
+      - name: Все объявленные проверки
+        run: npx --yes agent-quality-kit@0.12.0 doctor --run
+      - name: Счётчик согласия арбитра К2
+        run: npm run arbiter:check
+
+  security:
+    runs-on: ubuntu-latest
+    # На запросе слияния gitleaks берёт список его коммитов через API,
+    # а токен нового репозитория по умолчанию читает только код.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Секреты в истории
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Уязвимости в зависимостях
+        run: npm audit --audit-level=high
+
+  # ⚠️ ПУТЬ КЛИЕНТА, А НЕ НАШ. Отдельная работа, потому что проверяет она
+  # не продукт, а ПОСТАВКУ: соберётся ли установка на чужой машине из одних
+  # только образов, накатятся ли миграции сами, не торчит ли наружу лишнее
+  # и осталась ли коробка коробкой (Р-030 ⑩).
+  #
+  # Внутри: сборка → выгрузка ВСЕХ рантаймовых образов архивом → удаление
+  # локальных → отдельный каталог с одним `compose.yml` и рождённым `.env` →
+  # `docker load` → ГОЛОЕ `docker compose up --pull never`.
+  #
+  # Каждая из четырёх подсадок проверена руками и красит эту работу:
+  # разрешение на много компаний в базовом файле · миграции не скопированы
+  # в образ · бек не ждёт успешного кода миграции · дев-файл назван
+  # `compose.override.yml` и лежит рядом.
+  delivery:
+    runs-on: ubuntu-latest
+    steps:
+      # Полная история: версия берётся из тега git, а в обрезанном клоне
+      # `git describe` не находит ни одного и врёт голым хешем.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Путь клиента от архива до живой установки
+        run: make delivery
+      - name: Логи установки при падении
+        if: failure()
+        run: docker compose -p amplifie_postavka logs --tail=200 || true
+
+  # Живой стек + приёмочные тесты через настоящий порт, не test client.
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Тем же `make up`, что и руками: своя копия этих строк отстала,
+      # когда стенд переехал в compose.dev.yml (Р-030), и голый
+      # `docker compose up` искал образ веба в реестре вместо сборки.
+      - name: Поднять стек
+        run: make up
+      - name: Миграции
+        run: make migrate
+      # Цена горячего запроса. Стоит ДО приёмочных: он сеет объём
+      # и откатывает, поэтому база после него та же, а падает он быстрее
+      # и говорит понятнее, чем упавший через минуту сценарий.
+      - name: Цена горячих запросов
+        id: cost
+        run: npm run cost
+
+      # ⚠️ ТЕСТЫ ИДУТ И ПОСЛЕ ПАДЕНИЯ ЦЕНЫ. Это разные вердикты: дорогая
+      # панель не делает сценарии неверными, а молчание тестов прячет,
+      # сломано ли что-то ещё. Работа всё равно красная. Шаги ниже
+      # пропускаются, только если не поднялся стек.
+      - name: Приёмочные тесты
+        if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
+        run: npm test
+      # ⚠️ БРАУЗЕР СТАВИТСЯ ОТДЕЛЬНЫМ ШАГОМ, А НЕ ВНУТРИ ТЕСТА. Так его
+      # отказ виден отказом СВОЕГО шага: «не смог скачать Chromium»
+      # и «сценарий не прошёл» — разные новости, и путать их нельзя.
+      # Версия браузера берётся от закреплённой версии пакета.
+      - name: Браузер для проверок интерфейса
+        id: browser
+        if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
+        run: npx playwright install --with-deps chromium
+      - name: Проверки интерфейса
+        if: ${{ !cancelled() && steps.browser.conclusion == 'success' }}
+        run: npm run test-ui
+      - name: Следы прогона при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+      - name: Логи при падении
+        if: failure()
+        run: docker compose logs --tail=200

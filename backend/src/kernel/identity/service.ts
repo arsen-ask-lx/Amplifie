@@ -1,0 +1,372 @@
+import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
+import { config } from "../../platform/config.js";
+import { db, type Tx, withTransaction } from "../../platform/db.js";
+import { appendEvent } from "../journal/index.js";
+import { mayRegister } from "./registration.js";
+import * as repo from "./repo.js";
+import { hashToken, newToken } from "./tokens.js";
+
+/** Сколько живёт сессия. Продлевать будем позже — сейчас проще некуда. */
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Читается один раз: настройка стенда не меняется на ходу. */
+const { multiWorkspace } = config;
+
+/**
+ * Хеш пароля. Argon2id — то, что рекомендуют вместо bcrypt с 2015 года.
+ * Параметры по умолчанию @node-rs/argon2 соответствуют OWASP.
+ */
+const ARGON_OPTIONS = { algorithm: 2 } as const;
+
+/**
+ * Заглушка для выравнивания времени ответа. Когда почты нет в базе, мы всё
+ * равно проверяем пароль против неё — иначе по времени ответа перебирают,
+ * кто зарегистрирован.
+ */
+const DUMMY_HASH = await argonHash("несуществующий-пароль-для-выравнивания", ARGON_OPTIONS);
+
+/**
+ * Открыта ли дверь «завести компанию» (task-023).
+ *
+ * ⚠️ ТОТ ЖЕ ПРЕДИКАТ, ЧТО И У САМОЙ РЕГИСТРАЦИИ, И ЭТО НЕ ПРИДИРКА.
+ * Второй ответ на тот же вопрос однажды разойдётся с первым, и экран
+ * уверенно покажет дверь, ведущую в отказ, — то есть станет хуже,
+ * чем когда он не знал вовсе.
+ *
+ * ⚠️ ОТВЕТ НЕ СЕКРЕТ. «На этой установке уже есть компания» видно и так:
+ * по тому, что открывается вход, а не установка (Р-024 говорит прямо —
+ * скрывать нечего, зато человек узнаёт, что просить ссылку).
+ *
+ * Без транзакции: это чтение одного признака, и гонка здесь безобидна —
+ * решает всё равно проверка ВНУТРИ транзакции регистрации.
+ */
+export async function registrationOpen(): Promise<boolean> {
+  return mayRegister({ workspacesExist: await repo.anyWorkspaceExists(db), multiWorkspace });
+}
+
+export class EmailTakenError extends Error {}
+/**
+ * Регистрация закрыта: компания на этой установке уже есть (Р-024).
+ * Единственная дверь внутрь — приглашение.
+ */
+export class RegistrationClosedError extends Error {}
+export class InvalidCredentialsError extends Error {}
+
+export interface Actor {
+  sessionId: string;
+  accountId: string;
+  email: string;
+  participantId: string;
+  displayName: string;
+  kind: string;
+  role: string;
+  workspaceId: string;
+  workspaceName: string;
+}
+
+/** Почта приводится к одному виду ровно здесь, на границе домена. */
+export function normalizeEmail(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/**
+ * Новая сессия: значение для печеньки, хеш для базы и срок.
+ *
+ * ⚠️ ОДНО МЕСТО НА ВСЕ ТРИ ДВЕРИ — вход, регистрация и приглашение.
+ * Сессия, выданная по приглашению, обязана быть неотличима от обычной:
+ * иначе появляется второй сорт сессий, и однажды его забудут проверить.
+ */
+export function newSession(): { token: string; tokenHash: string; expiresAt: Date } {
+  return { ...newSessionToken(), expiresAt: new Date(Date.now() + SESSION_TTL_MS) };
+}
+
+/**
+ * Собрать «кто вошёл» из только что созданных строк.
+ *
+ * ⚠️ ОДНО МЕСТО НА ОБЕ ДВЕРИ — регистрацию и приглашение. Гейт повторов
+ * нашёл здесь четырнадцать одинаковых строк, и он был прав не про длину:
+ * это описание того, ЧТО ВИДИТ ВОШЕДШИЙ. Разойдись две копии — и человек,
+ * вошедший по приглашению, окажется в приложении с чуть другой ролью
+ * или чуть другим пространством, чем тот, кто зарегистрировался.
+ */
+export function asActor(parts: {
+  session: { id: string };
+  account: { id: string; email: string };
+  participant: { id: string; displayName: string; kind: string; role: string };
+  workspace: { id: string; name: string };
+}): Actor {
+  return {
+    sessionId: parts.session.id,
+    accountId: parts.account.id,
+    email: parts.account.email,
+    participantId: parts.participant.id,
+    displayName: parts.participant.displayName,
+    kind: parts.participant.kind,
+    role: parts.participant.role,
+    workspaceId: parts.workspace.id,
+    workspaceName: parts.workspace.name,
+  };
+}
+
+/** Пароль хешируется одинаково всюду: иначе однажды разойдётся. */
+export async function hashPassword(password: string): Promise<string> {
+  return argonHash(password, ARGON_OPTIONS);
+}
+
+function newSessionToken(): { token: string; tokenHash: string } {
+  const token = newToken();
+  return { token, tokenHash: hashToken(token) };
+}
+
+export interface RegisterInput {
+  email: string;
+  password: string;
+  displayName: string;
+  workspaceName: string;
+}
+
+/**
+ * Что ещё нужно сделать в ТОЙ ЖЕ транзакции, что и регистрация.
+ *
+ * Так модуль identity не узнаёт про существование чата: кто и что довешивает
+ * к регистрации, решает слой сборки (app/), а не ядро. Полурегистрация
+ * невозможна — либо всё, либо ничего.
+ */
+export type RegisterHook = (
+  tx: Tx,
+  created: { workspaceId: string; participantId: string; accountId: string },
+) => Promise<void>;
+
+/**
+ * Регистрация: аккаунт + пространство + лицо владельца + сессия.
+ * Всё в одной транзакции — полурегистрация хуже отсутствующей.
+ */
+export async function register(
+  input: RegisterInput,
+  alsoInSameTransaction?: RegisterHook,
+): Promise<{ actor: Actor; token: string }> {
+  const email = normalizeEmail(input.email);
+  const passwordHash = await argonHash(input.password, ARGON_OPTIONS);
+  const { token, tokenHash } = newSessionToken();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+  return withTransaction(async (tx) => {
+    /**
+     * ⚠️ ПРОВЕРКА ВНУТРИ ТРАНЗАКЦИИ, А НЕ ПЕРЕД НЕЙ. Две регистрации,
+     * пришедшие разом на пустую установку, обе увидели бы «компаний нет»
+     * и обе завели бы по компании. Та же гонка, что у приглашений и кодов
+     * моста; здесь она стоит дешевле, но обходится тем же приёмом.
+     */
+    if (!mayRegister({ workspacesExist: await repo.anyWorkspaceExists(tx), multiWorkspace })) {
+      throw new RegistrationClosedError();
+    }
+    if (await repo.findAccountByEmail(tx, email)) throw new EmailTakenError();
+
+    const createdAccount = await repo.insertAccount(tx, email, passwordHash);
+    const createdWorkspace = await repo.insertWorkspace(tx, input.workspaceName.trim());
+    const createdParticipant = await repo.insertParticipant(tx, {
+      workspaceId: createdWorkspace.id,
+      accountId: createdAccount.id,
+      displayName: input.displayName.trim(),
+      role: "owner",
+    });
+    const createdSession = await repo.insertSession(tx, {
+      accountId: createdAccount.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    // Изменение состояния и событие — в одной транзакции. Всегда (Р-2).
+    await appendEvent(tx, {
+      kind: "workspace.created",
+      workspaceId: createdWorkspace.id,
+      actorParticipantId: createdParticipant.id,
+      originatorAccountId: createdAccount.id,
+      accountableAccountId: createdAccount.id,
+      subjectType: "workspace",
+      subjectId: createdWorkspace.id,
+      payload: { name: createdWorkspace.name },
+    });
+    await appendEvent(tx, {
+      kind: "participant.joined",
+      workspaceId: createdWorkspace.id,
+      actorParticipantId: createdParticipant.id,
+      originatorAccountId: createdAccount.id,
+      accountableAccountId: createdAccount.id,
+      subjectType: "participant",
+      subjectId: createdParticipant.id,
+      payload: { role: "owner", kind: "human" },
+    });
+
+    await alsoInSameTransaction?.(tx, {
+      workspaceId: createdWorkspace.id,
+      participantId: createdParticipant.id,
+      accountId: createdAccount.id,
+    });
+
+    return {
+      token,
+      actor: asActor({
+        session: createdSession,
+        account: createdAccount,
+        participant: createdParticipant,
+        workspace: createdWorkspace,
+      }),
+    };
+  });
+}
+
+export async function login(
+  rawEmail: string,
+  password: string,
+): Promise<{ actor: Actor; token: string }> {
+  const email = normalizeEmail(rawEmail);
+  const found = await repo.findAccountByEmail(db, email);
+
+  // Пароль проверяется ВСЕГДА, даже если аккаунта нет: иначе по времени
+  // ответа видно, какие почты зарегистрированы.
+  const ok = await argonVerify(found?.passwordHash ?? DUMMY_HASH, password).catch(() => false);
+  if (!found || !ok) throw new InvalidCredentialsError();
+
+  const { token, tokenHash } = newSessionToken();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+  return withTransaction(async (tx) => {
+    await repo.insertSession(tx, { accountId: found.id, tokenHash, expiresAt });
+    const actor = await repo.findLiveSession(tx, tokenHash, new Date());
+    if (!actor) throw new InvalidCredentialsError();
+
+    await appendEvent(tx, {
+      kind: "session.opened",
+      workspaceId: actor.workspaceId,
+      actorParticipantId: actor.participantId,
+      originatorAccountId: actor.accountId,
+      accountableAccountId: actor.accountId,
+      subjectType: "session",
+      subjectId: actor.sessionId,
+    });
+
+    return { token, actor };
+  });
+}
+
+export async function logout(token: string): Promise<void> {
+  const tokenHash = hashToken(token);
+  await withTransaction(async (tx) => {
+    const actor = await repo.findLiveSession(tx, tokenHash, new Date());
+    await repo.deleteSessionByTokenHash(tx, tokenHash);
+    if (actor) {
+      await appendEvent(tx, {
+        kind: "session.closed",
+        workspaceId: actor.workspaceId,
+        actorParticipantId: actor.participantId,
+        originatorAccountId: actor.accountId,
+        accountableAccountId: actor.accountId,
+        subjectType: "session",
+        subjectId: actor.sessionId,
+      });
+    }
+  });
+}
+
+/**
+ * Куда сообщать о неудачной отметке «сессия жива». Ставится один раз при
+ * сборке приложения. Зависимость от абстракции, а не от конкретного логгера
+ * (SOLID-D): ядро не знает, чем логирует витрина.
+ */
+let onTouchFailed: (error: unknown) => void = (error) => {
+  // Заглушка по умолчанию НЕ молчит. Пустая функция здесь неотличима от
+  // глушения ошибки, а сюда попадают только те случаи, когда витрина забыла
+  // подключить настоящего получателя, — то есть сама поломка сборки.
+  // emitWarning, а не console: ядро не знает, чем логирует витрина.
+  process.emitWarning(
+    `отметка «сессия жива» не удалась, а получатель не подключён: ${String(error)}`,
+    "AmplifieSessionTouch",
+  );
+};
+
+export function setSessionTouchFailureReporter(report: (error: unknown) => void): void {
+  onTouchFailed = report;
+}
+
+/** Кто пришёл. Возвращает null, если сессии нет, она протухла или подделана. */
+export async function resolveActor(token: string | undefined): Promise<Actor | null> {
+  if (!token) return null;
+
+  // Сравнение с равным временем здесь НЕ нужно и было бы театром: мы не
+  // сличаем строки в коде, а ищем по индексу в базе. Утечки по времени
+  // на поиске по хешу нет — сам хеш случаен и неугадываем.
+  const actor = await repo.findLiveSession(db, hashToken(token), new Date());
+  if (!actor) return null;
+
+  // Не ждём: отметка «жив» не должна задерживать ответ. Но и не глотаем
+  // молча — проглоченная ошибка это ошибка, которой нет в логах.
+  void repo.touchSession(db, actor.sessionId, new Date()).catch((error: unknown) => {
+    onTouchFailed(error);
+  });
+  return actor;
+}
+
+/**
+ * Участник-агент пространства. Заводится при первой надобности.
+ *
+ * Лениво, а не миграцией: миграция не знает, у каких пространств агент
+ * уже есть, а засеять всех разом значит завести агента там, где им
+ * никогда не воспользуются.
+ */
+/**
+ * Агенты пространства. ТОЛЬКО ЧТЕНИЕ.
+ *
+ * Отдельно от `ensureAgent` намеренно: тот заводит участника при первом
+ * ответе, и звать его из `GET` нельзя. Чтение, которое пишет, однажды
+ * заведёт участника от чужого запроса, и в журнале появится событие
+ * без причины. Пустой список — честный ответ: агента ещё не звали.
+ */
+export async function listAgents(
+  workspaceId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const found = await repo.findAgent(db, workspaceId);
+  return found ? [{ id: found.id, name: found.displayName }] : [];
+}
+
+/**
+ * Имя участника-агента.
+ *
+ * ⚠️ ОДНО МЕСТО НА ВЕСЬ ПРОЕКТ. Имя нужно двоим: тому, кто заводит
+ * участника, и тому, кто ловит обращение `@memo` в тексте. Пока их было
+ * два, они держались рядом только комментарием «совпадает с identity» —
+ * а разойдись они, агент завёлся бы под одним именем, а откликался бы
+ * на другое, и это выглядело бы как «агент молчит».
+ */
+export const AGENT_NAME = "memo";
+
+export async function ensureAgent(workspaceId: string): Promise<{ id: string }> {
+  const existing = await repo.findAgent(db, workspaceId);
+  if (existing) return existing;
+
+  return withTransaction(async (tx) => {
+    // Проверяем ещё раз внутри транзакции: два одновременных разбора
+    // разговора не должны завести двух агентов.
+    const again = await repo.findAgent(tx, workspaceId);
+    if (again) return again;
+
+    const created = await repo.insertParticipant(tx, {
+      workspaceId,
+      accountId: null,
+      displayName: AGENT_NAME,
+      role: "member",
+      kind: "agent",
+    });
+
+    await appendEvent(tx, {
+      kind: "participant.joined",
+      workspaceId,
+      actorParticipantId: created.id,
+      subjectType: "participant",
+      subjectId: created.id,
+      payload: { role: "member", kind: "agent" },
+    });
+
+    return created;
+  });
+}

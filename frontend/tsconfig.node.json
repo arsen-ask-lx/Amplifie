@@ -1,0 +1,16 @@
+{
+  // Конфигурация сборщика — единственный файл фронта, который исполняет
+  // НЕ браузер, а Node. Ей нужны типы Node; браузерному коду они не нужны
+  // и вредны: с ними `fs` и `process` начнут проходить проверку там,
+  // где их в рантайме не будет.
+  "extends": "../tools/tsconfig.base.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "module": "ESNext",
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts"]
+}

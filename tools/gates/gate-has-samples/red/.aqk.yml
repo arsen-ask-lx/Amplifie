@@ -1,0 +1,10 @@
+aqk: 1
+entry:
+  - AGENTS.md
+rules: rules
+gates:
+  # Свой гейт: сканирует проект, значит обязан показать красный и зелёный образец.
+  no-print-in-prod: "bash gates/no-print-in-prod/check.sh ."
+  # Прогон с собственным арбитром — образцов не требует и в счёт не идёт.
+  tests: "pytest -q"
+samples: gates

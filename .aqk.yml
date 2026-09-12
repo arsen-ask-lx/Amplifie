@@ -1,0 +1,121 @@
+# .aqk.yml — манифест Agent Quality Kit для Amplifie.
+#
+# ЗАЧЕМ ОН ЗДЕСЬ. Проверки у нас были и до него — линтер, типы, границы модулей,
+# источники решений, приёмочные тесты. Но нигде не было сказано машиночитаемо,
+# какие они и где. Сам AQK формулирует это точнее всего: пока проверка не
+# объявлена, о ней не знает ни агент, ни конвейер, ни новый человек.
+#
+# ГРАНИЦА СВЯЗАННОСТИ. Здесь только ОБЪЯВЛЕНИЕ. Каждая проверка обязана
+# запускаться через `make` и без AQK: пропадёт инструмент — проверки останутся.
+# Параллельный узел, не последовательный (Р-001, тот же довод Люссера).
+
+aqk: 1
+
+# AQK-0 — что агент читает первым.
+entry:
+  - AGENTS.md
+  - CLAUDE.md
+
+# AQK-1 — свод правил и проверки командами.
+rules: .temper/rules
+# Методички живут рядом со стандартами, в .temper, а не в .aqk/docs.
+docs: .temper/references
+# Что наш lint (Biome) уже держит из каталога — машиночитаемо, а не только
+# комментарием ниже: без этого doctor советовал ставить их вторым арбитром.
+covers:
+  lint: [no-print-in-prod, complexity-limit, swallowed-error]
+gates:
+  # Наши, были раньше AQK. Все до одной проверены подсаженным нарушением.
+  # lint держит сразу три записи каталога AQK: no-print-in-prod (noConsole),
+  # complexity-limit (maxAllowedComplexity 10) и swallowed-error
+  # (noEmptyBlockStatements). Отдельными гейтами они НЕ ставятся: два арбитра
+  # на одно правило — это два разных ответа на один вопрос, а переносимый
+  # арбитр swallowed-error проверен и оказался слабее — многострочный пустой
+  # catch, самый частый в TypeScript, он не видит и возвращает зелёный.
+  lint: "npm run lint"
+  typecheck: "npm run typecheck"
+  arch: "npm run arch"
+  decisions: "npm run decisions"
+  arbiter-check: "npm run arbiter:check"
+  contrast: "npm run contrast"
+  unit: "npm run unit"
+  no-raw-html: "npm run no-raw-html"
+  failure-map: "npm run failure-map"
+  favicon: "npm run favicon"
+  # Ритм отступов и подключённость модели — были в `make check`, но не здесь,
+  # и потому не гонялись конвейером: два списка проверок разошлись. Список один.
+  rhythm: "node tools/checks/check-rhythm.mjs"
+  model: "npm run model"
+  # Статус живёт в карте и в git — больше нигде. Правило было с первого
+  # дня, сторожа не было; теперь есть. Второй вход — хук `commit-msg`
+  # из `.githooks`, он не даёт сделать коммит; этот смотрит на последний
+  # и потому переживает обход хука ключом и чужой клон без хуков.
+  #
+  # ⚠️ Флаг обхода здесь не назван буквально намеренно: `gate-not-weakened`
+  # ищет его в конфигурации и был прав, покраснев на этой строке.
+  map: "npm run map"
+  map-check: "npm run map:check"
+  # Настройки настоящей установки рождаются программой, а не копированием
+  # образца (Р-030 ⑤). Гейт стережёт главное: в рождённом коробке файле нет
+  # ни дев-режима, ни разрешения заводить много компаний. Глазами это
+  # не проверить — файла в репозитории нет, он появляется у клиента.
+  env-check: "npm run env:check"
+  # Спецификация поведения не расходится со сделанным (Р-027): изменение,
+  # у которого все задачи отмечены, обязано быть заархивировано, а дельта —
+  # влита в openspec/specs/. Читает дерево, не зовёт CLI: инструмент стоит
+  # глобально, а в конвейере его нет.
+  openspec: "npm run openspec"
+  # Цена горячего запроса (Д-30). Единственный наш гейт, которому нужна
+  # ЖИВАЯ база: во что обходится запрос, чтением не решается. Меряет строки,
+  # а не время — время зависит от соседа по машине.
+  #
+  # ⚠️ СОВЕЩАТЕЛЬНЫЙ ЗДЕСЬ, ОБЯЗАТЕЛЬНЫЙ В КОНВЕЙЕРЕ. Всё объявленное гоняется
+  # одним прогоном `doctor --run` без стенда (`make check`, быстрая задача
+  # CI), и там этот гейт упал бы отказом соединения, а не находкой. Блокирует
+  # он отдельным шагом задачи CI со стендом и в `make cost` — рядом
+  # с бюджетом запросов на обращение (query-budget.e2e, N+1). Объявить гейт,
+  # которому нужна живая система, AQK пока иначе не даёт (обратная связь, п. 8).
+  cost: "npm run cost"
+
+  # Из каталога AQK. Каждый проверен подсаженным нарушением в НАШЕМ коде,
+  # а не только на своих образцах.
+  #
+  # Каталог tools/gates/ исключён из biome (см. biome.json): форматировать образцы
+  # нельзя. Красный образец обязан остаться красным, а форматирование меняет
+  # тот самый файл, на котором арбитр доказывает, что ловит брак.
+  file-size-limit: "bash tools/gates/file-size-limit/check.sh ."
+  todo-without-task: "bash tools/gates/todo-without-task/check.sh ."
+  entry-links-exist: "bash tools/gates/entry-links-exist/check.sh ."
+  deps-are-pinned: "bash tools/gates/deps-are-pinned/check.sh ."
+  lesson-has-outcome: "bash tools/gates/lesson-has-outcome/check.sh ."
+  # ⚠️ ЧЕРЕЗ ОБЁРТКУ: knip шестой версии резервирует под разбор шесть
+  # гибибайт и падает там, где столько не набирается. Выключатель — его
+  # собственный (`KNIP_DISABLE_RAW_TRANSFER`), а не понижение версии.
+  # Подробности рядом с кодом обёртки.
+  dead-code: "bash tools/gates/dead-code/ours.sh ."
+  gates-are-runnable: "bash tools/gates/gates-are-runnable/check.sh ."
+  test-has-assertion: "bash tools/gates/test-has-assertion/check.sh ."
+  # ⚠️ ЧЕРЕЗ `bash -c`, А НЕ ПРИСТАВКОЙ. Запись `ПЕРЕМЕННАЯ=значение команда`
+  # понятна только оболочкам POSIX; на Windows её пытается исполнить cmd
+  # и падает с «AQK_COLOR_SOURCE не является внутренней командой».
+  # Гейт при этом краснел на исправном коде — худший вид отказа.
+  color-from-token: "bash tools/gates/color-from-token/ours.sh ."
+  gate-not-weakened: "bash tools/gates/gate-not-weakened/check.sh ."
+  ci-actually-fails: "bash tools/gates/ci-actually-fails/check.sh ."
+  gate-has-samples: "bash tools/gates/gate-has-samples/check.sh ."
+  promise-has-gate: "bash tools/gates/promise-has-gate/check.sh ."
+  commit-explains-itself: "bash tools/gates/commit-explains-itself/check.sh ."
+  duplicate-code: "npm run duplicates"
+  secrets-not-in-code: "bash tools/gates/secrets-not-in-code/check.sh ."
+  gates-run-in-ci: "bash tools/gates/gates-run-in-ci/check.sh ."
+  personal-config-not-shared: "bash tools/gates/personal-config-not-shared/check.sh ."
+
+# Совещательные: видны в каждом прогоне, уронить его не могут (см. cost).
+advisory: [cost]
+
+# AQK-2 — образцы и реестры долга. Заполняется по мере установки записей.
+samples: tools/gates
+ratchets: tools/ratchets
+
+# AQK-3 — куда возвращаются шишки.
+lessons: dock/incidents

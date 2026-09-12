@@ -1,0 +1,243 @@
+import { useCallback, useRef, useState } from "react";
+import { api, type Conversation, type Project } from "./api.js";
+import type { Address } from "./useAddress.js";
+
+/**
+ * Список каналов и всё, что с ним делают.
+ *
+ * ⚠️ ВЫНЕСЕНО ИЗ `useChat` ПО ЗНАНИЮ, А НЕ ПО РАЗМЕРУ (Д-10, task-020).
+ * Здесь «какие есть разговоры и как их заводят»; там — «что показывать
+ * в открытом». Лента про список не спрашивает, список про ленту не знает,
+ * и держать их вместе значило читать одно ради правки другого.
+ *
+ * ⚠️ СПИСОК ВСЕГДА ПЕРЕЧИТЫВАЕТСЯ, А НЕ ПРАВИТСЯ НА МЕСТЕ. Порядок
+ * по свежести и связи веток с корнями сервер уже умеет собирать
+ * правильно; второе такое место на клиенте разошлось бы с ним. Один
+ * лишний запрос дешевле двух источников правды.
+ */
+
+/**
+ * Вид папки: значок и цвет (task-038). Пусто — как было.
+ *
+ * ⚠️ ОТДЕЛЬНЫМ ИМЕНЕМ, А НЕ ДВУМЯ ДОВОДАМИ ПОДРЯД. Значок и цвет ходят
+ * только вместе — это одно понятие «как папка выглядит», и в четырёх
+ * местах, где оно передаётся, пара не должна разъезжаться.
+ */
+interface Look {
+  icon?: string | null;
+  color?: string | null;
+}
+
+export interface Rooms {
+  items: Conversation[];
+  /** Проекты, в которых человеку виден хоть один чат (Р-032). */
+  projects: Project[];
+  /** Первый ответ сервера пришёл: до него пустой список — «ещё не знаем», а не «нет ничего». */
+  loaded: boolean;
+  /** Перечитать. Возвращает то же, что положил в состояние. */
+  reload: () => Promise<Conversation[]>;
+  /**
+   * Завести канал. `projectId` — сразу внутрь проекта (task-035).
+   *
+   * ⚠️ ОДНА ФУНКЦИЯ С НЕОБЯЗАТЕЛЬНЫМ ДОВОДОМ, А НЕ ДВЕ. «Завести канал»
+   * и «завести канал в проекте» — одно знание с разной подробностью;
+   * двумя функциями они разъехались бы на первой правке, и одна из них
+   * перестала бы, скажем, открывать заведённое.
+   */
+  addChannel: (title: string, projectId?: string) => Promise<void>;
+  removeChannel: (id: string) => Promise<void>;
+  addThread: (title: string) => Promise<void>;
+  /** Завести проект. */
+  addProject: (title: string, look?: Look) => Promise<void>;
+  renameProject: (id: string, edit: { title?: string } & Look) => Promise<void>;
+  /** Убрать проект. Папка исчезает, переписка остаётся (Р-032). */
+  removeProject: (id: string) => Promise<void>;
+  /** Отнести чат к проекту либо снять принадлежность (`null`). */
+  moveToProject: (conversationId: string, projectId: string | null) => Promise<void>;
+  /**
+   * Закрепить чат либо проект в своей панели (task-038).
+   *
+   * ⚠️ ОДНА ФУНКЦИЯ НА ОБА СЛУЧАЯ, потому что это одно умение: «пусть
+   * будет наверху». Двумя они разъехались бы на первой правке.
+   *
+   * ⚠️ ЛИЧНОЕ (Д-32): у коллеги порядок свой. Считает его сервер.
+   */
+  pin: (
+    target: { conversationId: string } | { projectId: string },
+    pinned: boolean,
+  ) => Promise<void>;
+}
+
+export function useRooms(where: Address): Rooms {
+  const [items, setItems] = useState<Conversation[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const { currentId, currentIdRef, navigate } = where;
+
+  const fetchNow = useCallback(async () => {
+    const { items: fresh, projects: folders } = await api.conversations();
+    setItems(fresh);
+    setProjects(folders ?? []);
+    setLoaded(true);
+    return fresh;
+  }, []);
+
+  /**
+   * Перечитать — один запрос в пути и не больше одного в очереди (task-064).
+   *
+   * ⚠️ ЗВОНКИ СКЛЕИВАЮТСЯ, И БЕЗ ЭТОГО ПАНЕЛЬ ВИСЛА. Перечитывают трое:
+   * звонок, догон чужой комнаты и смена разговора, — и на 5 000 чатах
+   * каждое сообщение давало два полных ответа по 1,4 МБ. Замер 11.09:
+   * пять сообщений — десять перечитываний. Теперь всё, что пришло, пока
+   * ответ в пути, ждёт ОДНО следующее перечитывание: начатое до звонка
+   * могло его не увидеть, а начатое после — увидит всё сразу.
+   */
+  const inFlight = useRef<Promise<Conversation[]> | null>(null);
+  const queued = useRef<Promise<Conversation[]> | null>(null);
+  const reload = useCallback((): Promise<Conversation[]> => {
+    const start = () => {
+      const running = fetchNow().finally(() => {
+        if (inFlight.current === running) inFlight.current = null;
+      });
+      inFlight.current = running;
+      return running;
+    };
+    const busy = inFlight.current;
+    if (!busy) return start();
+    queued.current ??= busy
+      // Отказ предыдущего — не повод не спросить заново: его ждущий
+      // получил свой отказ сам, очереди нужен свежий ответ.
+      .catch(() => undefined)
+      .then(() => {
+        queued.current = null;
+        return start();
+      });
+    return queued.current;
+  }, [fetchNow]);
+
+  /**
+   * Завести разговор и открыть его.
+   *
+   * ⚠️ ПОСЛЕ ЗАВЕДЕНИЯ СПИСОК ПЕРЕЧИТЫВАЕТСЯ ЦЕЛИКОМ, а не дополняется
+   * ответом: пока мы набирали название, в пространстве мог появиться
+   * и чужой канал.
+   */
+  const openNew = useCallback(
+    async (make: () => Promise<Conversation>) => {
+      const created = await make();
+      await reload();
+      navigate(`/c/${created.id}`);
+    },
+    [reload, navigate],
+  );
+
+  const addChannel = useCallback(
+    async (title: string, projectId?: string) => {
+      await openNew(() => api.createChannel(title, projectId));
+    },
+    [openNew],
+  );
+
+  /**
+   * Удалить канал.
+   *
+   * ⚠️ ЕСЛИ УДАЛИЛИ ТОТ, ЧТО ОТКРЫТ, — уводим на первый оставшийся.
+   * Остаться на адресе снесённого канала значит показать «Загружаем…»
+   * навсегда: сервер о нём больше не расскажет.
+   */
+  const removeChannel = useCallback(
+    async (id: string) => {
+      await api.removeChannel(id);
+      const fresh = await reload();
+      if (currentIdRef.current !== id) return;
+      const next = fresh.find((room) => room.parentId === null);
+      navigate(next ? `/c/${next.id}` : "/", { replace: true });
+    },
+    [reload, navigate, currentIdRef],
+  );
+
+  const addThread = useCallback(
+    async (title: string) => {
+      // Ветка заводится у КОРНЯ: ветка от ветки не бывает (дерево
+      // ровно двухуровневое), и сервер такое всё равно отклонит.
+      const room = items.find((one) => one.id === currentId);
+      const rootId = room?.parentId ?? room?.id;
+      if (!rootId) return;
+      await openNew(() => api.createThread(rootId, title));
+    },
+    [items, currentId, openNew],
+  );
+
+  /**
+   * Завести проект.
+   *
+   * ⚠️ ПРОЕКТ НЕ ОТКРЫВАЕТСЯ ПОСЛЕ ЗАВЕДЕНИЯ, в отличие от канала:
+   * открывать нечего — у проекта нет ленты. Панель просто перечитывается,
+   * и пустая папка появляется в ней.
+   */
+  const addProject = useCallback(
+    async (title: string, look?: Look) => {
+      await api.addProject(title, look);
+      await reload();
+    },
+    [reload],
+  );
+
+  const renameProject = useCallback(
+    async (id: string, edit: { title?: string } & Look) => {
+      await api.renameProject(id, edit);
+      await reload();
+    },
+    [reload],
+  );
+
+  /**
+   * Убрать проект.
+   *
+   * ⚠️ ЧАТЫ НИКУДА НЕ ДЕВАЮТСЯ — их возвращает наружу сервер, и панель
+   * просто перечитывается. Убирать их здесь руками значило бы завести
+   * второй ответ на вопрос «где теперь этот чат».
+   */
+  const removeProject = useCallback(
+    async (id: string) => {
+      await api.removeProject(id);
+      await reload();
+    },
+    [reload],
+  );
+
+  const pin = useCallback(
+    async (target: { conversationId: string } | { projectId: string }, pinned: boolean) => {
+      await ("conversationId" in target
+        ? api.pinConversation(target.conversationId, pinned)
+        : api.pinProject(target.projectId, pinned));
+      // Порядок пересчитывает сервер — перечитываем панель целиком,
+      // а не переставляем строки здесь (иначе про порядок знают двое).
+      await reload();
+    },
+    [reload],
+  );
+
+  const moveToProject = useCallback(
+    async (conversationId: string, projectId: string | null) => {
+      await api.moveConversation(conversationId, projectId);
+      await reload();
+    },
+    [reload],
+  );
+
+  return {
+    items,
+    projects,
+    loaded,
+    reload,
+    addChannel,
+    removeChannel,
+    addThread,
+    addProject,
+    renameProject,
+    removeProject,
+    moveToProject,
+    pin,
+  };
+}

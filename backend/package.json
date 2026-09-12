@@ -1,0 +1,27 @@
+{
+  "name": "@amplifie/backend",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "node --watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@amplifie/contract": "*",
+    "@amplifie/model": "*",
+    "@fastify/cookie": "11.1.2",
+    "@fastify/rate-limit": "11.2.0",
+    "@fastify/type-provider-zod": "1.0.0",
+    "@node-rs/argon2": "2.2.0",
+    "drizzle-orm": "0.45.2",
+    "fastify": "5.12.3",
+    "pg": "^8.23.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/pg": "^8.23.1"
+  }
+}

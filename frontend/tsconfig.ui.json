@@ -1,0 +1,17 @@
+{
+  // Проверки интерфейса. Исполняет их Node (Playwright ведёт браузер
+  // снаружи), но внутри `page.evaluate` код попадает в страницу — поэтому
+  // здесь нужны И типы Node, И типы DOM. Браузерному коду типы Node
+  // по-прежнему не полагаются: у него свой tsconfig.
+  "extends": "../tools/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "module": "ESNext",
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "types": ["node"]
+  },
+  "include": ["tests/ui/**/*.ts", "../playwright.config.ts"]
+}

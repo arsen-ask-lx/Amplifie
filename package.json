@@ -1,0 +1,49 @@
+{
+  "name": "amplifie",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "frontend",
+    "backend",
+    "bridge",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --build && tsc -p backend/tsconfig.tests.json && tsc -p frontend --noEmit && tsc -p frontend/tsconfig.node.json --noEmit && tsc -p frontend/tsconfig.ui.json --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "arch": "node tools/checks/check-arch.mjs",
+    "decisions": "node tools/checks/check-decisions.mjs",
+    "contrast": "node tools/checks/check-contrast.mjs",
+    "unit": "vitest run --config tools/vitest.unit.ts",
+    "no-raw-html": "node tools/checks/check-no-raw-html.mjs",
+    "failure-map": "node tools/checks/check-failure-map.mjs",
+    "favicon": "node tools/checks/check-favicon.mjs",
+    "map": "node tools/checks/check-map.mjs",
+    "map:check": "node --test tools/checks/map-rule.test.mjs",
+    "env:check": "node --test tools/ops/*.test.mjs",
+    "openspec": "node tools/checks/check-openspec.mjs",
+    "model": "node tools/checks/check-model.mjs",
+    "cost": "tsc --build backend && node tools/checks/check-cost.mjs",
+    "duplicates": "node tools/checks/check-duplicates.mjs",
+    "arbiter:check": "node --test tools/arbiter/*.test.mjs",
+    "arbiter": "node tools/arbiter/report.mjs",
+    "label": "node tools/arbiter/label.mjs",
+    "test": "vitest run --config tools/vitest.acceptance.ts",
+    "test-ui": "playwright test",
+    "bridge": "tsc --build bridge && node bridge/dist/main.js",
+    "bridge:pack": "node bridge/pack.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "@playwright/test": "1.63.0",
+    "@types/react": "^19.2.18",
+    "dependency-cruiser": "^18.2.0",
+    "drizzle-kit": "0.31.10",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0"
+  }
+}

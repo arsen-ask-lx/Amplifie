@@ -1,0 +1,288 @@
+import { FolderSimple, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
+import type { Conversation, Project } from "../data/api.js";
+import {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "../shared/ui/dropdown-menu.js";
+import { RowMenu } from "./RowMenu.js";
+
+/**
+ * Строка канала в боковой панели.
+ *
+ * ⚠️ ВЫНЕСЕНА ИЗ `RoomList`, КОГДА ТОТ ПЕРЕВАЛИЛ ЗА ПРЕДЕЛ РАЗМЕРА.
+ * Шов по вопросу, а не по числу строк: `RoomList` отвечает на «из чего
+ * состоит список и как в него добавляют», а это — на «как устроена одна
+ * строка». Второй вопрос за задачу про непрочитанное оброс числом,
+ * скрытым словом для чтения с экрана и плотностью названия.
+ */
+
+/**
+ * Число непрочитанного у канала.
+ *
+ * ⚠️ ПОТОЛОК «999+», И ОН НЕ КОСМЕТИКА. Сервер считает не дальше тысячи
+ * (Р-029): выше этого число уже ничего не сообщает человеку, а счёт
+ * по огромному каналу стоит денег. Показываем ровно то, что посчитано.
+ */
+function Unread({ count }: { count: number }) {
+  return (
+    <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
+      {/* ⚠️ СЛОВО ДЛЯ ЧТЕНИЯ С ЭКРАНА, А НЕ `aria-label` НА `span`.
+          Голая «7» вслух не говорит ничего, а `aria-label` на узле без
+          роли браузеры и читалки имеют право не заметить — линтер прав.
+          Спрятанное слово читается всегда и никому не мешает.
+
+          Оно же входит в ДОСТУПНОЕ ИМЯ кнопки канала: «Совещание
+          непрочитанных: 2». Поэтому в проверках канал ищется по началу
+          имени, а не целиком (fixtures.ts). */}
+      <span className="sr-only">непрочитанных: </span>
+      {count > 999 ? "999+" : count}
+    </span>
+  );
+}
+
+/**
+ * Значок «тебя звали» (Р-031).
+ *
+ * ⚠️ РЯДОМ С ЧИСЛОМ НЕПРОЧИТАННОГО, А НЕ ВМЕСТО НЕГО. Это разные новости:
+ * «тут что-то написали» и «обратились к тебе». В канале с сотней
+ * непрочитанных вторая иначе не находится. Так у Телеграма: значок
+ * с собачкой живёт своим кружком.
+ *
+ * Число показываем только со второго зова: один — это просто «позвали»,
+ * и цифра «1» рядом с собачкой ничего не добавляет. Так же у них.
+ */
+function Mentions({ count }: { count: number }) {
+  return (
+    <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
+      {/* Вслух — число, глазами — собачка: «упоминаний: @» не значит
+          ничего, а один зов цифрой на экране не поясняет собой ничего. */}
+      <span className="sr-only">упоминаний: {count > 999 ? "999+" : count}</span>
+      <span aria-hidden="true">{count > 1 ? `@${count > 999 ? "999+" : count}` : "@"}</span>
+    </span>
+  );
+}
+
+/**
+ * Два значка справа от названия: «тебя звали» и «сколько нового».
+ *
+ * ⚠️ ОДНИМ КУСКОМ, А НЕ ДВУМЯ УСЛОВИЯМИ В РАЗМЕТКЕ СТРОКИ. Порядок
+ * значков и отступ между ними — знание про эту пару, а не про строку
+ * канала; вписанное в строку, оно добавляло ей два ветвления, и линтер
+ * сложности был прав.
+ */
+function Badges({ unread, mentions }: { unread: number; mentions: number }) {
+  if (mentions <= 0 && unread <= 0) return null;
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-1">
+      {mentions > 0 ? <Mentions count={mentions} /> : null}
+      {unread > 0 ? <Unread count={unread} /> : null}
+    </span>
+  );
+}
+
+/**
+ * Подменю «В проект»: куда переложить этот чат (Р-032).
+ *
+ * ⚠️ ЗАВЕДЕНИЕ ПРОЕКТА ЖИВЁТ ЗДЕСЬ, А НЕ ПЛЮСОМ В ЗАГОЛОВКЕ ПАНЕЛИ.
+ * Папку заводят не «вообще», а когда есть что в неё положить: человек
+ * смотрит на чат и решает, что он про объект. Отдельная кнопка сверху
+ * предлагала бы завести пустую папку — и в панели появлялись бы пустые.
+ */
+function ToProject({
+  channel,
+  projects,
+  onMove,
+}: {
+  channel: Conversation;
+  projects: Project[];
+  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
+}) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <FolderSimple />В проект
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-56">
+        {projects.map((project) => (
+          <DropdownMenuItem
+            key={project.id}
+            disabled={project.id === channel.projectId}
+            onSelect={() => void onMove(channel.id, project.id)}
+          >
+            {project.title}
+          </DropdownMenuItem>
+        ))}
+        {/* ⚠️ «НОВЫЙ ПРОЕКТ…» ОТСЮДА УБРАН (task-035). Он открывал
+            браузерное окно `window.prompt` — чужое по виду и не знающее
+            наших тем, — и был единственным путём завести папку. Теперь
+            проекты заводятся плюсом в своём разделе, а здесь осталось
+            только перекладывание. */}
+        {projects.length === 0 ? (
+          <DropdownMenuItem disabled>Проектов пока нет</DropdownMenuItem>
+        ) : null}
+        {channel.projectId ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void onMove(channel.id, null)}>
+              Убрать из проекта
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+function ProjectChannelActions({
+  channel,
+  onPin,
+  onRemove,
+}: {
+  channel: Conversation;
+  onPin: (pinned: boolean) => Promise<void>;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <button
+        type="button"
+        aria-label={`${channel.pinned ? "Открепить" : "Закрепить"} канал «${channel.title}»`}
+        onClick={() => void onPin(!channel.pinned)}
+        className="grid size-6 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/room:opacity-100"
+      >
+        <PushPin className="size-4" weight={channel.pinned ? "fill" : "regular"} />
+      </button>
+      <button
+        type="button"
+        aria-label={`Удалить канал «${channel.title}»`}
+        onClick={onRemove}
+        className="grid size-6 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-danger focus-visible:opacity-100 group-hover/room:opacity-100"
+      >
+        <Trash className="size-4" />
+      </button>
+    </div>
+  );
+}
+
+function LooseChannelMenu({
+  channel,
+  projects,
+  onPin,
+  onMove,
+  onRemove,
+}: {
+  channel: Conversation;
+  projects: Project[];
+  onPin: (pinned: boolean) => Promise<void>;
+  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
+  onRemove: () => void;
+}) {
+  return (
+    <RowMenu
+      label={`Что сделать с каналом «${channel.title}»`}
+      reveal="group-hover/room:opacity-100"
+    >
+      <DropdownMenuItem onSelect={() => void onPin(!channel.pinned)}>
+        {channel.pinned ? <PushPinSlash /> : <PushPin />}
+        {channel.pinned ? "Открепить" : "Закрепить"}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <ToProject channel={channel} projects={projects} onMove={onMove} />
+      <DropdownMenuSeparator />
+      <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+        <Trash />
+        Удалить канал
+      </DropdownMenuItem>
+    </RowMenu>
+  );
+}
+
+/**
+ * Строка канала: название и три точки справа.
+ *
+ * ⚠️ ТРИ ТОЧКИ, А НЕ ПРАВАЯ КНОПКА. Сначала действия висели на правой
+ * кнопке — как у реплики в ленте. Владелец сказал прямо: неудобно, и он
+ * прав. Правая кнопка не видна: о ней надо ЗНАТЬ. В ленте это терпимо —
+ * там так у Телеграма, и человек приходит с этой привычкой; в боковой
+ * панели привычка другая, её задали ChatGPT и Claude, и там действия
+ * живут на трёх точках.
+ *
+ * ⚠️ ДВЕ КНОПКИ РЯДОМ, А НЕ КНОПКА В КНОПКЕ. Вложенная кнопка — неверная
+ * разметка: браузер её распрямляет, и нажатие на точки выбирало бы канал
+ * заодно.
+ */
+export function ChannelRow({
+  channel,
+  projects,
+  current,
+  unread,
+  mentions,
+  onSelect,
+  onMove,
+  onPin,
+  onRemove,
+}: {
+  channel: Conversation;
+  /** Куда можно переложить. Пустой список — только «Новый проект…». */
+  projects: Project[];
+  current: boolean;
+  /** Сколько чужих реплик человек тут не видел (Р-029). */
+  unread: number;
+  /** Сколько раз тут позвали его самого и он этого не видел (Р-031). */
+  mentions: number;
+  onSelect: (id: string) => void;
+  onMove: (conversationId: string, projectId: string | null) => Promise<void>;
+  /** Закрепить в СВОЕЙ панели либо снять (task-038). */
+  onPin: (pinned: boolean) => Promise<void>;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      className={[
+        "group/room flex items-center rounded pr-1 transition-colors",
+        current ? "bg-selected" : "bg-transparent hover:bg-raised",
+      ].join(" ")}
+    >
+      <button
+        type="button"
+        aria-current={current ? "page" : undefined}
+        onClick={() => onSelect(channel.id)}
+        className={[
+          "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors",
+          current ? "font-medium text-ink" : "text-muted group-hover/room:text-ink",
+          // Название канала с непрочитанным набрано плотнее: у Телеграма
+          // так же, и это второй признак помимо числа — тот, кто читает
+          // панель по диагонали, замечает вес раньше цифры.
+          unread > 0 && !current ? "font-medium text-ink" : "",
+        ].join(" ")}
+      >
+        {/* ⚠️ БУЛАВКА ОСТАЁТСЯ ТОЛЬКО У ЗАКРЕПЛЁННОГО ЧАТА: это состояние,
+            а не декоративный знак. У обычного чата значок не нужен. */}
+        {channel.pinned ? (
+          <PushPin className="size-4 shrink-0 opacity-60" weight="fill" aria-hidden="true" />
+        ) : null}
+        <span className="truncate">{channel.title}</span>
+        {/* ⚠️ ЧИСЛО ВНУТРИ КНОПКИ КАНАЛА, А НЕ РЯДОМ С НЕЙ. Оно про этот
+            канал, и нажатие по нему обязано открывать его же — как
+            и нажатие по названию. Отдельный узел снаружи означал бы
+            мёртвую зону в строке. */}
+        <Badges unread={unread} mentions={mentions} />
+      </button>
+
+      {channel.projectId ? (
+        <ProjectChannelActions channel={channel} onPin={onPin} onRemove={onRemove} />
+      ) : (
+        <LooseChannelMenu
+          channel={channel}
+          projects={projects}
+          onPin={onPin}
+          onMove={onMove}
+          onRemove={onRemove}
+        />
+      )}
+    </div>
+  );
+}
