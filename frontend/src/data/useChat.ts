@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { statusOf } from "../shared/failure.js";
-import { troubleOf } from "../shared/trouble.js";
+import { feedTroubleOf, troubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
 import { catchUpWith } from "./catchUp.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
@@ -339,7 +338,7 @@ export function useChat(me: Me): Chat {
          * (владелец ловил это не раз). Теперь заменяем адрес на «/» —
          * корень сам открывает первый доступный чат.
          */
-        if (statusOf(error) === 404) {
+        if (feedTroubleOf(error) === "нет-такого") {
           shown.current = null;
           navigate("/", { replace: true });
           return;

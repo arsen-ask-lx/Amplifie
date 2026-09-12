@@ -46,6 +46,23 @@ export function troubleOf(error: unknown): Trouble {
   }
 }
 
+/** Отказ при загрузке ленты разговора. */
+export type FeedTrouble =
+  /**
+   * Такого разговора для этого человека нет: удалён, стёрта база, вошёл
+   * другим. Снаружи «нет такого» и «не твой» — один ответ (Р-010).
+   */
+  "нет-такого" | "иное";
+
+export function feedTroubleOf(error: unknown): FeedTrouble {
+  switch (statusOf(error)) {
+    case 404:
+      return "нет-такого";
+    default:
+      return "иное";
+  }
+}
+
 /** Отказ при сохранении ключа поставщика. */
 export type KeyTrouble =
   /** Ключ не той формы: не тот префикс или слишком короткий. */

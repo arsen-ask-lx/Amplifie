@@ -14,7 +14,10 @@ test("настройки открываются по адресу, показы�
   await expect(page.getByText(`Пространство ${person.name}`, { exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: "Вернуться в приложение" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  // Корень сам открывает первый чат, и с быстрой панелью он успевает это
+  // сделать раньше проверки. Важно не «адрес остался корневым», а что мы
+  // вышли из настроек и видим приложение.
+  await expect(page).not.toHaveURL(/\/settings/);
   await expect(page.getByRole("button", { name: "Новый чат", exact: true })).toBeVisible();
 });
 
