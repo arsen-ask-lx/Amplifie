@@ -48,3 +48,20 @@ test("удалённый канал уходит из панели вместе 
   await expect(page.getByRole("button", { name: "Черновик", exact: true })).toHaveCount(0);
   await expect(bubble(page, "это временный канал")).toHaveCount(0);
 });
+
+/**
+ * Адрес чата легко пережить: базу стёрли, чат удалили, вошли другим
+ * человеком. Тогда сервер отвечает «нет такого», и экран обязан показать
+ * живой чат, а не висеть с отказом (владелец ловил это не раз).
+ */
+test("адрес несуществующего чата открывает живой, а не отказ", async ({ page }) => {
+  await register(page, "Потерянный");
+  await createChannel(page, "Живой");
+
+  await page.goto("/c/01a09049-0000-7000-8000-000000000000");
+
+  await expect(page.getByText("Не удалось загрузить сообщения")).toHaveCount(0);
+  await expect
+    .poll(async () => new URL(page.url()).pathname, { message: "остались на мёртвом адресе" })
+    .not.toBe("/c/01a09049-0000-7000-8000-000000000000");
+});

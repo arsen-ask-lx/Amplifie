@@ -121,6 +121,21 @@ export async function listProjectConversations(
     limit: limit + 1,
     ...(after ? { after } : {}),
   });
+  return pageOf(rows, limit);
+}
+
+/**
+ * Порция строк панели: сами строки и курсор продолжения.
+ *
+ * ⚠️ ОДНА СТРОКА СВЕРХ ЛИМИТА ВМЕСТО ВТОРОГО ЗАПРОСА. «Есть ли ещё» — это
+ * `COUNT(*)` по всему списку, то есть цена вопроса больше цены ответа.
+ * Курсор непрозрачен для клиента: в нём порядок сервера — закрепление,
+ * последняя активность и имя строки.
+ */
+function pageOf(
+  rows: Awaited<ReturnType<typeof repo.listConversationsFor>>,
+  limit: number,
+): { items: ReturnType<typeof presentConversation>[]; next: string | null } {
   const page = rows.slice(0, limit);
   const tail = page.at(-1);
   return {
@@ -135,6 +150,65 @@ export async function listProjectConversations(
             }),
           ).toString("base64url")
         : null,
+  };
+}
+
+/** Сколько «Недавних» приезжает сразу. Дальше — по прокрутке, курсором. */
+const RECENT_PAGE = 25;
+
+/**
+ * Следующая порция «Недавних» — чатов без папки (Р-033). Первая приезжает
+ * в сводном ответе; эта дверь нужна, когда человек долистал панель до низа.
+ */
+export async function listRecent(viewer: Viewer, after: repo.PanelCursor | undefined) {
+  const rows = await repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, {
+    loose: true,
+    rootOnly: true,
+    limit: RECENT_PAGE + 1,
+    ...(after ? { after } : {}),
+  });
+  return pageOf(rows, RECENT_PAGE);
+}
+
+/**
+ * Сводный ответ панели (task-064, Р-037): проекты со счётчиками, первая
+ * порция «Недавних» и строка открытого чата.
+ *
+ * ⚠️ ЧАТОВ ПРОЕКТОВ ЗДЕСЬ НЕТ, И В ЭТОМ ВЕСЬ СМЫСЛ. Прежний ответ вёз все
+ * разговоры пространства: замер 11.09 — 1,4 МБ и 5 241 строка на каждое
+ * сообщение в любом чате. Чаты проекта приезжают, когда его раскрыли.
+ *
+ * ⚠️ ОТКРЫТЫЙ ЧАТ ПРИХОДИТ ОТДЕЛЬНОЙ СТРОКОЙ. Он может лежать в свёрнутом
+ * проекте, и без него лента не знает ни названия, ни своих прав.
+ */
+export async function panelSnapshot(viewer: Viewer, openId?: string) {
+  const [projects, counts, recentRows, openRows] = await Promise.all([
+    listProjectsFor(db, viewer.participantId, viewer.workspaceId),
+    repo.projectCountsFor(db, viewer.participantId, viewer.workspaceId),
+    repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, {
+      loose: true,
+      rootOnly: true,
+      limit: RECENT_PAGE + 1,
+    }),
+    openId
+      ? repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, {
+          onlyId: openId,
+          limit: 1,
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const byProject = new Map(counts.map((one) => [one.projectId, one]));
+  return {
+    projects: projects.map((folder) => ({
+      ...folder,
+      unread: byProject.get(folder.id)?.unread ?? 0,
+      mentions: byProject.get(folder.id)?.mentions ?? 0,
+    })),
+    recent: pageOf(recentRows, RECENT_PAGE),
+    // Нет такого чата или он не виден — `null`, а не отказ: панель обязана
+    // нарисоваться и по мёртвой ссылке.
+    open: openRows[0] ? presentConversation(openRows[0]) : null,
   };
 }
 

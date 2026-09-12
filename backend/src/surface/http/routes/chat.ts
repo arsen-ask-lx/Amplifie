@@ -13,7 +13,9 @@ import {
   messageView,
   moveBody,
   movedConversation,
+  openQuery,
   pageQuery,
+  panelSnapshot as panelSnapshotView,
   panelView,
   peopleList,
   pinnedList,
@@ -40,7 +42,9 @@ import {
   listMessages,
   listPinned,
   listProjectConversations,
+  listRecent,
   markRead,
+  panelSnapshot,
   peopleToMention,
   pinMessage,
   removeProject,
@@ -119,6 +123,23 @@ export function registerChatRoutes(scope: FastifyInstance): void {
 
   app.get("/v1/conversations", { schema: { response: { 200: panelView } } }, (request) =>
     listConversations(actorOf(request)),
+  );
+
+  /**
+   * Сводный ответ панели. `open` — чат, открытый в этой вкладке: его строка
+   * нужна ленте, а лежать он может в свёрнутом проекте (task-064).
+   */
+  app.get(
+    "/v1/panel",
+    { schema: { querystring: openQuery, response: { 200: panelSnapshotView } } },
+    (request) => panelSnapshot(actorOf(request), request.query.open),
+  );
+
+  /** Следующая порция «Недавних»: первая приезжает в сводном ответе. */
+  app.get(
+    "/v1/conversations/recent",
+    { schema: { querystring: cursorQuery, response: { 200: conversationsPage } } },
+    (request) => listRecent(actorOf(request), panelCursor(request.query.cursor)),
   );
 
   app.get(

@@ -192,7 +192,16 @@ export function listConversationsFor(
   tx: Executor,
   participantId: string,
   workspaceId: string,
-  options: { projectId?: string; rootOnly?: boolean; limit?: number; after?: PanelCursor } = {},
+  options: {
+    projectId?: string;
+    /** Только чаты без папки — «Недавние» (Р-033). */
+    loose?: boolean;
+    /** Одна строка по имени — её просит лента открытого чата. */
+    onlyId?: string;
+    rootOnly?: boolean;
+    limit?: number;
+    after?: PanelCursor;
+  } = {},
 ) {
   // Подзапросом, а не соединением: список разговоров не должен размножаться.
   const pinned = sql<boolean>`EXISTS (
@@ -264,6 +273,8 @@ export function listConversationsFor(
         // догон. Постраничная навигация проекта — только корневые чаты.
         options.rootOnly ? isNull(conversation.parentId) : undefined,
         options.projectId === undefined ? undefined : eq(conversation.projectId, options.projectId),
+        options.loose ? isNull(conversation.projectId) : undefined,
+        options.onlyId === undefined ? undefined : eq(conversation.id, options.onlyId),
         after,
       ),
     )
@@ -271,6 +282,32 @@ export function listConversationsFor(
     .orderBy(desc(pinned), desc(lastAt), desc(conversation.id));
 
   return options.limit === undefined ? query : query.limit(options.limit);
+}
+
+/**
+ * Непрочитанное и упоминания по каждому проекту — одним запросом.
+ *
+ * ⚠️ СЧЁТ ИДЁТ ПО ВИДИМЫМ ЧАТАМ, И ЭТО НЕ МЕЛОЧЬ. Сложи он все, число
+ * у папки рассказывало бы о приватном чате, которого человек не видит,
+ * — счётчик стал бы боковым каналом (Р-010).
+ */
+export function projectCountsFor(tx: Executor, participantId: string, workspaceId: string) {
+  return tx
+    .select({
+      projectId: conversation.projectId,
+      unread: sql<number>`COALESCE(SUM(${unreadOf(THIS_CONVERSATION, participantId)}), 0)::int`,
+      mentions: sql<number>`COALESCE(SUM(${mentionsOf(THIS_CONVERSATION, participantId)}), 0)::int`,
+    })
+    .from(conversation)
+    .where(
+      and(
+        eq(conversation.workspaceId, workspaceId),
+        isNull(conversation.deletedAt),
+        isNotNull(conversation.projectId),
+        visibleTo(participantId),
+      ),
+    )
+    .groupBy(conversation.projectId);
 }
 
 /** Мягко удалить разговор. «Ещё не удалён» — в самом запросе: повтор ничего не двигает. */

@@ -57,6 +57,26 @@ export const panelView = z.object({
   projects: z.array(projectView),
 });
 
+/**
+ * Сводный ответ панели (Р-037): проекты со счётчиками, первая порция
+ * «Недавних» и строка открытого чата. Чаты проектов приезжают отдельно,
+ * когда проект раскрыли.
+ */
+export const panelSnapshot = z.object({
+  projects: z.array(
+    projectView.extend({
+      /** Сумма непрочитанного по ВИДИМЫМ чатам папки. */
+      unread: z.number(),
+      mentions: z.number(),
+    }),
+  ),
+  recent: z.object({
+    items: z.array(conversationView),
+    next: z.string().nullable(),
+  }),
+  open: conversationView.nullable(),
+});
+
 /** Порция строк панели. `next` непрозрачен для клиента. */
 export const conversationsPage = z.object({
   items: z.array(conversationView),
@@ -202,6 +222,9 @@ export const pageQuery = z.object({
   before: z.string().optional(),
 });
 export const cursorQuery = z.object({ cursor: z.string().optional() });
+
+/** Какой чат открыт в этой вкладке: его строка нужна ленте. */
+export const openQuery = z.object({ open: id.optional() });
 export const syncQuery = z.object({
   after: z.string().optional(),
   limit: z.string().optional(),
@@ -210,6 +233,7 @@ export const syncQuery = z.object({
 /* ── типы для фронта ───────────────────────────────────────────────── */
 
 export type Project = z.infer<typeof projectView>;
+export type PanelSnapshot = z.infer<typeof panelSnapshot>;
 export type Conversation = z.infer<typeof conversationView>;
 export type Quote = z.infer<typeof quoteView>;
 export type Message = z.infer<typeof messageView>;

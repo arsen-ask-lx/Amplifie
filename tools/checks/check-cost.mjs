@@ -71,7 +71,9 @@ const DATABASE_URL = process.env.COST_DATABASE_URL ?? connectionString();
 // ⚠️ ПЕРЕМЕННАЯ СТАВИТСЯ ДО ЗАГРУЗКИ СЛОЯ БАЗЫ. `platform/db.js` читает
 // её на импорте; статический импорт выполнился бы раньше этой строки.
 process.env.DATABASE_URL = DATABASE_URL;
-const { listConversationsFor } = await import("../../backend/dist/kernel/talk/repo.js");
+const { listConversationsFor, projectCountsFor } = await import(
+  "../../backend/dist/kernel/talk/repo.js"
+);
 /**
  * ⚠️ ПУЛ БЕРЁТСЯ У САМОГО СЛОЯ БАЗЫ, А НЕ ЗАВОДИТСЯ СВОЙ. Свой означал бы
  * вторую зависимость от драйвера и второй ответ на вопрос «как мы ходим
@@ -160,7 +162,16 @@ async function main() {
        VALUES ($1, $2, $3, 'owner')`,
       [cid, pid, wid],
     );
-    const { sql, params } = listConversationsFor(db, pid, wid).toSQL();
+    /**
+     * Горячих запросов панели два, и мерить надо оба (task-064): старый
+     * полный список ещё кормит ленту и догон, а сводный ответ считает
+     * непрочитанное по каждому проекту. Обход переписки в любом из них
+     * одинаково кладёт панель.
+     */
+    const hot = [
+      { name: "список панели", ...listConversationsFor(db, pid, wid).toSQL() },
+      { name: "счётчики проектов", ...projectCountsFor(db, pid, wid).toSQL() },
+    ];
 
     /** Досеять переписку до нужного объёма и померить панель. */
     const measure = async (from, to) => {
@@ -182,13 +193,26 @@ async function main() {
         [cid, pid, to],
       );
       await client.query("ANALYZE message");
-      const { rows: plan } = await client.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params);
-      return planRows(plan[0]["QUERY PLAN"][0].Plan);
+      const measured = [];
+      for (const one of hot) {
+        const { rows: plan } = await client.query(
+          `EXPLAIN (ANALYZE, FORMAT JSON) ${one.sql}`,
+          one.params,
+        );
+        measured.push({ name: one.name, rows: planRows(plan[0]["QUERY PLAN"][0].Plan) });
+      }
+      return measured;
     };
 
     const onSmall = await measure(1, SMALL);
     const onLarge = await measure(SMALL + 1, LARGE);
-    const growth = onLarge - onSmall;
+    const grown = onSmall.map((one, at) => ({
+      name: one.name,
+      small: one.rows,
+      large: onLarge[at].rows,
+      growth: onLarge[at].rows - one.rows,
+    }));
+    const worst = grown.reduce((most, one) => (one.growth > most.growth ? one : most));
 
     await client.query("ROLLBACK");
 
@@ -198,15 +222,15 @@ async function main() {
       process.exit(1);
     }
 
-    if (growth > limit) {
+    if (worst.growth > limit) {
       console.error(
         [
           "",
-          "Цена панели растёт с объёмом переписки.",
+          `Цена панели растёт с объёмом переписки: ${worst.name}.`,
           "",
-          `  на ${SMALL} репликах — ${onSmall} строк`,
-          `  на ${LARGE} репликах — ${onLarge} строк`,
-          `  прирост ${growth} при разрешённых ${limit}`,
+          `  на ${SMALL} репликах — ${worst.small} строк`,
+          `  на ${LARGE} репликах — ${worst.large} строк`,
+          `  прирост ${worst.growth} при разрешённых ${limit}`,
           "",
           "  ПОЧИНИТЬ: посмотри план запроса и найди узел, который читает всё.",
           "  Так уже было: свежесть канала считалась обходом всей переписки,",
@@ -218,8 +242,13 @@ async function main() {
     }
 
     console.log(
-      `цена панели: ${onSmall} строк на ${SMALL} репликах, ${onLarge} на ${LARGE} — ` +
-        `прирост ${growth} при разрешённых ${limit}, от объёма не зависит — OK`,
+      `${grown
+        .map(
+          (one) =>
+            `${one.name}: ${one.small} строк на ${SMALL}, ${one.large} на ${LARGE} ` +
+            `(прирост ${one.growth})`,
+        )
+        .join("; ")} — при разрешённых ${limit} от объёма не зависит — OK`,
     );
   } finally {
     client.release();

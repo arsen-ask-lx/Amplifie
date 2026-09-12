@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { statusOf } from "../shared/failure.js";
 import { troubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
 import { catchUpWith } from "./catchUp.js";
@@ -328,8 +329,22 @@ export function useChat(me: Me): Chat {
         cursor.current = Math.max(cursor.current, page.head);
         await catchUp();
       })
-      .catch(() => {
-        if (!cancelled) setFailure("Не удалось загрузить сообщения");
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        /**
+         * ⚠️ МЁРТВЫЙ АДРЕС УВОДИТ НА ЖИВОЙ ЧАТ, А НЕ ПОКАЗЫВАЕТ ОТКАЗ.
+         * Ссылку на чат легко пережить: база стёрта `make reset`, чат
+         * удалили, человек вошёл другим. Тогда сервер честно отвечает 404,
+         * а экран говорил «Не удалось загрузить сообщения» и висел так
+         * (владелец ловил это не раз). Теперь заменяем адрес на «/» —
+         * корень сам открывает первый доступный чат.
+         */
+        if (statusOf(error) === 404) {
+          shown.current = null;
+          navigate("/", { replace: true });
+          return;
+        }
+        setFailure("Не удалось загрузить сообщения");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -338,7 +353,7 @@ export function useChat(me: Me): Chat {
     return () => {
       cancelled = true;
     };
-  }, [currentId, catchUp, wanted]);
+  }, [currentId, catchUp, wanted, navigate]);
 
   // Звонок. EventSource переподключается сам — этим SSE и хорош.
   useEffect(() => {
