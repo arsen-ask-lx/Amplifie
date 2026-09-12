@@ -1,6 +1,7 @@
 import { Gear, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
-import type { Conversation, Project } from "../data/api.js";
+import type { Conversation } from "../data/api.js";
+import type { PanelProject } from "../data/useRooms.js";
 import { ProjectGlyph } from "../shared/projectLook.js";
 import { DropdownMenuItem, DropdownMenuSeparator } from "../shared/ui/dropdown-menu.js";
 import { RowMenu } from "./RowMenu.js";
@@ -59,7 +60,7 @@ function ProjectMenu({
   onRename,
   onRemove,
 }: {
-  project: Project;
+  project: PanelProject;
   onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
   onRemove: () => void;
@@ -95,11 +96,11 @@ export function ProjectRow({
   onPin,
   onRename,
   onRemove,
-  unreadOf,
-  mentionsOf,
+  more,
+  onMore,
   renderChannel,
 }: {
-  project: Project;
+  project: PanelProject;
   /** Чаты этого проекта — только те, что человеку видны. Отбирает сервер. */
   channels: Conversation[];
   collapsed: boolean;
@@ -109,16 +110,15 @@ export function ProjectRow({
   onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
   onRemove: () => void;
-  unreadOf: (conversationId: string) => number;
-  mentionsOf: (conversationId: string) => number;
+  /** Есть ли в папке чаты ниже загруженных — тогда рисуем «Показать ещё». */
+  more: boolean;
+  onMore: () => void;
   renderChannel: (channel: Conversation) => React.ReactNode;
 }) {
   // Тело остаётся в потоке лишь на время закрытия. Открытию не нужна
   // вторая React-фаза: первый кадр задаёт CSS `@starting-style`.
   const [bodyInFlow, setBodyInFlow] = useState(!collapsed);
   const body = useRef<HTMLDivElement>(null);
-  const sum = (countOf: (id: string) => number) =>
-    channels.reduce((total, one) => total + countOf(one.id), 0);
 
   /**
    * ⚠️ ЗАКРЫТИЕ БЕЗ ДВИЖЕНИЯ КОНЦА ПЕРЕХОДА НЕ ДАЁТ, И ТЕЛО ОСТАВАЛОСЬ.
@@ -155,7 +155,7 @@ export function ProjectRow({
           <span className="truncate font-medium">{project.title}</span>
           {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
             на самих чатах, и повторять их сверху значит сказать дважды. */}
-          {collapsed ? <Summary unread={sum(unreadOf)} mentions={sum(mentionsOf)} /> : null}
+          {collapsed ? <Summary unread={project.unread} mentions={project.mentions} /> : null}
         </button>
 
         <ProjectMenu project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
@@ -174,7 +174,7 @@ export function ProjectRow({
           и папка без чатов дёргалась на каждое нажатие, будто что-то
           раскрывается (владелец увидел это на экране). Показывать
           нечего — значит и места занимать нечем. */}
-      {channels.length === 0 || !bodyInFlow ? null : (
+      {(channels.length === 0 && !more) || !bodyInFlow ? null : (
         <div
           ref={body}
           aria-hidden={collapsed}
@@ -194,6 +194,19 @@ export function ProjectRow({
           <div className="min-h-0 overflow-hidden">
             <div className="flex flex-col gap-0.5 pl-3">
               {channels.map((channel) => renderChannel(channel))}
+              {/* ⚠️ ЯВНАЯ СТРОКА, А НЕ ДОГРУЗКА ПО ПРОКРУТКЕ (Р-037). Папка
+                  живёт внутри общего списка: подгружай она себя сама,
+                  человек, листающий панель мимо, тянул бы за собой сотню
+                  чатов чужого проекта. */}
+              {more ? (
+                <button
+                  type="button"
+                  onClick={onMore}
+                  className="rounded bg-transparent px-2.5 py-1.5 text-left text-aside text-muted transition-colors hover:bg-raised hover:text-ink"
+                >
+                  Показать ещё
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

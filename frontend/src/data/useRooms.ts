@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { api, type Conversation, type Project } from "./api.js";
 import type { Address } from "./useAddress.js";
 
@@ -10,10 +10,15 @@ import type { Address } from "./useAddress.js";
  * в открытом». Лента про список не спрашивает, список про ленту не знает,
  * и держать их вместе значило читать одно ради правки другого.
  *
- * ⚠️ СПИСОК ВСЕГДА ПЕРЕЧИТЫВАЕТСЯ, А НЕ ПРАВИТСЯ НА МЕСТЕ. Порядок
- * по свежести и связи веток с корнями сервер уже умеет собирать
- * правильно; второе такое место на клиенте разошлось бы с ним. Один
- * лишний запрос дешевле двух источников правды.
+ * ⚠️ СПИСОК ПЕРЕЧИТЫВАЕТСЯ, А НЕ ПРАВИТСЯ НА МЕСТЕ. Порядок по свежести
+ * и связь веток с корнями сервер уже умеет собирать правильно; второе
+ * такое место на клиенте разошлось бы с ним.
+ *
+ * ⚠️ НО ПЕРЕЧИТЫВАЕТСЯ НЕ ВСЁ ПРОСТРАНСТВО (Р-037, task-064). Панель
+ * берёт сводный ответ — папки со счётчиками, первую порцию «Недавних»
+ * и строку открытого чата, — а чаты папки только когда её раскрыли.
+ * Прежний полный ответ вёз 5 241 строку и 1,4 МБ на каждое сообщение
+ * в любом чате; сводный — 20 КБ (замер 11.09).
  */
 
 /**
@@ -28,14 +33,31 @@ interface Look {
   color?: string | null;
 }
 
+/** Папка панели со своими счётчиками: их считает сервер по видимым чатам. */
+export interface PanelProject extends Project {
+  unread: number;
+  mentions: number;
+}
+
 export interface Rooms {
+  /** Загруженные строки: «Недавние», чаты раскрытых папок и открытый чат. */
   items: Conversation[];
   /** Проекты, в которых человеку виден хоть один чат (Р-032). */
-  projects: Project[];
+  projects: PanelProject[];
   /** Первый ответ сервера пришёл: до него пустой список — «ещё не знаем», а не «нет ничего». */
   loaded: boolean;
   /** Перечитать. Возвращает то же, что положил в состояние. */
   reload: () => Promise<Conversation[]>;
+  /** Раскрыли папку — привезти её первую порцию (10 чатов). */
+  openProject: (projectId: string) => void;
+  /** Есть ли в папке ещё чаты: по этому рисуется «Показать ещё». */
+  moreIn: (projectId: string) => boolean;
+  /** Следующая порция чатов папки — 25 штук. */
+  loadMoreIn: (projectId: string) => Promise<void>;
+  /** Есть ли ещё «Недавние» ниже загруженных. */
+  moreRecent: boolean;
+  /** Следующая порция «Недавних» — когда панель долистали до низа. */
+  loadMoreRecent: () => Promise<void>;
   /**
    * Завести канал. `projectId` — сразу внутрь проекта (task-035).
    *
@@ -68,19 +90,112 @@ export interface Rooms {
   ) => Promise<void>;
 }
 
+/** Одна строка на один идентификатор: порции могут перекрыться на границе. */
+function byId(rows: Conversation[]): Conversation[] {
+  return [...new Map(rows.map((one) => [one.id, one])).values()];
+}
+
+/**
+ * Загруженные порции одного списка: сами строки, курсоры этих порций
+ * и курсор следующей.
+ *
+ * ⚠️ КУРСОРЫ ЗАПОМИНАЮТСЯ, ЧТОБЫ ПЕРЕЧИТАТЬ РОВНО ТО ЖЕ. Иначе после
+ * звонка пришлось бы либо забыть догруженное — и «Показать ещё» схлопнулось
+ * бы на каждое чужое сообщение, — либо оставить у этих строк вчерашние числа.
+ */
+interface Loaded {
+  cursors: (string | null)[];
+  items: Conversation[];
+  next: string | null;
+}
+
+async function pagesOf(
+  load: (cursor: string | null) => Promise<{ items: Conversation[]; next: string | null }>,
+  cursors: (string | null)[],
+): Promise<Loaded> {
+  const pages = await Promise.all(cursors.map(load));
+  return {
+    cursors,
+    items: byId(pages.flatMap((one) => one.items)),
+    next: pages.at(-1)?.next ?? null,
+  };
+}
+
 export function useRooms(where: Address): Rooms {
-  const [items, setItems] = useState<Conversation[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<PanelProject[]>([]);
   const [loaded, setLoaded] = useState(false);
+  /** «Недавние»: первая порция приезжает со сводным ответом. */
+  const [recent, setRecent] = useState<Loaded>({ cursors: [null], items: [], next: null });
+  /** Чаты раскрытых папок — по одной записи на папку. */
+  const [inProject, setInProject] = useState<Record<string, Loaded>>({});
+  /** Строка открытого чата: он может лежать в свёрнутой папке. */
+  const [open, setOpen] = useState<Conversation | null>(null);
   const { currentId, currentIdRef, navigate } = where;
 
+  const items = useMemo(
+    () =>
+      byId([
+        ...recent.items,
+        ...Object.values(inProject).flatMap((one) => one.items),
+        ...(open ? [open] : []),
+      ]),
+    [recent, inProject, open],
+  );
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  // Раскрытые папки — ссылкой: перечитывание зовётся из эффектов, которые
+  // не должны пересоздаваться от каждой догруженной порции.
+  const loadedProjects = useRef<Record<string, (string | null)[]>>({});
+  const recentCursors = useRef<(string | null)[]>([null]);
+
   const fetchNow = useCallback(async () => {
-    const { items: fresh, projects: folders } = await api.conversations();
-    setItems(fresh);
-    setProjects(folders ?? []);
+    const snapshot = await api.panel(currentIdRef.current);
+    const [tail, folders] = await Promise.all([
+      // Первая порция «Недавних» уже в сводном ответе; догруженные ниже
+      // порции берём их же курсорами.
+      recentCursors.current.length > 1
+        ? pagesOf((cursor) => api.recent(cursor ?? ""), recentCursors.current.slice(1))
+        : Promise.resolve<Loaded>({ cursors: [], items: [], next: snapshot.recent.next }),
+      /**
+       * ⚠️ ПАПКА, КОТОРОЙ БОЛЬШЕ НЕТ, НЕ ВАЛИТ ВСЮ ПАНЕЛЬ. Её убрали или
+       * закрыли доступ — сервер честно отвечает «нет такой», и прежде этот
+       * отказ ронял весь сводный запрос: панель замирала с папкой, которой
+       * уже нет. Теперь папка просто выпадает из загруженных.
+       */
+      Promise.all(
+        Object.entries(loadedProjects.current).map(async ([projectId, cursors]) => {
+          try {
+            const page = await pagesOf((cursor) => api.projectChats(projectId, cursor), cursors);
+            return [projectId, page] as const;
+          } catch {
+            delete loadedProjects.current[projectId];
+            return null;
+          }
+        }),
+      ),
+    ]);
+
+    setProjects(snapshot.projects);
+    setOpen(snapshot.open);
+    setRecent({
+      cursors: recentCursors.current,
+      items: byId([...snapshot.recent.items, ...tail.items]),
+      next: tail.cursors.length > 0 ? tail.next : snapshot.recent.next,
+    });
+    const alive = folders.filter((one) => one !== null);
+    setInProject(Object.fromEntries(alive));
     setLoaded(true);
+
+    const fresh = byId([
+      ...snapshot.recent.items,
+      ...tail.items,
+      ...alive.flatMap(([, page]) => page.items),
+      ...(snapshot.open ? [snapshot.open] : []),
+    ]);
+    itemsRef.current = fresh;
     return fresh;
-  }, []);
+  }, [currentIdRef]);
 
   /**
    * Перечитать — один запрос в пути и не больше одного в очереди (task-064).
@@ -114,6 +229,64 @@ export function useRooms(where: Address): Rooms {
       });
     return queued.current;
   }, [fetchNow]);
+
+  /**
+   * Раскрыли папку — привезти её первую порцию.
+   *
+   * ⚠️ ОДИН РАЗ НА ПАПКУ: повторное раскрытие показывает уже привезённое,
+   * а свежесть строк держит перечитывание по звонку.
+   */
+  const openProject = useCallback((projectId: string) => {
+    if (loadedProjects.current[projectId]) return;
+    loadedProjects.current[projectId] = [null];
+    void api
+      .projectChats(projectId)
+      .then((page) => {
+        setInProject((before) => ({
+          ...before,
+          [projectId]: { cursors: [null], items: page.items, next: page.next },
+        }));
+      })
+      .catch(() => {
+        // Не приехало — папка останется пустой, и человек раскроет её
+        // ещё раз. Пугать его нечем: панель цела.
+        delete loadedProjects.current[projectId];
+      });
+  }, []);
+
+  const moreIn = useCallback(
+    (projectId: string) => inProject[projectId]?.next !== null && projectId in inProject,
+    [inProject],
+  );
+
+  const loadMoreIn = useCallback(
+    async (projectId: string) => {
+      const have = inProject[projectId];
+      if (!have?.next) return;
+      const page = await api.projectChats(projectId, have.next);
+      loadedProjects.current[projectId] = [...have.cursors, have.next];
+      setInProject((before) => ({
+        ...before,
+        [projectId]: {
+          cursors: [...have.cursors, have.next as string],
+          items: byId([...have.items, ...page.items]),
+          next: page.next,
+        },
+      }));
+    },
+    [inProject],
+  );
+
+  const loadMoreRecent = useCallback(async () => {
+    if (!recent.next) return;
+    const page = await api.recent(recent.next);
+    recentCursors.current = [...recent.cursors, recent.next];
+    setRecent((before) => ({
+      cursors: recentCursors.current,
+      items: byId([...before.items, ...page.items]),
+      next: page.next,
+    }));
+  }, [recent]);
 
   /**
    * Завести разговор и открыть его.
@@ -160,12 +333,12 @@ export function useRooms(where: Address): Rooms {
     async (title: string) => {
       // Ветка заводится у КОРНЯ: ветка от ветки не бывает (дерево
       // ровно двухуровневое), и сервер такое всё равно отклонит.
-      const room = items.find((one) => one.id === currentId);
+      const room = itemsRef.current.find((one) => one.id === currentId);
       const rootId = room?.parentId ?? room?.id;
       if (!rootId) return;
       await openNew(() => api.createThread(rootId, title));
     },
-    [items, currentId, openNew],
+    [currentId, openNew],
   );
 
   /**
@@ -231,6 +404,11 @@ export function useRooms(where: Address): Rooms {
     projects,
     loaded,
     reload,
+    openProject,
+    moreIn,
+    loadMoreIn,
+    moreRecent: recent.next !== null,
+    loadMoreRecent,
     addChannel,
     removeChannel,
     addThread,

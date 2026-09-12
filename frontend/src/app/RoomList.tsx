@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Conversation, Project } from "../data/api.js";
 import type { Panel } from "../data/usePanel.js";
 import { ConfirmRemoval } from "./ChannelAsks.js";
@@ -117,6 +117,34 @@ export function RoomList({
   }, [projectToReveal, expand]);
 
   /**
+   * Раскрытая папка просит свои чаты. Их привозит сервер порциями (Р-037),
+   * поэтому список папки пуст, пока о нём не спросили.
+   */
+  useEffect(() => {
+    for (const project of projects) {
+      if (!collapsed.has(project.id)) panel.openProject(project.id);
+    }
+  }, [projects, collapsed, panel.openProject]);
+
+  /**
+   * «Недавние» догружаются, когда низ списка входит в окно панели.
+   *
+   * ⚠️ НАБЛЮДАТЕЛЬ, А НЕ ОБРАБОТЧИК ПРОКРУТКИ. Обработчик срабатывает
+   * на каждый пиксель движения и считает размеры сам; наблюдатель будит
+   * нас ровно тогда, когда край показался.
+   */
+  const bottom = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const edge = bottom.current;
+    if (!edge || !panel.moreRecent) return;
+    const watcher = new IntersectionObserver((entries) => {
+      if (entries.some((one) => one.isIntersecting)) void panel.loadMoreRecent();
+    });
+    watcher.observe(edge);
+    return () => watcher.disconnect();
+  }, [panel.moreRecent, panel.loadMoreRecent]);
+
+  /**
    * Что спрашиваем про проекты прямо сейчас.
    *
    * ⚠️ ОДНО СОСТОЯНИЕ НА ТРИ ОКНА, А НЕ ТРИ ФЛАЖКА. Заводим, переименовываем
@@ -220,8 +248,8 @@ export function RoomList({
                 onPin={(pinned) => panel.pin({ projectId: project.id }, pinned)}
                 onRename={() => setAsking({ kind: "rename", project })}
                 onRemove={() => setAsking({ kind: "remove", project })}
-                unreadOf={unreadOf}
-                mentionsOf={mentionsOf}
+                more={panel.moreIn(project.id)}
+                onMore={() => void panel.loadMoreIn(project.id)}
                 renderChannel={row}
               />
             ))}
@@ -243,7 +271,12 @@ export function RoomList({
             только о том, что мы чего-то ждём от человека. */}
         {loose.length > 0 ? (
           <SidebarSection title="Недавние">
-            <div className="flex flex-col gap-0.5">{loose.map((channel) => row(channel))}</div>
+            <div className="flex flex-col gap-0.5">
+              {loose.map((channel) => row(channel))}
+              {/* Край списка: показался — значит человек долистал донизу
+                  и пора привезти следующую порцию. */}
+              <div ref={bottom} aria-hidden="true" className="h-px" />
+            </div>
           </SidebarSection>
         ) : null}
       </div>

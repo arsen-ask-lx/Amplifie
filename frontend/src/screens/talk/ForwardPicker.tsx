@@ -1,6 +1,6 @@
 import { Hash } from "@phosphor-icons/react";
-import { useEffect, useRef } from "react";
-import type { Conversation, Message } from "../../data/api.js";
+import { useEffect, useRef, useState } from "react";
+import { api, type Conversation, type Message } from "../../data/api.js";
 
 /**
  * Куда переслать: список каналов поверх ленты.
@@ -12,6 +12,10 @@ import type { Conversation, Message } from "../../data/api.js";
  *
  * Текущий разговор из списка не исключён намеренно: переслать себе же
  * в канал — обычный ход, когда реплику поднимают из глубины наверх.
+ *
+ * ⚠️ СПИСОК СПРАШИВАЕТСЯ ЗДЕСЬ, А НЕ БЕРЁТСЯ ИЗ ПАНЕЛИ. Панель с task-064
+ * грузит чаты порциями: в ней нет тех, чья папка свёрнута, — а переслать
+ * туда человек вправе. Запрос один и только на открытие этого окна.
  */
 export function ForwardPicker({
   message,
@@ -20,11 +24,29 @@ export function ForwardPicker({
   onClose,
 }: {
   message: Message;
+  /** Уже загруженные панелью — их показываем, пока едет полный список. */
   rooms: Conversation[];
   onPick: (conversationId: string) => void;
   onClose: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const [all, setAll] = useState<Conversation[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .conversations()
+      .then(({ items }) => {
+        if (!cancelled) setAll(items.filter((one) => one.parentId === null));
+      })
+      .catch(() => {
+        // Не приехал — остаётся то, что уже знает панель. Пугать нечем:
+        // переслать в открытые чаты всё равно можно.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * Два способа закрыть: Escape и щелчок мимо.
@@ -61,7 +83,7 @@ export function ForwardPicker({
         </div>
 
         <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-1">
-          {rooms.map((room) => (
+          {(all ?? rooms).map((room) => (
             <button
               key={room.id}
               type="button"

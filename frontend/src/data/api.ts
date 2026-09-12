@@ -1,6 +1,7 @@
 import type {
   Conversation,
   Message,
+  PanelSnapshot,
   Person,
   Project,
   Quote,
@@ -14,7 +15,13 @@ import { ApiError, type FieldErrors } from "../shared/failure.js";
  * сменился ответ сервера — фронт перестаёт собираться там, где читает
  * старое поле. Только типы: zod в сборку фронта не едет.
  */
-export type { Conversation, Message, Person, Project, Quote, SyncLine, Tombstone };
+export type { Conversation, Message, PanelSnapshot, Person, Project, Quote, SyncLine, Tombstone };
+
+/** Порция строк панели: сами строки и курсор продолжения (`null` — конец). */
+export interface Page {
+  items: Conversation[];
+  next: string | null;
+}
 
 /**
  * Единственное место, где фронт ходит на сервер.
@@ -99,6 +106,28 @@ export const api = {
    * потока, и второй запрос удваивал бы самый частый обмен в продукте.
    */
   conversations: () => request<{ items: Conversation[]; projects: Project[] }>("/v1/conversations"),
+
+  /**
+   * Сводный ответ панели (Р-037): папки со счётчиками, первая порция
+   * «Недавних» и строка открытого чата. Чаты папки приезжают отдельно —
+   * когда её раскрыли.
+   *
+   * ⚠️ ЭТО ЗАМЕНА ПОЛНОМУ СПИСКУ, А НЕ ДОБАВКА К НЕМУ. Полный ответ вёз
+   * все разговоры пространства: 1,4 МБ на каждое сообщение в любом чате
+   * (замер 11.09 на 5 241 чате). Сводный — 20 КБ.
+   */
+  panel: (open?: string | null) =>
+    request<PanelSnapshot>(`/v1/panel${open ? `?open=${encodeURIComponent(open)}` : ""}`),
+
+  /** Следующая порция «Недавних» — чатов без папки. */
+  recent: (cursor: string) =>
+    request<Page>(`/v1/conversations/recent?cursor=${encodeURIComponent(cursor)}`),
+
+  /** Порция чатов проекта: первая — 10, следующие — по 25. */
+  projectChats: (projectId: string, cursor?: string | null) =>
+    request<Page>(
+      `/v1/projects/${projectId}/conversations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
 
   /** Завести проект. Прав он не несёт, поэтому заводить может любой. */
   addProject: (title: string, look?: { icon?: string | null; color?: string | null }) =>

@@ -399,12 +399,19 @@ test("проект закрывается и заново входит чере�
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
   const project = folderRow(page, "Объект");
+  // Сначала дожидаемся результата переноса: чаты папки приезжают своей
+  // порцией (Р-037), и сворачивать пустую папку нечему.
+  await expect(channelRow(page, "Смета")).toBeVisible();
   await project.click();
-  const body = project.locator("xpath=../following-sibling::*[@data-slot='project-chats']");
-  await expect(body).toHaveAttribute("data-state", "closed");
+  // ⚠️ ЗАКРЫТИЕ ПРОВЕРЯЕТСЯ ВИДИМЫМ ИТОГОМ, А НЕ САМИМ УЗЛОМ. Закрытое тело
+  // живёт ровно столько, сколько идёт переход (200 мс), и уходит со страницы:
+  // ради этого task-064 и делался — сто свёрнутых папок держали 51 600
+  // невидимых элементов. Ждать от него состояния «closed» значит ловить
+  // мгновение, а не поведение.
   await expect(channelRow(page, "Смета")).toBeHidden();
 
   await project.click();
+  const body = project.locator("xpath=../following-sibling::*[@data-slot='project-chats']");
   await expect(body).toHaveAttribute("data-state", "open");
   await expect(channelRow(page, "Смета")).toBeVisible();
 });
@@ -519,4 +526,57 @@ test("свёрнутый проект показывает, что внутри 
     folder,
     "свёрнутая папка молчит о новом — сворачивать её никто не станет",
   ).toHaveAccessibleName(/непрочитанных: 2/u);
+});
+
+/**
+ * Панель растёт порциями (Р-037, task-064): чаты папки приезжают по десять,
+ * дальше по двадцать пять, «Недавние» — когда долистали до низа. Без этого
+ * сто проектов по сотне чатов приезжали одним ответом на каждое сообщение.
+ */
+test("папка показывает первые десять чатов и строку «Показать ещё»", async ({ page }) => {
+  await register(page, "Порции");
+  await createProject(page, "Объект");
+  for (let number = 1; number <= 12; number += 1) {
+    await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
+    await page.getByLabel("Название нового чата").fill(`Чат ${number}`);
+    await page.getByLabel("Название нового чата").press("Enter");
+  }
+  await page.reload();
+
+  const more = page.getByRole("button", { name: "Показать ещё" });
+  await expect(more, "первая порция не ограничена — панель снова тянет всё").toBeVisible();
+  await expect.poll(async () => await page.getByRole("button", { name: /^Чат / }).count()).toBe(10);
+
+  await more.click();
+  await expect
+    .poll(async () => await page.getByRole("button", { name: /^Чат / }).count(), {
+      message: "«Показать ещё» не привёл следующую порцию",
+    })
+    .toBe(12);
+  await expect(more, "порции кончились, а строка осталась").toHaveCount(0);
+});
+
+test("«Недавние» догружаются, когда панель долистали до низа", async ({ page }) => {
+  await register(page, "Низ");
+  for (let number = 1; number <= 27; number += 1) {
+    await createChannel(page, `Свежий ${number}`);
+  }
+  await page.reload();
+
+  const rows = page.getByRole("button", { name: /^Свежий / });
+  await expect
+    .poll(async () => await rows.count(), { message: "первая порция не ограничена" })
+    .toBe(25);
+
+  // Листаем панель вниз — ровно то, что делает человек.
+  await page
+    .locator("div.hide-scroll.overflow-y-auto")
+    .first()
+    .evaluate((box) => {
+      box.scrollTop = box.scrollHeight;
+    });
+
+  await expect
+    .poll(async () => await rows.count(), { message: "низ показался, а порция не приехала" })
+    .toBeGreaterThan(25);
 });
