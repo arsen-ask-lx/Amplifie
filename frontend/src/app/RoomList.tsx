@@ -178,11 +178,15 @@ export function RoomList({
       unread={unreadOf(channel.id)}
       mentions={mentionsOf(channel.id)}
       onSelect={panel.select}
-      onMove={async (conversationId, projectId) => {
-        await panel.moveToProject(conversationId, projectId);
+      onMove={(conversationId, projectId) => {
         // Итог действия — на виду: перенесённый в свёрнутый проект чат
         // иначе исчезал из панели, будто его не стало.
+        //
+        // ⚠️ РАСКРЫВАЕМ ДО ОТВЕТА СЕРВЕРА, А НЕ ПОСЛЕ. Раскрытие после
+        // ответа отменяло сворачивание, которое человек успел сделать,
+        // пока ответ шёл: сценарий на медленной машине CI это поймал.
         if (projectId) expand(projectId);
+        return panel.moveToProject(conversationId, projectId);
       }}
       onPin={(pinned) => panel.pin({ conversationId: channel.id }, pinned)}
       onRemove={() => setRemoving(channel)}

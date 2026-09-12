@@ -141,6 +141,21 @@ async function handle(client: Provider, job: Job): Promise<{ text: string } | { 
   }
 }
 
+/** Один оборот: прийти за работой, сделать её, вернуть ответ. */
+async function serveOnce(options: Options, token: string, client: Provider): Promise<void> {
+  try {
+    const job = await takeJob(options, token);
+    if (job) await sendBack(options, token, job.jobId, await handle(client, job));
+  } catch (error) {
+    if (error instanceof NotRecognized) throw error;
+    const why = error instanceof Error ? error.message : String(error);
+    // Сеть моргнула, сервер перезапускается — обычное дело. Но тихо
+    // крутиться в пустом цикле нельзя: человек должен видеть причину.
+    say(`нет связи: ${why}. Повтор через ${RETRY_MS / 1000} с`);
+    await new Promise((wake) => setTimeout(wake, RETRY_MS));
+  }
+}
+
 async function run(): Promise<void> {
   const options = readOptions();
   const client = clientOf(options);
@@ -149,20 +164,7 @@ async function run(): Promise<void> {
   say(`мост «${name}» на связи с ${options.url}, клиент ${options.client}`);
   say("оставьте это окно открытым. Закроете — модель перестанет отвечать");
 
-  for (;;) {
-    try {
-      const job = await takeJob(options, token);
-      if (!job) continue;
-      await sendBack(options, token, job.jobId, await handle(client, job));
-    } catch (error) {
-      if (error instanceof NotRecognized) throw error;
-      const why = error instanceof Error ? error.message : String(error);
-      // Сеть моргнула, сервер перезапускается — обычное дело. Но тихо
-      // крутиться в пустом цикле нельзя: человек должен видеть причину.
-      say(`нет связи: ${why}. Повтор через ${RETRY_MS / 1000} с`);
-      await new Promise((wake) => setTimeout(wake, RETRY_MS));
-    }
-  }
+  for (;;) await serveOnce(options, token, client);
 }
 
 run().catch((error: unknown) => {
