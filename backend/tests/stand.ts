@@ -170,8 +170,9 @@ export async function listenCalls(person: Person): Promise<{
     headers: { cookie: person.cookie },
     signal: stop.signal,
   });
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("у потока нет тела");
+  const body = response.body;
+  if (!body) throw new Error("у потока нет тела");
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
 
