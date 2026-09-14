@@ -22,15 +22,16 @@
  * Запуск: make load (стек должен быть поднят: make up)
  */
 
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
+import {
+  BASE,
+  inviteLink,
+  joined,
+  openTabs,
+  OwnRateLimitError,
+  registerOwner,
+  request,
+} from "./stand.mjs";
 
-/**
- * Настройки замера.
- *
- * ⚠️ ИМЕНА ЛАТИНИЦЕЙ, ХОТЯ ВЕСЬ ОСТАЛЬНОЙ КОД ПО-РУССКИ. Переменную
- * окружения с кириллицей оболочка не примет: `ВКЛАДОК=3 node ...` падает
- * с «command not found». Проверено, а не предположено.
- */
 const TABS = Number(process.env.TABS ?? 400);
 const RATE = Number(process.env.RATE ?? 10);
 const SECONDS = Number(process.env.SECONDS ?? 20);
@@ -42,125 +43,6 @@ const SECONDS = Number(process.env.SECONDS ?? 20);
  * а не сервер.
  */
 const SENDERS = Math.max(2, Math.ceil((RATE * SECONDS) / 25));
-
-/**
- * Сколько вкладок открывает один человек.
- *
- * ⚠️ ВОСЕМЬ, А НЕ ОДНА. Порог подключений к потоку — десять в минуту
- * на человека (Р-025), и восемь оставляет запас. Заодно это ближе
- * к жизни: одна и та же почта открыта и на работе, и дома.
- *
- * И это единственный способ померить восемьсот вкладок, не уперевшись
- * в НАШ порог входа по приглашению: восемьсот входов в минуту он
- * не пропустит и правильно сделает. Измеритель об этом сказал сам —
- * ровно то, ради чего в нём заведена отдельная ошибка «это мой порог».
- */
-const TABS_PER_PERSON = 8;
-
-const password = "ochen-dlinnyi-parol-dlya-zamera";
-
-function emailFor(tag) {
-  return `load-${Date.now()}-${tag}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-async function request(path, { method = "GET", body, cookie } = {}) {
-  return fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(cookie ? { cookie } : {}),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-}
-
-function cookieOf(response) {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((one) => one.startsWith("amplifie_session="));
-  const value = header ? header.split(";")[0] : null;
-  if (!value) throw new Error("сервер не выдал печеньку сессии");
-  return value;
-}
-
-/** Завести владельца со своим пространством. */
-async function registerOwner() {
-  const response = await request("/v1/auth/register", {
-    method: "POST",
-    body: {
-      email: emailFor("owner"),
-      password: password,
-      displayName: "Замер",
-      workspaceName: `Замер ${new Date().toISOString().slice(11, 19)}`,
-    },
-  });
-  if (!response.ok) throw new Error(`регистрация владельца: ${response.status}`);
-  const cookie = cookieOf(response);
-  const rooms = await request("/v1/conversations", { cookie });
-  const list = await rooms.json();
-  const room = list.items?.[0]?.id;
-  if (!room) throw new Error("у нового пространства нет канала");
-  return { cookie, room };
-}
-
-/** Одна ссылка на всех: столько же, сколько сделал бы человек. */
-async function inviteLink(cookie, uses) {
-  const response = await request("/v1/invites", {
-    method: "POST",
-    body: { maxUses: Math.min(500, uses + 5) },
-    cookie,
-  });
-  if (!response.ok) throw new Error(`приглашение: ${response.status}`);
-  return (await response.json()).token;
-}
-
-async function joined(token, tag) {
-  const response = await request("/v1/auth/join", {
-    method: "POST",
-    body: { token, email: emailFor(tag), password: password, displayName: `Гость ${tag}` },
-  });
-  if (response.status === 429) throw new OwnRateLimitError("вход по приглашению");
-  if (!response.ok) throw new Error(`вход по ссылке: ${response.status}`);
-  return cookieOf(response);
-}
-
-/** Упёрлись в СВОЙ порог частоты, а не в предел сервера (Р-025). */
-class OwnRateLimitError extends Error {}
-
-/**
- * Открытая вкладка: держит поток и запоминает, когда увидела событие.
- *
- * ⚠️ ЧИТАЕМ ПОТОК ПОБАЙТНО, А НЕ ЖДЁМ КОНЦА. Поток не кончается никогда;
- * `response.text()` на нём висел бы вечно, и замер молча показал бы ноль
- * событий при живом сервере.
- */
-async function openTab(cookie, seen) {
-  const controller = new AbortController();
-  const response = await fetch(`${BASE}/v1/stream`, {
-    headers: { cookie, accept: "text/event-stream" },
-    signal: controller.signal,
-  });
-  if (response.status === 429) throw new OwnRateLimitError("подключение к потоку");
-  if (!response.ok || !response.body) throw new Error(`поток: ${response.status}`);
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  void (async () => {
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) return;
-        // Событие приехало — только время и важно. Что именно приехало,
-        // проверяют приёмочные, а не замер.
-        if (decoder.decode(value, { stream: true }).includes("data:")) {
-          seen.push(Date.now());
-        }
-      }
-    } catch {
-      // Поток закрыли — это конец замера, а не поломка.
-    }
-  })();
-  return controller;
-}
 
 /** Доли, а не среднее: среднее прячет как раз то, ради чего меряем. */
 function percentiles(numbers) {
@@ -224,19 +106,10 @@ async function run() {
   const owner = await registerOwner();
   const token = await inviteLink(owner.cookie, TABS + SENDERS);
 
-  process.stdout.write(`открываю вкладки: 0/${TABS}`);
   const seen = [];
-  const held = [];
-  for (let opened = 0; opened < TABS; ) {
-    const cookie = await joined(token, `tab${opened}`);
-    // Несколько вкладок на одну сессию — см. ВКЛАДОК_НА_ЧЕЛОВЕКА выше.
-    for (let n = 0; n < TABS_PER_PERSON && opened < TABS; n++, opened++) {
-      held.push(await openTab(cookie, seen));
-      if (opened % 50 === 0)
-        process.stdout.write(`
-открываю вкладки: ${opened}/${TABS}`);
-    }
-  }
+  const held = await openTabs(token, TABS, seen, (opened, total) =>
+    process.stdout.write(`\rоткрываю вкладки: ${opened}/${total}`),
+  );
   console.log(`\rоткрыто вкладок: ${held.length}/${TABS}          `);
 
   const senders = [];
