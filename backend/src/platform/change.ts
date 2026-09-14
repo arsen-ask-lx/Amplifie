@@ -1,5 +1,6 @@
 import { type Change, publish } from "./bus.js";
 import { type Tx, withTransaction } from "./db.js";
+import { forget } from "./tail.js";
 
 /**
  * Изменение общего состояния: транзакция, а после фиксации — звонок (Р-006).
@@ -24,6 +25,15 @@ export async function change<T>(
   address: string | null | ((result: T) => string | null),
 ): Promise<T> {
   const result = await withTransaction(work);
+
+  /**
+   * ⚠️ ХВОСТ СБРАСЫВАЕТСЯ, А НЕ ДОПИСЫВАЕТСЯ. Сюда приходят изменения,
+   * которых хвост не умеет описать точно: правка, удаление, закрепление,
+   * заводка разговора. Дописать их «примерно» — значит однажды отдать
+   * из памяти не то, что в базе, и отдать молча (task-067).
+   */
+  forget(workspaceId);
+
   const conversation = typeof address === "function" ? address(result) : address;
   await publish(workspaceId, { conversation } satisfies Change);
   return result;

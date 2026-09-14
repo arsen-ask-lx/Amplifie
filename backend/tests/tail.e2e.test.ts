@@ -55,6 +55,22 @@ async function caughtUp(person: Person, after: number): Promise<Caught> {
   return (await response.json()) as Caught;
 }
 
+/**
+ * Сколько запросов к базе стоил догон.
+ *
+ * Стенд отдаёт это заголовком `x-db-queries` — он для этого и заведён.
+ * Без него «быстрая дорога» осталась бы словом: ответ-то одинаковый,
+ * а откуда он пришёл, снаружи не видно.
+ */
+async function queriesOfCatchUp(person: Person, after: number): Promise<number> {
+  const response = await call("GET", `/v1/sync?after=${after}`, person);
+  expect(response.status, "догон").toBe(200);
+  const header = response.headers.get("x-db-queries");
+  if (header === null) throw new Error("стенд не отдал x-db-queries — это не стенд");
+  await response.json();
+  return Number(header);
+}
+
 describe("звонок называет адрес изменения", () => {
   beforeAll(requireStand);
 
@@ -149,5 +165,74 @@ describe("догон не меняет обещаний", () => {
       after.messages.some((one) => one.body === "оклады на квартал"),
       "чужая закрытая реплика в догоне",
     ).toBe(false);
+  });
+});
+
+describe("быстрая дорога и база отдают одно и то же", () => {
+  beforeAll(requireStand);
+
+  it("один и тот же курсор даёт один и тот же ответ из памяти и из базы", async () => {
+    /**
+     * ⚠️ САМАЯ ОПАСНАЯ ОШИБКА ЭТОЙ РАБОТЫ — ДВЕ ДОРОГИ, РАЗОШЕДШИЕСЯ МОЛЧА.
+     * Поэтому сверяются ответы ЦЕЛИКОМ, а не отдельные поля.
+     *
+     * Как заставить сервер ответить из базы, не трогая его изнутри: хвост
+     * сбрасывается на любое изменение, которое он не умеет описать точно, —
+     * например на заводку папки. Папка не двигает номер изменения, значит
+     * курсор и ожидаемый ответ те же, а дорога — уже другая.
+     */
+    const owner = await newPerson("Хозяин");
+    const channel = await firstChannel(owner);
+
+    const before = await caughtUp(owner, 0);
+    await send(owner, channel, "одна реплика на две дороги");
+
+    const fromMemory = await caughtUp(owner, before.seq);
+
+    const folder = await call("POST", "/v1/projects", owner, { title: "Сброс хвоста" });
+    expect(folder.status, "папка заведена").toBe(201);
+
+    const fromDatabase = await caughtUp(owner, before.seq);
+
+    expect(fromDatabase, "ответ из базы против ответа из памяти").toEqual(fromMemory);
+  });
+
+  it("догон из памяти не ходит в базу за репликами, а из базы — ходит", async () => {
+    // Одинаковый ответ ещё не значит «из памяти»: доказательство — число
+    // запросов к базе, которое стенд отдаёт заголовком.
+    const owner = await newPerson("Хозяин");
+    const channel = await firstChannel(owner);
+
+    const before = await caughtUp(owner, 0);
+    await send(owner, channel, "реплика для двух замеров");
+
+    const memory = await queriesOfCatchUp(owner, before.seq);
+
+    const folder = await call("POST", "/v1/projects", owner, { title: "Сброс хвоста" });
+    expect(folder.status, "папка заведена").toBe(201);
+
+    const database = await queriesOfCatchUp(owner, before.seq);
+
+    expect(memory, "догон из памяти дороже, чем из базы").toBeLessThan(database);
+  });
+
+  it("реплика, выпавшая из хвоста, всё равно доезжает", async () => {
+    // Хвост сброшен, а курсор остался старым: ровно случай «ноутбук
+    // был закрыт». Ответ обязан прийти из базы и быть полным.
+    const owner = await newPerson("Хозяин");
+    const channel = await firstChannel(owner);
+
+    const before = await caughtUp(owner, 0);
+    await send(owner, channel, "первая до сброса");
+    await send(owner, channel, "вторая до сброса");
+
+    const folder = await call("POST", "/v1/projects", owner, { title: "Сброс" });
+    expect(folder.status).toBe(201);
+
+    const after = await caughtUp(owner, before.seq);
+    const bodies = after.messages.map((one) => one.body);
+    expect(bodies, "обе реплики после сброса хвоста").toEqual(
+      expect.arrayContaining(["первая до сброса", "вторая до сброса"]),
+    );
   });
 });

@@ -118,11 +118,20 @@ export function subscribe(
  * Ошибка одного слушателя не должна мешать остальным и не должна ронять
  * запись, которая только что прошла: звонок — дело второе после факта.
  */
-export async function publish(workspaceId: string, change: Change): Promise<void> {
+export async function publish(
+  workspaceId: string,
+  change: Change,
+  /**
+   * Уже выясненные адресаты, если зовущий их знает. Нужен, чтобы один
+   * вопрос «кому видно» обслуживал и звонок, и хвост изменений: два
+   * вопроса на одно изменение — это лишний поход в базу на каждую запись.
+   */
+  known?: string[] | null,
+): Promise<void> {
   const seats = byWorkspace.get(workspaceId);
   if (!seats || seats.size === 0) return;
 
-  const allowed = await allowedFor(change);
+  const allowed = known === undefined ? await allowedFor(change) : toSet(known);
   // Выяснить не удалось — не звоним никому: см. разрешитель выше.
   if (allowed === undefined) return;
 
@@ -136,6 +145,11 @@ export async function publish(workspaceId: string, change: Change): Promise<void
   }
 }
 
+/** Список адресатов — в множество; `null` (всем) остаётся собой. */
+function toSet(audience: string[] | null): Set<string> | null {
+  return audience === null ? null : new Set(audience);
+}
+
 /**
  * Кому можно звонить: `null` — всем, множество — только этим,
  * `undefined` — выяснить не удалось, значит никому.
@@ -143,8 +157,7 @@ export async function publish(workspaceId: string, change: Change): Promise<void
 async function allowedFor(change: Change): Promise<Set<string> | null | undefined> {
   if (change.conversation === null) return null;
   try {
-    const audience = await resolveAudience(change.conversation);
-    return audience === null ? null : new Set(audience);
+    return toSet(await resolveAudience(change.conversation));
   } catch (error) {
     onListenerFailed(error);
     return undefined;

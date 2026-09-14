@@ -2,8 +2,9 @@ import type { Message, SyncLine } from "@amplifie/contract/api";
 import { publish } from "../../platform/bus.js";
 import { change } from "../../platform/change.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
+import { remember, visibleTo } from "../../platform/tail.js";
 import { appendEvent } from "../journal/index.js";
-import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
+import { audienceFor, ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
 import { mentionedWhoSee, setMentions } from "./mentions.js";
 import { listProjectsFor, requireProject, requireVisibleProject } from "./projects.js";
 import * as repo from "./repo.js";
@@ -301,6 +302,27 @@ export interface SendResult {
 }
 
 /**
+ * Новая реплика записана: положить её в хвост и позвонить (task-067).
+ *
+ * ⚠️ ОДИН ВОПРОС «КОМУ ВИДНО» НА ОБА ДЕЛА. Хвосту он нужен, чтобы быстрая
+ * дорога не отдала закрытую переписку постороннему; звонку — чтобы адрес
+ * не уехал тому, кто разговора не видит. Спросить дважды значит удвоить
+ * запись, а спросить на каждого слушателя — вернуть то самое стадо.
+ *
+ * ⚠️ СНАЧАЛА ЗАПОМНИТЬ, ПОТОМ ПОЗВОНИТЬ. Наоборот вкладка успела бы прийти
+ * в догон раньше, чем хвост о реплике узнал, — и ушла бы в базу зря.
+ *
+ * В хвост кладётся ровно то, что отдал бы догон: `presentMessage` один
+ * и тот же на обеих дорогах, и номер изменения у новой реплики равен
+ * её номеру.
+ */
+async function told(workspaceId: string, conversationId: string, line: MessageView) {
+  const audience = await audienceFor(conversationId);
+  remember(workspaceId, { seq: line.seq, audience, line });
+  await publish(workspaceId, { conversation: conversationId }, audience);
+}
+
+/**
  * Отправка. Ключ `clientMsgId` генерирует клиент при наборе; повтор после
  * разрыва — не ошибка: отдаём то же сообщение с тем же номером.
  */
@@ -340,7 +362,7 @@ export async function sendMessage(
 
     // Звонок после фиксации (Р-006); повтор не звонит — ничего не изменилось.
     // Адрес — этот разговор: вкладки других разговоров не поднимаются (task-067).
-    if (!result.replayed) await publish(viewer.workspaceId, { conversation: conversationId });
+    if (!result.replayed) await told(viewer.workspaceId, conversationId, result.message);
     return result;
   } catch (error) {
     // Гонка двух запросов с одним ключом: проигравший откатывается
@@ -384,7 +406,7 @@ export async function sendAsAgent(
   });
 
   // Звонок только после фиксации (Р-006), и только если что-то изменилось.
-  if (result.fresh) await publish(onBehalfOf.workspaceId, { conversation: conversationId });
+  if (result.fresh) await told(onBehalfOf.workspaceId, conversationId, result.message);
   return result.message;
 }
 
@@ -430,6 +452,18 @@ export async function createThread(viewer: Viewer, parentId: string, title: stri
  * за следующей страницей сразу, не дожидаясь звонка.
  */
 export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
+  /**
+   * ⚠️ БЫСТРАЯ ДОРОГА ПЕРВОЙ, И ОНА НЕ ТРОГАЕТ БАЗУ. Хвост отвечает,
+   * только если помнит ВСЁ после этого курсора; во всех остальных случаях
+   * он честно говорит «спроси базу» (task-067). Права видимости он
+   * применяет сам — иначе быстрая дорога стала бы боковым каналом.
+   *
+   * Замерено: сотня вкладок, смотрящих один чат, стоила 101 транзакции
+   * базы на одну реплику. Отсюда и работа.
+   */
+  const fast = visibleTo<SyncLine>(viewer.workspaceId, afterSeq, limit, viewer.participantId);
+  if (fast) return { messages: fast.lines, seq: fast.head, hasMore: false };
+
   // Граница — первой: записанное после неё придёт следующим догоном.
   const bound = await repo.currentSeq(db, viewer.workspaceId);
   const after = (from: number, upTo: number, size: number) =>
