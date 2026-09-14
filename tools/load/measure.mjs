@@ -22,17 +22,31 @@
  * Запуск: make load (стек должен быть поднят: make up)
  */
 
-import {
-  BASE,
-  inviteLink,
-  joined,
-  openTabs,
-  OwnRateLimitError,
-  registerOwner,
-  request,
-} from "./stand.mjs";
+import { fork } from "node:child_process";
+import { BASE, inviteLink, joined, OwnRateLimitError, registerOwner, request } from "./stand.mjs";
 
 const TABS = Number(process.env.TABS ?? 400);
+
+/**
+ * Как ведут себя вкладки.
+ *
+ * `same` (по умолчанию) — все смотрят тот чат, куда идут сообщения. Это
+ * ХУДШИЙ случай и он же сравним с прежними числами: догон законен у всех.
+ * `other` — смотрят другой чат, то есть обычная жизнь пяти тысяч человек
+ * с разными открытыми чатами. `any` — поведение клиента до task-067:
+ * догоняет на любой звонок.
+ */
+const WATCHING = process.env.WATCHING ?? "same";
+
+/**
+ * Сколько вкладок на один процесс-держатель.
+ *
+ * ⚠️ СОТНЯ, И ЭТО НЕ ВКУС. Пока вкладки и отправка жили в одном процессе,
+ * замер мерил СЕБЯ: 400 вкладок давали 4,8 с в середине даже когда вкладки
+ * не делали ни одного запроса, чего на сервере быть не могло. Держатели —
+ * отдельные процессы, родитель только отправляет и считает время.
+ */
+const TABS_PER_WORKER = Number(process.env.TABS_PER_WORKER ?? 100);
 const RATE = Number(process.env.RATE ?? 10);
 const SECONDS = Number(process.env.SECONDS ?? 20);
 
@@ -64,13 +78,12 @@ function ms(value) {
  * складывалась бы с временем ответа, и десять в секунду превращались
  * бы в семь — мы измерили бы собственную арифметику.
  */
-async function load(room, senders, seen) {
+async function load(room, senders) {
   const latencies = [];
   const failures = { rateLimit: 0, other: 0 };
   const total = RATE * SECONDS;
   const step = 1000 / RATE;
   const startedAt = Date.now();
-  seen.length = 0;
 
   const sent = [];
   for (let n = 0; n < total; n++) {
@@ -99,38 +112,87 @@ async function load(room, senders, seen) {
   return { latencies, failures, seconds: (Date.now() - startedAt) / 1000, total };
 }
 
+/**
+ * Поднять держателей вкладок и дождаться, пока ВСЕ вкладки открыты.
+ *
+ * Отправка, начатая раньше, измерила бы нагрузку не на том числе
+ * слушателей, которое потом напечатано в отчёте.
+ */
+async function openTabsInWorkers(token, watching) {
+  const starting = [];
+  let left = TABS;
+  while (left > 0) {
+    const count = Math.min(TABS_PER_WORKER, left);
+    left -= count;
+    starting.push(startWorker(token, watching, count));
+  }
+  return Promise.all(starting);
+}
+
+function startWorker(token, watching, count) {
+  return new Promise((resolve, reject) => {
+    const child = fork(new URL("tabs-worker.mjs", import.meta.url), { stdio: "inherit" });
+    child.on("message", (message) => {
+      if (message.failed) reject(new Error(message.failed));
+      else if (message.ready !== undefined) resolve({ child, tabs: message.ready });
+    });
+    child.on("error", reject);
+    child.send({ open: { token, count, watching } });
+  });
+}
+
+/** Погасить держателей и собрать, сколько событий они увидели. */
+async function stopWorkers(workers) {
+  const counts = await Promise.all(
+    workers.map(
+      (one) =>
+        new Promise((resolve) => {
+          one.child.on("message", (message) => {
+            if (message.seen !== undefined) resolve(message.seen);
+          });
+          one.child.send({ stop: true });
+        }),
+    ),
+  );
+  return counts.reduce((sum, one) => sum + one, 0);
+}
+
 async function run() {
   console.log(`стенд: ${BASE}`);
-  console.log(`цель: ${TABS} вкладок · ${RATE} сообщений в секунду · ${SECONDS} с\n`);
+  console.log(
+    `цель: ${TABS} вкладок · ${RATE} сообщений в секунду · ${SECONDS} с · смотрят: ${WATCHING}`,
+  );
 
   const owner = await registerOwner();
   const token = await inviteLink(owner.cookie, TABS + SENDERS);
 
-  const seen = [];
-  const held = await openTabs(token, TABS, seen, (opened, total) =>
-    process.stdout.write(`\rоткрываю вкладки: ${opened}/${total}`),
-  );
-  console.log(`\rоткрыто вкладок: ${held.length}/${TABS}          `);
+  // Соседний чат — тот, который вкладки «смотрят» в обычной жизни: у людей
+  // открыты разные разговоры, и сообщение в одном не касается остальных.
+  const aside = await request("/v1/conversations", {
+    method: "POST",
+    body: { title: "Соседний чат", visibility: "workspace" },
+    cookie: owner.cookie,
+  });
+  if (!aside.ok) throw new Error(`соседний чат: ${aside.status}`);
+  const other = (await aside.json()).id;
+  const watching = WATCHING === "any" ? null : WATCHING === "other" ? other : owner.room;
+
+  const workers = await openTabsInWorkers(token, watching);
+  const tabs = workers.reduce((sum, one) => sum + one.tabs, 0);
+  console.log(`открыто вкладок: ${tabs} в ${workers.length} процессах`);
 
   const senders = [];
   for (let n = 0; n < SENDERS; n++) {
     senders.push(await joined(token, `send${n}`));
   }
 
-  const { latencies, failures, seconds, total } = await load(owner.room, senders, seen);
+  const { latencies, failures, seconds, total } = await load(owner.room, senders);
 
   // Даём событиям доехать: раздача идёт после ответа на отправку.
   await new Promise((r) => setTimeout(r, 3000));
-  for (const controller of held) controller.abort();
+  const events = await stopWorkers(workers);
 
-  report({
-    latencies,
-    failures,
-    total,
-    seconds,
-    tabs: held.length,
-    events: seen.length,
-  });
+  report({ latencies, failures, total, seconds, tabs, events });
 }
 
 /**
