@@ -82,29 +82,35 @@ export async function createProject(
   viewer: Viewer,
   input: { title: string; icon?: string | undefined; color?: string | undefined },
 ): Promise<{ id: string }> {
-  return change(viewer.workspaceId, async (tx) => {
-    const rows = await tx
-      .insert(project)
-      .values({
-        workspaceId: viewer.workspaceId,
-        title: input.title,
-        icon: input.icon ?? null,
-        color: input.color ?? null,
-      })
-      .returning({ id: project.id, title: project.title });
-    const created = rows[0];
-    if (!created) throw new Error("проект не завёлся");
+  return change(
+    viewer.workspaceId,
+    async (tx) => {
+      const rows = await tx
+        .insert(project)
+        .values({
+          workspaceId: viewer.workspaceId,
+          title: input.title,
+          icon: input.icon ?? null,
+          color: input.color ?? null,
+        })
+        .returning({ id: project.id, title: project.title });
+      const created = rows[0];
+      if (!created) throw new Error("проект не завёлся");
 
-    await appendEvent(tx, {
-      kind: "project.created",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "project",
-      subjectId: created.id,
-      payload: { title: created.title },
-    });
-    return created;
-  });
+      await appendEvent(tx, {
+        kind: "project.created",
+        workspaceId: viewer.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "project",
+        subjectId: created.id,
+        payload: { title: created.title },
+      });
+      return created;
+      // Папка видна всем в пространстве, адреса разговора у неё нет: null,
+      // но названный явно (task-067).
+    },
+    null,
+  );
 }
 
 /**
@@ -143,28 +149,32 @@ export async function renameProject(
     color?: string | null | undefined;
   },
 ): Promise<{ id: string }> {
-  return change(viewer.workspaceId, async (tx) => {
-    await requireProject(tx, viewer.workspaceId, projectId);
-    // Не переданное не трогаем: «не указано» ≠ «убрать» (`null`).
-    const fields = {
-      ...(edit.title === undefined ? {} : { title: edit.title }),
-      ...(edit.icon === undefined ? {} : { icon: edit.icon }),
-      ...(edit.color === undefined ? {} : { color: edit.color }),
-    };
-    if (Object.keys(fields).length > 0) {
-      await tx.update(project).set(fields).where(eq(project.id, projectId));
-    }
+  return change(
+    viewer.workspaceId,
+    async (tx) => {
+      await requireProject(tx, viewer.workspaceId, projectId);
+      // Не переданное не трогаем: «не указано» ≠ «убрать» (`null`).
+      const fields = {
+        ...(edit.title === undefined ? {} : { title: edit.title }),
+        ...(edit.icon === undefined ? {} : { icon: edit.icon }),
+        ...(edit.color === undefined ? {} : { color: edit.color }),
+      };
+      if (Object.keys(fields).length > 0) {
+        await tx.update(project).set(fields).where(eq(project.id, projectId));
+      }
 
-    await appendEvent(tx, {
-      kind: "project.renamed",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "project",
-      subjectId: projectId,
-      payload: fields,
-    });
-    return { id: projectId };
-  });
+      await appendEvent(tx, {
+        kind: "project.renamed",
+        workspaceId: viewer.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "project",
+        subjectId: projectId,
+        payload: fields,
+      });
+      return { id: projectId };
+    },
+    null,
+  );
 }
 
 /**
@@ -172,24 +182,28 @@ export async function renameProject(
  * снимается явно — удаление мягкое, и `ON DELETE SET NULL` не сработает.
  */
 export async function removeProject(viewer: Viewer, projectId: string): Promise<void> {
-  await change(viewer.workspaceId, async (tx) => {
-    await requireProject(tx, viewer.workspaceId, projectId);
+  await change(
+    viewer.workspaceId,
+    async (tx) => {
+      await requireProject(tx, viewer.workspaceId, projectId);
 
-    await tx
-      .update(conversation)
-      .set({ projectId: null })
-      .where(eq(conversation.projectId, projectId));
-    await tx.update(project).set({ deletedAt: new Date() }).where(eq(project.id, projectId));
+      await tx
+        .update(conversation)
+        .set({ projectId: null })
+        .where(eq(conversation.projectId, projectId));
+      await tx.update(project).set({ deletedAt: new Date() }).where(eq(project.id, projectId));
 
-    await appendEvent(tx, {
-      kind: "project.removed",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "project",
-      subjectId: projectId,
-      payload: {},
-    });
-  });
+      await appendEvent(tx, {
+        kind: "project.removed",
+        workspaceId: viewer.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "project",
+        subjectId: projectId,
+        payload: {},
+      });
+    },
+    null,
+  );
 }
 
 /**
@@ -201,28 +215,35 @@ export async function setProject(
   conversationId: string,
   projectId: string | null,
 ): Promise<{ id: string; projectId: string | null }> {
-  return change(viewer.workspaceId, async (tx) => {
-    await requireVisible(tx, viewer, conversationId);
-    if (projectId !== null) await requireProject(tx, viewer.workspaceId, projectId);
+  return change(
+    viewer.workspaceId,
+    async (tx) => {
+      await requireVisible(tx, viewer, conversationId);
+      if (projectId !== null) await requireProject(tx, viewer.workspaceId, projectId);
 
-    await tx
-      .update(conversation)
-      .set({ projectId })
-      .where(
-        and(eq(conversation.id, conversationId), eq(conversation.workspaceId, viewer.workspaceId)),
-      );
+      await tx
+        .update(conversation)
+        .set({ projectId })
+        .where(
+          and(
+            eq(conversation.id, conversationId),
+            eq(conversation.workspaceId, viewer.workspaceId),
+          ),
+        );
 
-    await appendEvent(tx, {
-      kind: "conversation.moved",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "conversation",
-      subjectId: conversationId,
-      payload: { projectId },
-    });
+      await appendEvent(tx, {
+        kind: "conversation.moved",
+        workspaceId: viewer.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "conversation",
+        subjectId: conversationId,
+        payload: { projectId },
+      });
 
-    return { id: conversationId, projectId };
-  });
+      return { id: conversationId, projectId };
+    },
+    conversationId,
+  );
 }
 
 /**

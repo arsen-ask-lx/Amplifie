@@ -599,3 +599,30 @@ export async function currentSeq(tx: Executor, workspaceId: string): Promise<num
     .limit(1);
   return Number(rows[0]?.seq ?? 0);
 }
+
+/**
+ * Кому виден разговор: `null` — всем в пространстве, иначе участники корня.
+ *
+ * Нужен звонку с адресом (task-067): адрес закрытого разговора уходит только
+ * тем, кто его видит. Один запрос на изменение, а не на слушателя, — в этом
+ * весь выигрыш.
+ *
+ * ⚠️ ВИДИМОСТЬ ЧИТАЕТСЯ У КОРНЯ. У ветки своих участников нет (Р-010),
+ * поэтому и видимость, и членство берутся у `coalesce(parent_id, id)`.
+ * Иначе ветка закрытого канала звонила бы всему пространству.
+ */
+export async function audienceOf(tx: Executor, conversationId: string): Promise<string[] | null> {
+  const root = alias(conversation, "root");
+  const rows = await tx
+    .select({ visibility: root.visibility, participantId: conversationMember.participantId })
+    .from(conversation)
+    .innerJoin(root, eq(root.id, sql`coalesce(${conversation.parentId}, ${conversation.id})`))
+    .leftJoin(conversationMember, eq(conversationMember.conversationId, root.id))
+    .where(eq(conversation.id, conversationId));
+
+  const first = rows[0];
+  // Разговора нет — звонить некому. Это не ошибка: он мог быть только что снесён.
+  if (!first) return [];
+  if (first.visibility === "workspace") return null;
+  return rows.map((one) => one.participantId).filter((one): one is string => one !== null);
+}

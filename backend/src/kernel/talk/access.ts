@@ -1,4 +1,4 @@
-import type { Executor } from "../../platform/db.js";
+import { db, type Executor } from "../../platform/db.js";
 import * as repo from "./repo.js";
 
 /**
@@ -28,4 +28,18 @@ export async function requireVisible(tx: Executor, viewer: Viewer, conversationI
     throw new ConversationNotVisibleError();
   }
   return found;
+}
+
+/**
+ * Кому уходит звонок об изменении в разговоре: `null` — всем в пространстве,
+ * иначе список людей (task-067).
+ *
+ * Стоит рядом с `requireVisible`, потому что отвечает на тот же вопрос —
+ * «кому это видно». Два ответа на один вопрос в разных файлах однажды
+ * разойдутся, и разойдутся в сторону утечки.
+ *
+ * Своё соединение, а не транзакция: звонок случается ПОСЛЕ фиксации.
+ */
+export async function audienceFor(conversationId: string): Promise<string[] | null> {
+  return repo.audienceOf(db, conversationId);
 }

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { subscribe } from "../../../platform/bus.js";
+import { type Change, subscribe } from "../../../platform/bus.js";
 import { STREAM } from "../limits.js";
 import { actorOf } from "./viewer.js";
 
@@ -47,8 +47,14 @@ export function registerStreamRoutes(app: FastifyInstance): void {
       // `id:` намеренно нет. Last-Event-ID нужен, чтобы восстановить
       // пропущенное, а у нас это делает /v1/sync по своему курсору.
       // Второй счётчик прогресса разошёлся бы с первым.
-      const nudge = () => reply.raw.write("event: changed\ndata: {}\n\n");
-      const unsubscribe = subscribe(actor.workspaceId, nudge);
+      // ⚠️ В `data` едет АДРЕС изменения и только он: идентификатор разговора
+      // либо `null` — «изменилось пространство» (task-067). Ни текста,
+      // ни автора: содержимое по-прежнему забирает `/v1/sync`. Вкладка,
+      // у которой открыт другой разговор, по такому звонку не идёт никуда —
+      // ради этого он и назван.
+      const nudge = (change: Change) =>
+        reply.raw.write(`event: changed\ndata: ${JSON.stringify(change)}\n\n`);
+      const unsubscribe = subscribe(actor.workspaceId, actor.participantId, nudge);
 
       const heartbeat = setInterval(() => reply.raw.write(": тук\n\n"), HEARTBEAT_MS);
 

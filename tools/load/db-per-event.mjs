@@ -30,12 +30,34 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { inviteLink, openTabs, OwnRateLimitError, registerOwner, request } from "./stand.mjs";
+import { inviteLink, OwnRateLimitError, openTabs, registerOwner, request } from "./stand.mjs";
+
+/**
+ * Что именно меряем.
+ *
+ * `WATCHING=other` (по умолчанию) — вкладки смотрят ДРУГОЙ разговор, чем тот,
+ * куда пришло сообщение. Это главный случай жизни: у пяти тысяч человек
+ * открыты разные чаты, и звонок с адресом обязан не поднимать никого лишнего.
+ *
+ * `WATCHING=same` — все вкладки смотрят тот самый разговор. Тогда догон
+ * законен, и число показывает цену честной работы, а не стада.
+ *
+ * `WATCHING=any` — поведение клиента ДО адреса в звонке: догоняет на любой
+ * звонок. Им получено красное число 154 транзакции при ста вкладках.
+ */
+const WATCHING = process.env.WATCHING ?? "other";
 
 const TABS = Number(process.env.TABS ?? 100);
 
-/** Сколько ждём доставки и тишины. Одно число на оба окна — они сравниваются. */
-const WINDOW_MS = 4000;
+/**
+ * Сколько ждём доставки и тишины. Одно число на оба окна — они сравниваются.
+ *
+ * ⚠️ ОКНО ДОЛЖНО БЫТЬ ДОЛЬШЕ, ЧЕМ УСПЕВАЕТ СТАДО. Если догоны не успели
+ * закончиться внутри окна, замер покажет не цену события, а пропускную
+ * способность стенда — и числа поплывут от прогона к прогону. Проверено:
+ * на четырёх секундах и ста вкладках два прогона дали 154 и 44.
+ */
+const WINDOW_MS = Number(process.env.WINDOW_MS ?? 10_000);
 
 /**
  * Счётчик транзакций базы.
@@ -71,6 +93,11 @@ async function wait(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Ничего не делаем: тихое окно — это окно без работы, а не без смысла. */
+async function nothing() {
+  return undefined;
+}
+
 /** Окно наблюдения: что база накоммитила, пока внутри окна шла работа. */
 async function window(work) {
   const before = committed();
@@ -80,22 +107,44 @@ async function window(work) {
 }
 
 async function run() {
-  console.log(`цель: ${TABS} вкладок, одно отправленное сообщение\n`);
+  console.log(`цель: ${TABS} вкладок, одно сообщение, вкладки смотрят: ${WATCHING}\n`);
 
   const owner = await registerOwner();
   const token = await inviteLink(owner.cookie, TABS + 2);
   const sender = owner.cookie;
 
+  // Второй разговор — тот, который вкладки «смотрят», когда мерим главный
+  // случай. Виден всем в пространстве: закрытый исказил бы замер тем, что
+  // звонок о нём и так не дошёл бы.
+  const aside = await request("/v1/conversations", {
+    method: "POST",
+    body: { title: "Соседний чат", visibility: "workspace" },
+    cookie: owner.cookie,
+  });
+  if (!aside.ok) throw new Error(`соседний чат: ${aside.status}`);
+  const other = (await aside.json()).id;
+
+  const watching = WATCHING === "any" ? null : WATCHING === "same" ? owner.room : other;
+
   const seen = [];
-  const held = await openTabs(token, TABS, seen, (opened, total) =>
-    process.stdout.write(`\rоткрываю вкладки: ${opened}/${total}`),
+  const held = await openTabs(
+    token,
+    TABS,
+    seen,
+    (opened, total) => process.stdout.write(`\rоткрываю вкладки: ${opened}/${total}`),
+    { watching },
   );
   console.log(`\rоткрыто вкладок: ${held.length}                    `);
 
-  // Тихое окно первым: вкладки уже подключены, значит в него попадает
-  // биение потока и наши же опросы счётчика — ровно тот фон, который
-  // нужно вычесть из рабочего окна.
-  const quiet = await window(async () => {});
+  // ⚠️ ДАЁМ СТЕНДУ УСПОКОИТЬСЯ ПЕРЕД ТИХИМ ОКНОМ. Открытие сотни вкладок
+  // само делает запросы, и первый замер ловил их хвост: фон выходил больше
+  // рабочего окна, а «цена» — отрицательной. Число, которое бывает
+  // отрицательным, неверно, а не «почти верно».
+  await wait(WINDOW_MS);
+
+  // Тихое окно: в него попадает биение потока и наши же опросы счётчика —
+  // ровно тот фон, который нужно вычесть из рабочего окна.
+  const quiet = await window(nothing);
   seen.length = 0;
 
   const sent = await window(async () => {
@@ -113,7 +162,7 @@ async function run() {
   const perTab = held.length === 0 ? 0 : cost / held.length;
 
   console.log("\n── что получилось ─────────────────────────────────");
-  console.log(`вкладок:                 ${held.length}`);
+  console.log(`вкладок:                 ${held.length} (смотрят: ${WATCHING})`);
   console.log(`событий в потоках:       ${seen.length}`);
   console.log(`транзакций в тишине:     ${quiet}`);
   console.log(`транзакций с сообщением: ${sent}`);

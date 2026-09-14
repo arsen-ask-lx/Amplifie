@@ -1,4 +1,4 @@
-export { ConversationNotVisibleError, type Viewer } from "./access.js";
+export { audienceFor, ConversationNotVisibleError, type Viewer } from "./access.js";
 export { MentionNotAllowedError, peopleToMention, whereMentioned } from "./mentions.js";
 export { setConversationPin, setProjectPin } from "./pins.js";
 export {

@@ -123,6 +123,93 @@ export async function listen(person: Person): Promise<(timeoutMs?: number) => Pr
   };
 }
 
+/**
+ * Слушать поток и читать САМИ звонки, а не только факт звонка.
+ *
+ * ЗАЧЕМ ВТОРОЙ СЛУШАТЕЛЬ. `listen` отвечает «звонок был или не был» —
+ * этого хватало, пока звонок был пустым. С адресом изменения (task-067)
+ * проверять надо содержимое звонка и то, что чужой адрес не приезжает
+ * вовсе. Boolean на такой вопрос не отвечает.
+ *
+ * Поток открывается ДО действия: звонок, пролетевший раньше подписки,
+ * потерян, и тест соврал бы «не пришло».
+ */
+export interface CallSeen {
+  conversation: string | null;
+}
+
+/** Один кадр потока: звонок это или что-то другое (биение, комментарий). */
+function callOf(frame: string): CallSeen | null {
+  if (!frame.includes("event: changed")) return null;
+  const line = frame.split("\n").find((one) => one.startsWith("data:"));
+  const raw = (line ?? "").slice("data:".length).trim();
+  const parsed = JSON.parse(raw === "" ? "{}" : raw) as { conversation?: string | null };
+  return { conversation: parsed.conversation ?? null };
+}
+
+/** Первый готовый звонок из накопленного; `rest` — что осталось разобрать. */
+function firstCall(buffer: string): { call: CallSeen | null; rest: string } {
+  let rest = buffer;
+  for (;;) {
+    const at = rest.indexOf("\n\n");
+    if (at < 0) return { call: null, rest };
+    const frame = rest.slice(0, at);
+    rest = rest.slice(at + 2);
+    const call = callOf(frame);
+    if (call) return { call, rest };
+  }
+}
+
+export async function listenCalls(person: Person): Promise<{
+  /** Следующий звонок или `null`, если за срок его не случилось. */
+  next: (timeoutMs?: number) => Promise<CallSeen | null>;
+  stop: () => void;
+}> {
+  const stop = new AbortController();
+  const response = await fetch(`${BASE}/v1/stream`, {
+    headers: { cookie: person.cookie },
+    signal: stop.signal,
+  });
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("у потока нет тела");
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  /** Забрать звонок, уже лежащий в буфере. */
+  function taken(): CallSeen | null {
+    const { call, rest } = firstCall(buffer);
+    buffer = rest;
+    return call;
+  }
+
+  async function awaited(): Promise<CallSeen | null> {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return null;
+      buffer += decoder.decode(value, { stream: true });
+      const call = taken();
+      if (call) return call;
+    }
+  }
+
+  return {
+    async next(timeoutMs = 3000) {
+      const ready = taken();
+      if (ready) return ready;
+      const timer = setTimeout(() => stop.abort(), timeoutMs);
+      try {
+        return await awaited();
+      } catch {
+        // Оборвали по сроку — звонка не было. Это ответ, а не поломка.
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    stop: () => stop.abort(),
+  };
+}
+
 /** Стенд поднят — иначе тесты падают с непонятной ошибкой сети. */
 export async function requireStand(): Promise<void> {
   const health = await call("GET", "/health");

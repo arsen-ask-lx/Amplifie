@@ -103,6 +103,12 @@ export async function joined(token, tag) {
  * `response.text()` на нём висел бы вечно, и замер молча показал бы ноль
  * событий при живом сервере.
  *
+ * ⚠️ ВКЛАДКА СМОТРИТ ОДИН РАЗГОВОР И ДОГОНЯЕТ ТОЛЬКО ПО СВОЕМУ АДРЕСУ.
+ * Так ведёт себя клиент после task-067: звонок несёт адрес изменения,
+ * и вкладка чужого разговора не идёт никуда. `watching` не задан —
+ * догоняет на любой звонок, то есть ведёт себя как клиент ДО правки.
+ * Оба поведения нужны: разницу между ними мы и меряем.
+ *
  * ⚠️ НА ЗВОНОК ВКЛАДКА ИДЁТ В ДОГОН — И ЭТО НЕ УКРАШЕНИЕ ЗАМЕРА.
  * Без этого «вкладка» держит только соединение, а настоящий браузер
  * после каждого звонка зовёт `/v1/sync`. Замер без догона измеряет
@@ -111,7 +117,7 @@ export async function joined(token, tag) {
  * событий, ноль лишних транзакций — потому что догона не было.
  * Поэтому догон включён по умолчанию, а выключается осознанно.
  */
-export async function openTab(cookie, seen, { sync = true } = {}) {
+export async function openTab(cookie, seen, { sync = true, watching = null } = {}) {
   const controller = new AbortController();
   const response = await fetch(`${BASE}/v1/stream`, {
     headers: { cookie, accept: "text/event-stream" },
@@ -120,29 +126,60 @@ export async function openTab(cookie, seen, { sync = true } = {}) {
   if (response.status === 429) throw new OwnRateLimitError("подключение к потоку");
   if (!response.ok || !response.body) throw new Error(`поток: ${response.status}`);
 
-  const reader = response.body.getReader();
+  void follow(response.body.getReader(), { cookie, seen, sync, watching });
+  return controller;
+}
+
+/** Читать поток до конца и вести себя на каждый звонок, как ведёт клиент. */
+async function follow(reader, options) {
   const decoder = new TextDecoder();
   let cursor = 0;
-  void (async () => {
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) return;
-        // Событие приехало — только время и важно. Что именно приехало,
-        // проверяют приёмочные, а не замер.
-        if (!decoder.decode(value, { stream: true }).includes("data:")) continue;
-        seen.push(Date.now());
-        if (!sync) continue;
-        const caught = await request(`/v1/sync?after=${cursor}`, { cookie });
-        if (!caught.ok) continue;
-        const page = await caught.json();
-        if (typeof page.seq === "number") cursor = page.seq;
-      }
-    } catch {
-      // Поток закрыли — это конец замера, а не поломка.
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      cursor = await reacted(decoder.decode(value, { stream: true }), cursor, options);
     }
-  })();
-  return controller;
+  } catch {
+    // Поток закрыли — это конец замера, а не поломка.
+  }
+}
+
+/** Что вкладка делает с прочитанным куском потока. Возвращает свой курсор. */
+async function reacted(chunk, cursor, { cookie, seen, sync, watching }) {
+  // Событие приехало — только время и важно. Что именно приехало,
+  // проверяют приёмочные, а не замер.
+  if (!chunk.includes("data:")) return cursor;
+  seen.push(Date.now());
+  if (!sync) return cursor;
+  if (watching !== null && !addressed(chunk, watching)) return cursor;
+  return caughtUp(cookie, cursor);
+}
+
+/** Догон, как его делает браузер: своим курсором и вперёд. */
+async function caughtUp(cookie, cursor) {
+  const response = await request(`/v1/sync?after=${cursor}`, { cookie });
+  if (!response.ok) return cursor;
+  const page = await response.json();
+  return typeof page.seq === "number" ? page.seq : cursor;
+}
+
+/**
+ * Касается ли звонок того разговора, который смотрит эта вкладка.
+ *
+ * Звонок без адреса (`null`) касается всех: так сообщают об изменениях
+ * пространства — заводке папки, переносе чата.
+ */
+function addressed(chunk, watching) {
+  const line = chunk.split("\n").find((one) => one.startsWith("data:"));
+  if (!line) return true;
+  try {
+    const { conversation } = JSON.parse(line.slice("data:".length).trim() || "{}");
+    return conversation === null || conversation === undefined || conversation === watching;
+  } catch {
+    // Звонок не разобрался — ведём себя осторожно и догоняем.
+    return true;
+  }
 }
 
 /**

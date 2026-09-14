@@ -339,7 +339,8 @@ export async function sendMessage(
     });
 
     // Звонок после фиксации (Р-006); повтор не звонит — ничего не изменилось.
-    if (!result.replayed) publish(viewer.workspaceId);
+    // Адрес — этот разговор: вкладки других разговоров не поднимаются (task-067).
+    if (!result.replayed) await publish(viewer.workspaceId, { conversation: conversationId });
     return result;
   } catch (error) {
     // Гонка двух запросов с одним ключом: проигравший откатывается
@@ -383,38 +384,43 @@ export async function sendAsAgent(
   });
 
   // Звонок только после фиксации (Р-006), и только если что-то изменилось.
-  if (result.fresh) publish(onBehalfOf.workspaceId);
+  if (result.fresh) await publish(onBehalfOf.workspaceId, { conversation: conversationId });
   return result.message;
 }
 
 export async function createThread(viewer: Viewer, parentId: string, title: string) {
-  return change(viewer.workspaceId, async (tx) => {
-    const parent = await requireVisible(tx, viewer, parentId);
-    if (parent.parentId) {
-      // Дерево двухуровневое: иначе «корень» неоднозначен.
-      throw new ConversationNotVisibleError();
-    }
+  return change(
+    viewer.workspaceId,
+    async (tx) => {
+      const parent = await requireVisible(tx, viewer, parentId);
+      if (parent.parentId) {
+        // Дерево двухуровневое: иначе «корень» неоднозначен.
+        throw new ConversationNotVisibleError();
+      }
 
-    const created = await repo.insertConversation(tx, {
-      workspaceId: parent.workspaceId,
-      kind: "thread",
-      title,
-      parentId,
-    });
+      const created = await repo.insertConversation(tx, {
+        workspaceId: parent.workspaceId,
+        kind: "thread",
+        title,
+        parentId,
+      });
 
-    // Участников у ветки нет — право от корня (триггер conversation_member_root_only).
+      // Участников у ветки нет — право от корня (триггер conversation_member_root_only).
 
-    await appendEvent(tx, {
-      kind: "thread.created",
-      workspaceId: parent.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "conversation",
-      subjectId: created.id,
-      payload: { parentId, title },
-    });
+      await appendEvent(tx, {
+        kind: "thread.created",
+        workspaceId: parent.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "conversation",
+        subjectId: created.id,
+        payload: { parentId, title },
+      });
 
-    return { id: created.id, kind: created.kind, title: created.title, parentId };
-  });
+      return { id: created.id, kind: created.kind, title: created.title, parentId };
+      // Адрес — новая ветка; кому она видна, решается у корня (task-067).
+    },
+    (made) => made.id,
+  );
 }
 
 /**
@@ -495,36 +501,40 @@ async function openConversation(
   viewer: Viewer,
   input: { kind: string; title: string; visibility: Visibility; projectId?: string | undefined },
 ) {
-  return change(viewer.workspaceId, async (tx) => {
-    // Проект — той же проверкой, что при переносе: иначе по чужому номеру
-    // канал заводился бы в панель соседней компании.
-    if (input.projectId) await requireProject(tx, viewer.workspaceId, input.projectId);
+  return change(
+    viewer.workspaceId,
+    async (tx) => {
+      // Проект — той же проверкой, что при переносе: иначе по чужому номеру
+      // канал заводился бы в панель соседней компании.
+      if (input.projectId) await requireProject(tx, viewer.workspaceId, input.projectId);
 
-    const made = await repo.insertConversation(tx, {
-      workspaceId: viewer.workspaceId,
-      kind: input.kind,
-      title: input.title,
-      visibility: input.visibility,
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-    });
-    await repo.insertMember(tx, {
-      conversationId: made.id,
-      participantId: viewer.participantId,
-      workspaceId: viewer.workspaceId,
-      role: "owner",
-    });
+      const made = await repo.insertConversation(tx, {
+        workspaceId: viewer.workspaceId,
+        kind: input.kind,
+        title: input.title,
+        visibility: input.visibility,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+      });
+      await repo.insertMember(tx, {
+        conversationId: made.id,
+        participantId: viewer.participantId,
+        workspaceId: viewer.workspaceId,
+        role: "owner",
+      });
 
-    await appendEvent(tx, {
-      kind: "conversation.created",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "conversation",
-      subjectId: made.id,
-      payload: { kind: input.kind, title: made.title, visibility: made.visibility },
-    });
+      await appendEvent(tx, {
+        kind: "conversation.created",
+        workspaceId: viewer.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "conversation",
+        subjectId: made.id,
+        payload: { kind: input.kind, title: made.title, visibility: made.visibility },
+      });
 
-    return made;
-  });
+      return made;
+    },
+    (made) => made.id,
+  );
 }
 
 /**
@@ -549,29 +559,33 @@ export async function createChannel(
  * Удаление мягкое.
  */
 export async function deleteConversation(viewer: Viewer, conversationId: string): Promise<void> {
-  await change(viewer.workspaceId, async (tx) => {
-    const found = await repo.findVisibleConversation(tx, conversationId, viewer.participantId);
-    if (!found) throw new ConversationNotVisibleError();
+  await change(
+    viewer.workspaceId,
+    async (tx) => {
+      const found = await repo.findVisibleConversation(tx, conversationId, viewer.participantId);
+      if (!found) throw new ConversationNotVisibleError();
 
-    // Ветка не удаляется отдельно: она живёт и умирает вместе с корнем.
-    if (found.parentId !== null) throw new ConversationNotVisibleError();
+      // Ветка не удаляется отдельно: она живёт и умирает вместе с корнем.
+      if (found.parentId !== null) throw new ConversationNotVisibleError();
 
-    const role = await repo.roleIn(tx, conversationId, viewer.participantId);
-    if (role !== "owner") throw new ConversationNotVisibleError();
+      const role = await repo.roleIn(tx, conversationId, viewer.participantId);
+      if (role !== "owner") throw new ConversationNotVisibleError();
 
-    const gone = await repo.softDeleteConversation(tx, conversationId);
-    if (!gone) throw new ConversationNotVisibleError();
+      const gone = await repo.softDeleteConversation(tx, conversationId);
+      if (!gone) throw new ConversationNotVisibleError();
 
-    await appendEvent(tx, {
-      kind: "conversation.deleted",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "conversation",
-      subjectId: conversationId,
-      // Название — чтобы по журналу было видно, что снесли.
-      payload: { title: found.title },
-    });
-  });
+      await appendEvent(tx, {
+        kind: "conversation.deleted",
+        workspaceId: viewer.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "conversation",
+        subjectId: conversationId,
+        // Название — чтобы по журналу было видно, что снесли.
+        payload: { title: found.title },
+      });
+    },
+    conversationId,
+  );
 }
 
 /**
@@ -643,36 +657,47 @@ export async function editMessage(
   messageId: string,
   body: string,
 ): Promise<MessageView> {
-  return change(viewer.workspaceId, async (tx) => {
-    const found = await requireMine(tx, viewer, messageId);
-    const changed = await repo.updateMessageBody(tx, viewer.workspaceId, messageId, body);
-    if (!changed) throw new ConversationNotVisibleError();
+  return change(
+    viewer.workspaceId,
+    async (tx) => {
+      const found = await requireMine(tx, viewer, messageId);
+      const changed = await repo.updateMessageBody(tx, viewer.workspaceId, messageId, body);
+      if (!changed) throw new ConversationNotVisibleError();
 
-    // Убрал упоминание — значок у человека гаснет.
-    await setMentions(tx, messageId, await mentionedWhoSee(tx, found.conversationId, body));
+      // Убрал упоминание — значок у человека гаснет.
+      await setMentions(tx, messageId, await mentionedWhoSee(tx, found.conversationId, body));
 
-    await logMessageEvent(tx, viewer, "message.edited", messageId, found);
-    return viewOf(tx, messageId);
-  });
+      await logMessageEvent(tx, viewer, "message.edited", messageId, found);
+      return viewOf(tx, messageId);
+    },
+    (view) => view.conversationId,
+  );
 }
 
 /** Удалить своё сообщение — мягко: на него ссылаются ответы и пересылки. */
 export async function deleteMessage(viewer: Viewer, messageId: string): Promise<void> {
-  await change(viewer.workspaceId, async (tx) => {
-    const { found, moderated } = await requireDeletable(tx, viewer, messageId);
-    const gone = await repo.softDeleteMessage(tx, viewer.workspaceId, messageId);
-    if (!gone) throw new ConversationNotVisibleError();
+  await change(
+    viewer.workspaceId,
+    async (tx) => {
+      const { found, moderated } = await requireDeletable(tx, viewer, messageId);
+      const gone = await repo.softDeleteMessage(tx, viewer.workspaceId, messageId);
+      if (!gone) throw new ConversationNotVisibleError();
 
-    // Актор — удаливший; признак говорит, что сообщение было чужим (Р-035).
-    await logMessageEvent(
-      tx,
-      viewer,
-      "message.deleted",
-      messageId,
-      found,
-      moderated ? { moderated } : {},
-    );
-  });
+      // Актор — удаливший; признак говорит, что сообщение было чужим (Р-035).
+      await logMessageEvent(
+        tx,
+        viewer,
+        "message.deleted",
+        messageId,
+        found,
+        moderated ? { moderated } : {},
+      );
+
+      // Возвращаем адрес, а не void: звонок обязан знать, где изменилось.
+      return found.conversationId;
+    },
+    (where) => where,
+  );
 }
 
 /** Закрепить или открепить — любому, кому виден разговор, как в Телеграме и Слаке. */
@@ -681,22 +706,28 @@ export async function pinMessage(
   messageId: string,
   pinned: boolean,
 ): Promise<void> {
-  await change(viewer.workspaceId, async (tx) => {
-    const found = await repo.findMessage(tx, messageId);
-    if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
-    await requireVisible(tx, viewer, found.conversationId);
+  await change(
+    viewer.workspaceId,
+    async (tx) => {
+      const found = await repo.findMessage(tx, messageId);
+      if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
+      await requireVisible(tx, viewer, found.conversationId);
 
-    // Повтор — не ошибка: результат тот же.
-    await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
+      // Повтор — не ошибка: результат тот же.
+      await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
 
-    await logMessageEvent(
-      tx,
-      viewer,
-      pinned ? "message.pinned" : "message.unpinned",
-      messageId,
-      found,
-    );
-  });
+      await logMessageEvent(
+        tx,
+        viewer,
+        pinned ? "message.pinned" : "message.unpinned",
+        messageId,
+        found,
+      );
+
+      return found.conversationId;
+    },
+    (where) => where,
+  );
 }
 
 /** Закреплённое разговора, свежее сверху. */

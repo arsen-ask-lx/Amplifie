@@ -3,7 +3,8 @@ import rateLimit from "@fastify/rate-limit";
 import { serializerCompiler, validatorCompiler } from "@fastify/type-provider-zod";
 import Fastify, { type FastifyInstance } from "fastify";
 import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
-import { setBusFailureReporter } from "../../platform/bus.js";
+import { audienceFor } from "../../kernel/talk/index.js";
+import { setAudienceResolver, setBusFailureReporter } from "../../platform/bus.js";
 import { config } from "../../platform/config.js";
 import { countQueries, queriesSoFar } from "../../platform/db.js";
 import { answerKnownFailures } from "./failures.js";
@@ -49,6 +50,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   setBusFailureReporter((error) => {
     app.log.warn({ err: error }, "слушатель живых обновлений упал");
   });
+
+  // Кому виден разговор — знает ядро; шина этого знать не должна и не может
+  // (гейт границ ловит обратный импорт). Без этой строки шина молчит
+  // и жалуется — закрывается, а не открывается (task-067).
+  setAudienceResolver(audienceFor);
 
   // Счёт запросов к базе на обращение: стенд отдаёт его заголовком, и по нему
   // приёмочные ловят N+1. В коробке заголовка нет — устройство базы не наружу.
