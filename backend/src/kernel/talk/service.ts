@@ -353,7 +353,14 @@ async function told(workspaceId: string, conversationId: string, line: MessageVi
    * Ошибку раздачи не глотаем: она уходит тому, кто объявлен шине
    * (`setBusFailureReporter`), то есть в логи витрины.
    */
-  void publish(workspaceId, { conversation: conversationId }, audience);
+  /**
+   * ⚠️ В СОБЫТИЕ ЕДЕТ ТОТ ЖЕ ОБЪЕКТ, ЧТО И В ХВОСТ (task-085).
+   * Не копия и не «похожая строка», а буквально он же: иначе у одних
+   * данных появилось бы два способа собраться, и они разошлись бы молча.
+   * Адресаты те же и посчитаны один раз — второго вопроса к базе
+   * из-за посылки не появляется.
+   */
+  void publish(workspaceId, { conversation: conversationId, line }, audience);
 }
 
 /**

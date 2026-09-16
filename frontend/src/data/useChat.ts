@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { feedTroubleOf, troubleOf } from "../shared/trouble.js";
-import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
+import {
+  api,
+  type ChangeEvent,
+  type Conversation,
+  type Me,
+  type Message,
+  type Quote,
+  type SyncLine,
+} from "./api.js";
+import { carried } from "./carried.js";
 import { catchUpWith } from "./catchUp.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
@@ -130,18 +139,22 @@ function ignore(): void {
 }
 
 /**
- * Где изменилось: адрес разговора из звонка либо `null` — «в пространстве».
+ * Что приехало звонком: адрес изменения и, если сервер сумел описать
+ * его точно, сама реплика (task-085).
  *
  * Звонок, который не разобрался, считаем «пространством»: тогда список
  * обновится, а лишнего догона не будет. Лучше не обновить ленту, чем
  * поднять её на каждый чужой чих.
  */
-function addressOf(data: string): string | null {
+function eventOf(data: string): ChangeEvent {
   try {
-    const parsed = JSON.parse(data || "{}") as { conversation?: string | null };
-    return parsed.conversation ?? null;
+    const parsed = JSON.parse(data || "{}") as Partial<ChangeEvent>;
+    return {
+      conversation: parsed.conversation ?? null,
+      ...(parsed.line ? { line: parsed.line } : {}),
+    };
   } catch {
-    return null;
+    return { conversation: null };
   }
 }
 
@@ -383,20 +396,49 @@ export function useChat(me: Me): Chat {
   // Звонок. EventSource переподключается сам — этим SSE и хорош.
   useEffect(() => {
     const stream = new EventSource("/v1/stream");
-    const onChanged = (event: MessageEvent<string>) => {
-      const where = addressOf(event.data);
+    const asked = () =>
+      catchUp().catch(() => setFailure("Обновления не доходят — обновите страницу"));
 
-      /**
-       * ⚠️ ЗА ЛЕНТОЙ ИДЁМ ТОЛЬКО ЗА СВОЕЙ (task-067). Раньше сюда шёл
-       * догон на ЛЮБОЙ звонок: сообщение в чужом чате поднимало все
-       * открытые вкладки, и каждая шла в базу. Замерено: 209 транзакций
-       * базы на одну реплику при ста вкладках против 4 после правки.
-       *
-       * Звонок без адреса (`null`) — изменение пространства: папку
-       * завели, чат перенесли. Лента от этого не меняется.
-       */
-      if (where !== null && where === openRef.current) {
-        catchUp().catch(() => setFailure("Обновления не доходят — обновите страницу"));
+    /**
+     * ⚠️ ПОСЫЛКА ПРИМЕНЯЕТСЯ ТЕМ ЖЕ КУРСОРОМ, ЧТО И СТРАНИЦА
+     * ДОГОНА (task-085). Это не придирка, а единственная страховка
+     * от второго пути доставки: путь остаётся один, у него появляется
+     * сокращение. Номер идёт сразу за курсором — применили; любой
+     * разрыв — идём в догон, как ходили раньше.
+     *
+     * ⚠️ ПРИМЕНЯЕТСЯ ЛЮБАЯ ПРИЕХАВШАЯ РЕПЛИКА, А НЕ ТОЛЬКО СВОЕГО
+     * ЧАТА. В ленту попадёт только реплика открытого (это решает `accept`),
+     * но курсор обязан двигаться на каждой: иначе следующая реплика
+     * в моём чате выглядела бы разрывом, и сокращение не работало бы никогда.
+     */
+    const applyCarried = (line: Message) => {
+      const what = carried(line.seq, cursor.current);
+      if (what === "применить") {
+        cursor.current = line.seq;
+        accept([line]);
+        return;
+      }
+      // «Уже видели» — не делаем ничего и никуда не идём.
+      if (what === "догнать") void asked();
+    };
+
+    const onChanged = (event: MessageEvent<string>) => {
+      const changed = eventOf(event.data);
+      if (changed.line) {
+        applyCarried(changed.line);
+      } else if (changed.conversation !== null && changed.conversation === openRef.current) {
+        /**
+         * ⚠️ ЗА ЛЕНТОЙ ИДЁМ ТОЛЬКО ЗА СВОЕЙ (task-067). Раньше сюда шёл
+         * догон на ЛЮБОЙ звонок: сообщение в чужом чате поднимало все
+         * открытые вкладки, и каждая шла в базу.
+         *
+         * Сюда теперь попадают только изменения без посылки — правка,
+         * удаление, закрепление: их сервер описать точно не умеет.
+         *
+         * Звонок без адреса (`null`) — изменение пространства: папку
+         * завели, чат перенесли. Лента от этого не меняется.
+         */
+        void asked();
       }
 
       // Список — на любой звонок: непрочитанное и порядок меняются и от
@@ -414,7 +456,7 @@ export function useChat(me: Me): Chat {
       stream.removeEventListener("changed", onChanged);
       stream.close();
     };
-  }, [catchUp, rooms.reload]);
+  }, [catchUp, rooms.reload, accept]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]?.seq;

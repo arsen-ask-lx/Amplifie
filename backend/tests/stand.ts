@@ -136,6 +136,14 @@ export async function listen(person: Person): Promise<(timeoutMs?: number) => Pr
  */
 export interface CallSeen {
   conversation: string | null;
+  /**
+   * Сама реплика, если сервер сумел описать изменение точно (task-085).
+   *
+   * Тип намеренно сырой: главная проверка — что этот объект совпадает
+   * с ответом догона ЦЕЛИКОМ. Объяви мы здесь свою форму — сравнение
+   * шло бы с ней, а не с тем, что отдаёт сервер.
+   */
+  line?: unknown;
 }
 
 /** Один кадр потока: звонок это или что-то другое (биение, комментарий). */
@@ -143,8 +151,14 @@ function callOf(frame: string): CallSeen | null {
   if (!frame.includes("event: changed")) return null;
   const line = frame.split("\n").find((one) => one.startsWith("data:"));
   const raw = (line ?? "").slice("data:".length).trim();
-  const parsed = JSON.parse(raw === "" ? "{}" : raw) as { conversation?: string | null };
-  return { conversation: parsed.conversation ?? null };
+  const parsed = JSON.parse(raw === "" ? "{}" : raw) as {
+    conversation?: string | null;
+    line?: unknown;
+  };
+  return {
+    conversation: parsed.conversation ?? null,
+    ...(parsed.line === undefined ? {} : { line: parsed.line }),
+  };
 }
 
 /** Первый готовый звонок из накопленного; `rest` — что осталось разобрать. */

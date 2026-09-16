@@ -1,4 +1,5 @@
 import type {
+  ChangeEvent,
   Conversation,
   Message,
   PanelSnapshot,
@@ -15,7 +16,17 @@ import { ApiError, type FieldErrors } from "../shared/failure.js";
  * сменился ответ сервера — фронт перестаёт собираться там, где читает
  * старое поле. Только типы: zod в сборку фронта не едет.
  */
-export type { Conversation, Message, PanelSnapshot, Person, Project, Quote, SyncLine, Tombstone };
+export type {
+  ChangeEvent,
+  Conversation,
+  Message,
+  PanelSnapshot,
+  Person,
+  Project,
+  Quote,
+  SyncLine,
+  Tombstone,
+};
 
 /** Порция строк панели: сами строки и курсор продолжения (`null` — конец). */
 export interface Page {

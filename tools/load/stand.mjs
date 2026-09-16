@@ -167,8 +167,36 @@ async function reacted(chunk, cursor, { cookie, seen, sync, watching, stats }) {
    */
   await readPanel(cookie, stats);
 
+  /**
+   * ⚠️ ПОСЫЛКА ПРИМЕНЯЕТСЯ БЕЗ ЗАПРОСА — ТОЧНО ТАК ЖЕ, КАК ЭТО
+   * ДЕЛАЕТ БРАУЗЕР (task-085). Номер идёт сразу за курсором — вкладка
+   * показала реплику и никуда не пошла; любой разрыв — идёт в догон.
+   *
+   * Если стенд будет догонять там, где браузер не догоняет, цена события
+   * окажется завышенной; если НЕ будет там, где браузер догоняет, —
+   * заниженной. Второе опаснее: прибор покажет победу, которой нет.
+   */
+  const carried = lineOf(chunk);
+  if (carried) {
+    if (carried.seq === cursor + 1) return carried.seq;
+    if (carried.seq > cursor) return caughtUp(cookie, cursor, stats);
+    return cursor;
+  }
+
   if (watching !== null && !addressed(chunk, watching)) return cursor;
   return caughtUp(cookie, cursor, stats);
+}
+
+/** Реплика из события, если сервер её прислал. */
+function lineOf(chunk) {
+  const line = chunk.split("\n").find((one) => one.startsWith("data:"));
+  if (!line) return null;
+  try {
+    const { line: carried } = JSON.parse(line.slice("data:".length).trim() || "{}");
+    return carried && typeof carried.seq === "number" ? carried : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Панель после звонка — так же, как её перечитывает браузер. */

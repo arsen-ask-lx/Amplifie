@@ -125,6 +125,22 @@ export const syncView = z.object({
   hasMore: z.boolean(),
 });
 
+/**
+ * Сообщение потока живых обновлений (Р-006, task-085).
+ *
+ * ⚠️ `line` — ТОТ ЖЕ ВИД, ЧТО У ДОГОНА, и это главное здесь.
+ * Событие и догон — два способа доехать по ОДНОЙ дороге, а не две
+ * дороги. Объяви здесь свою форму — они разошлись бы на первой правке.
+ *
+ * Поля нет вовсе — изменение, которое сервер не умеет описать точно
+ * (правка, удаление, закрепление, заводка разговора): за ним идут догоном.
+ */
+export const changeEvent = z.object({
+  /** Где изменилось; `null` — изменилось пространство. */
+  conversation: id.nullable(),
+  line: messageView.optional(),
+});
+
 export const messagesPage = z.object({
   items: z.array(messageView),
   hasMore: z.boolean(),
@@ -239,4 +255,5 @@ export type Quote = z.infer<typeof quoteView>;
 export type Message = z.infer<typeof messageView>;
 export type Tombstone = z.infer<typeof tombstoneView>;
 export type SyncLine = Message | Tombstone;
+export type ChangeEvent = z.infer<typeof changeEvent>;
 export type Person = z.infer<typeof personView>;
