@@ -117,7 +117,7 @@ export async function joined(token, tag) {
  * событий, ноль лишних транзакций — потому что догона не было.
  * Поэтому догон включён по умолчанию, а выключается осознанно.
  */
-export async function openTab(cookie, seen, { sync = true, watching = null } = {}) {
+export async function openTab(cookie, seen, { sync = true, watching = null, stats } = {}) {
   const controller = new AbortController();
   const response = await fetch(`${BASE}/v1/stream`, {
     headers: { cookie, accept: "text/event-stream" },
@@ -126,7 +126,7 @@ export async function openTab(cookie, seen, { sync = true, watching = null } = {
   if (response.status === 429) throw new OwnRateLimitError("подключение к потоку");
   if (!response.ok || !response.body) throw new Error(`поток: ${response.status}`);
 
-  void follow(response.body.getReader(), { cookie, seen, sync, watching });
+  void follow(response.body.getReader(), { cookie, seen, sync, watching, stats });
   return controller;
 }
 
@@ -146,19 +146,31 @@ async function follow(reader, options) {
 }
 
 /** Что вкладка делает с прочитанным куском потока. Возвращает свой курсор. */
-async function reacted(chunk, cursor, { cookie, seen, sync, watching }) {
+async function reacted(chunk, cursor, { cookie, seen, sync, watching, stats }) {
   // Событие приехало — только время и важно. Что именно приехало,
   // проверяют приёмочные, а не замер.
   if (!chunk.includes("data:")) return cursor;
   seen.push(Date.now());
   if (!sync) return cursor;
   if (watching !== null && !addressed(chunk, watching)) return cursor;
-  return caughtUp(cookie, cursor);
+  return caughtUp(cookie, cursor, stats);
 }
 
-/** Догон, как его делает браузер: своим курсором и вперёд. */
-async function caughtUp(cookie, cursor) {
+/**
+ * Догон, как его делает браузер: своим курсором и вперёд.
+ *
+ * ⚠️ СЧИТАЕМ ЦЕНУ ДОГОНА ЗАГОЛОВКОМ, А НЕ СЧЁТЧИКОМ БАЗЫ. Счётчик базы
+ * (`pg_stat_database`) ловит и чужой фон — автовакуум, служебные задания, —
+ * и на нём прирост плавал от 0,65 до −0,51 между прогонами. Заголовок
+ * `x-db-queries` отдаёт сам сервер и ровно про этот запрос, поэтому число
+ * получается детерминированным. В коробке заголовка нет, он только на стенде.
+ */
+async function caughtUp(cookie, cursor, stats) {
   const response = await request(`/v1/sync?after=${cursor}`, { cookie });
+  if (stats) {
+    stats.syncs += 1;
+    stats.queries += Number(response.headers.get("x-db-queries") ?? 0);
+  }
   if (!response.ok) return cursor;
   const page = await response.json();
   return typeof page.seq === "number" ? page.seq : cursor;

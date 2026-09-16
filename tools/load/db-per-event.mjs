@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Цена одного события: сколько раз база отвечает на ОДНО отправленное
  * сообщение при N подключённых вкладках (Д-3, task-067).
@@ -29,7 +30,7 @@
  * Настройки: TABS=200 make db-per-event
  */
 
-import { execFileSync } from "node:child_process";
+import { committed, wait, windowOf } from "./pg-counter.mjs";
 import { inviteLink, OwnRateLimitError, openTabs, registerOwner, request } from "./stand.mjs";
 
 /**
@@ -43,67 +44,17 @@ import { inviteLink, OwnRateLimitError, openTabs, registerOwner, request } from 
  * законен, и число показывает цену честной работы, а не стада.
  *
  * `WATCHING=any` — поведение клиента ДО адреса в звонке: догоняет на любой
- * звонок. Им получено красное число 154 транзакции при ста вкладках.
+ * звонок. Им получено красное число 209 транзакций при ста вкладках.
  */
 const WATCHING = process.env.WATCHING ?? "other";
 
 const TABS = Number(process.env.TABS ?? 100);
 
-/**
- * Сколько ждём доставки и тишины. Одно число на оба окна — они сравниваются.
- *
- * ⚠️ ОКНО ДОЛЖНО БЫТЬ ДОЛЬШЕ, ЧЕМ УСПЕВАЕТ СТАДО. Если догоны не успели
- * закончиться внутри окна, замер покажет не цену события, а пропускную
- * способность стенда — и числа поплывут от прогона к прогону. Проверено:
- * на четырёх секундах и ста вкладках два прогона дали 154 и 44.
- */
 const WINDOW_MS = Number(process.env.WINDOW_MS ?? 10_000);
 
-/**
- * Счётчик транзакций базы.
- *
- * Через `docker compose exec`, а не своим драйвером: замеру не нужен ни
- * пул, ни строка подключения снаружи контейнера. Одна зависимость меньше —
- * один способ соврать меньше.
- */
-function committed() {
-  const out = execFileSync(
-    "docker",
-    [
-      "compose",
-      "exec",
-      "-T",
-      "postgres",
-      "psql",
-      "-U",
-      process.env.POSTGRES_USER ?? "amplifie",
-      "-d",
-      process.env.POSTGRES_DB ?? "amplifie",
-      "-Atc",
-      "select xact_commit from pg_stat_database where datname = current_database()",
-    ],
-    { encoding: "utf8" },
-  );
-  const value = Number(out.trim());
-  if (!Number.isFinite(value)) throw new Error(`не прочитал счётчик базы: ${out.trim()}`);
-  return value;
-}
-
-async function wait(ms) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Ничего не делаем: тихое окно — это окно без работы, а не без смысла. */
-async function nothing() {
-  return undefined;
-}
-
-/** Окно наблюдения: что база накоммитила, пока внутри окна шла работа. */
+/** Окно наблюдения общей меркой: см. pg-counter.mjs. */
 async function window(work) {
-  const before = committed();
-  await work();
-  await wait(WINDOW_MS);
-  return committed() - before;
+  return windowOf(work, WINDOW_MS);
 }
 
 async function run() {
@@ -144,7 +95,7 @@ async function run() {
 
   // Тихое окно: в него попадает биение потока и наши же опросы счётчика —
   // ровно тот фон, который нужно вычесть из рабочего окна.
-  const quiet = await window(nothing);
+  const quiet = await window(async () => undefined);
   seen.length = 0;
 
   const sent = await window(async () => {

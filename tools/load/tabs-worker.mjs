@@ -22,11 +22,17 @@ import { openTabs } from "./stand.mjs";
 const seen = [];
 let held = [];
 
+/**
+ * Что вкладки этого процесса сделали: сколько раз сходили в догон и сколько
+ * запросов к базе это стоило серверу (по заголовку `x-db-queries`).
+ */
+const stats = { syncs: 0, queries: 0 };
+
 process.on("message", async (message) => {
   if (message.open) {
     const { token, count, watching } = message.open;
     try {
-      held = await openTabs(token, count, seen, undefined, { watching });
+      held = await openTabs(token, count, seen, undefined, { watching, stats });
       process.send({ ready: held.length });
     } catch (error) {
       process.send({ failed: String(error?.message ?? error) });
@@ -36,7 +42,7 @@ process.on("message", async (message) => {
 
   if (message.stop) {
     for (const controller of held) controller.abort();
-    process.send({ seen: seen.length });
+    process.send({ seen: seen.length, syncs: stats.syncs, queries: stats.queries });
     process.exit(0);
   }
 });
