@@ -340,6 +340,11 @@ event-cost: ## гейт: цена события не растёт с число
 > node tools/checks/check-event-cost.mjs
 
 # Настройки: SLOW=1 SENDERS=3 EACH=25 SIZE=8000 make slow-client
+# Настройки: SAMPLES=5 make conditions
+.PHONY: conditions
+conditions: ## условия замера числами: тихо ли на стенде (сначала: make up)
+> node tools/load/conditions.mjs
+
 .PHONY: slow-client
 slow-client: ## что медленный клиент делает с памятью, Д-14 (сначала: make up)
 > node tools/load/slow-client.mjs
@@ -383,4 +388,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load check
+.PHONY: help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load conditions check

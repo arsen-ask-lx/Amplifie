@@ -17,7 +17,7 @@
  * Запускается не руками, а `measure.mjs` через `fork`.
  */
 
-import { openTabs, refusals } from "./stand.mjs";
+import { openTabs, ownLagMs, refusals } from "./stand.mjs";
 
 const seen = [];
 let held = [];
@@ -51,6 +51,11 @@ process.on("message", async (message) => {
       // в чужих процессах: их 429 родитель иначе не увидит никогда,
       // и замер показал бы наш порог как предел сервера (task-091).
       refusals: refusals(),
+      // ⚠️ СВОЯ ЗАДЕРЖКА, А НЕ СЕРВЕРА. Держатель, стоящий в очереди
+      // на единственный поток, отдаёт своё ожидание как время сервера.
+      // Без этого числа замер врёт тем сильнее, чем интереснее ступень
+      // (task-091, П-0).
+      lagMs: ownLagMs(),
     });
     process.exit(0);
   }

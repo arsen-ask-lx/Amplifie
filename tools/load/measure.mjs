@@ -30,6 +30,7 @@ import {
   OwnRateLimitError,
   registerOwner,
   releaseTabs,
+  reportLag,
   reportRefusals,
   request,
 } from "./stand.mjs";
@@ -209,7 +210,11 @@ function report({ latencies, failures, total, seconds, tabs, reaction }) {
   // ⚠️ ОТКАЗЫ ПО ЧАСТОТЕ — ПОСЛЕДНЯЯ СТРОКА ОТЧЁТА, И ОНА ОБЯЗАТЕЛЬНА.
   // Общий порог у нас 5000 в минуту на АДРЕС, а генератор приходит
   // с одного. Числа выше без этой строки недоказаны (task-091, П-7).
+  // ⚠️ ДВА СТОРОЖА ИДУТ ВМЕСТЕ И ПЕРЕД ВЫВОДАМИ. Первый ловит, что мы
+  // упёрлись в свой порог частоты; второй — что упёрлись в сам прибор.
+  // Оба отвечают на один вопрос: про сервер ли числа выше (task-091).
   reportRefusals(reaction.refusals);
+  reportLag(reaction.lagMs);
 
   /**
    * Оговорка про одну машину — только когда машина одна.

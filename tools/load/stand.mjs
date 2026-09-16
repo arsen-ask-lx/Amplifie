@@ -13,6 +13,7 @@
  */
 
 import { fork } from "node:child_process";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 
 export const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 
@@ -33,6 +34,60 @@ export const TABS_PER_PERSON = 8;
 
 /** Упёрлись в СВОЙ порог частоты, а не в предел сервера (Р-025). */
 export class OwnRateLimitError extends Error {}
+
+/**
+ * Своя задержка событийного цикла — ПРИБОР МЕРИТ СЕБЯ (task-091, П-0).
+ *
+ * ⚠️ ЭТО ЗАМЕНА ВТОРОЙ МАШИНЕ, А НЕ ДОБАВКА К ОТЧЁТУ. «Дальше 800 вкладок
+ * мы мерим генератор» было преданием: числа, подтверждающего границу,
+ * не существовало ни одного. Держатель, у которого очередь на единственный
+ * поток, отдаёт СВОЮ задержку как время сервера — и замер тихо врёт
+ * тем больше, чем ближе к интересному месту.
+ *
+ * Тот же приём, что у сервера в `platform/metrics.ts`: 0.99, а не среднее,
+ * потому что среднее прячет как раз тех, кому плохо. Монитор заводится
+ * на процесс: и у держателя, и у родителя-отправителя он свой, и это
+ * правильно — очередь у них разная.
+ */
+const ownLoop = monitorEventLoopDelay({ resolution: 10 });
+ownLoop.enable();
+
+/** 0.99 собственной задержки этого процесса, в миллисекундах. */
+export function ownLagMs() {
+  return ownLoop.percentile(99) / 1e6;
+}
+
+/**
+ * Выше этого прибор считается узким местом, и числа прогона не идут в зачёт.
+ *
+ * Пятьдесят миллисекунд — двадцатая часть той секунды, которую мы обещаем
+ * как 0.99 отклика. Прибор, стоящий в очереди дольше, уже вписывает
+ * в результат заметную долю себя.
+ */
+export const CLEAR_LAG_MS = 50;
+
+/**
+ * Сказать, можно ли верить числам этого прогона.
+ *
+ * Отдаёт `true`, когда верить НЕЛЬЗЯ: прибор занят собой. Смотрит худшего
+ * из держателей, а не среднего: один вставший портит замер целиком,
+ * а среднее его спрячет.
+ */
+export function reportLag(workersWorstMs = 0) {
+  const mine = ownLagMs();
+  const worst = Math.max(mine, workersWorstMs);
+  const where = `отправитель ${mine.toFixed(0)} мс, худший держатель ${workersWorstMs.toFixed(0)} мс`;
+  if (worst < CLEAR_LAG_MS) {
+    console.log(`  прибор свободен: 0.99 своей задержки ${worst.toFixed(0)} мс (${where})`);
+    return false;
+  }
+  console.log(`  ⚠️ ПРИБОР ЗАНЯТ СОБОЙ: 0.99 своей задержки ${worst.toFixed(0)} мс (${where})`);
+  console.log(
+    `  это больше ${CLEAR_LAG_MS} мс — числа выше содержат нашу очередь, а не только сервер.`,
+  );
+  console.log("  выше этой ступени лестницы замер не засчитывается: упор здесь, а не на сервере");
+  return true;
+}
 
 export function emailFor(tag) {
   return `load-${Date.now()}-${tag}-${Math.floor(Math.random() * 1e6)}@example.test`;
@@ -436,11 +491,14 @@ export async function releaseTabs(workers) {
     (sum, one) => ({
       // Сколько событий увидели вкладки — это доставка, главное число этапа 7.
       seen: sum.seen + (one.seen ?? 0),
+      // ХУДШИЙ, а не сумма и не среднее: один вставший держатель портит
+      // замер целиком, а среднее его спрячет (task-091, П-0).
+      lagMs: Math.max(sum.lagMs, one.lagMs ?? 0),
       syncs: sum.syncs + one.syncs,
       panels: sum.panels + (one.panels ?? 0),
       queries: sum.queries + one.queries,
       refusals: merged(sum.refusals, one.refusals),
     }),
-    { seen: 0, syncs: 0, panels: 0, queries: 0, refusals: {} },
+    { seen: 0, lagMs: 0, syncs: 0, panels: 0, queries: 0, refusals: {} },
   );
 }
