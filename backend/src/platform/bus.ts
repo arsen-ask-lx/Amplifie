@@ -30,6 +30,8 @@
  * открыт поток, и их число — предмет наблюдения, а не догадок.
  */
 
+import { COUNTERS, count, gauge } from "./metrics.js";
+
 /** Что случилось: адрес разговора либо `null` — «изменилось пространство». */
 export interface Change {
   conversation: string | null;
@@ -56,6 +58,17 @@ interface Seat {
 }
 
 const byWorkspace = new Map<string, Set<Seat>>();
+
+/**
+ * Сколько труб открыто прямо сейчас. При цели в 3000 вкладок это
+ * первое число, по которому видно, что стенд вообще дошёл туда,
+ * куда собирался: не дошёл — и все остальные числа про что-то другое.
+ */
+gauge("amplifie_streams", "открытых потоков живых обновлений", () => {
+  let seats = 0;
+  for (const one of byWorkspace.values()) seats += one.size;
+  return seats;
+});
 
 /**
  * Куда сообщать, если слушатель упал. Заглушка по умолчанию НЕ молчит:
@@ -153,11 +166,13 @@ export async function publish(
   // Выяснить не удалось — не звоним никому: см. разрешитель выше.
   if (allowed === undefined) return;
 
+  count(COUNTERS.events);
   for (const seat of [...seats]) {
     if (allowed !== null && !allowed.has(seat.participantId)) continue;
     try {
       seat.listener(change);
     } catch (error) {
+      count(COUNTERS.listenerFailures);
       onListenerFailed(error);
     }
   }

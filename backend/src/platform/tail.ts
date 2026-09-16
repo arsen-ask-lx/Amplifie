@@ -58,6 +58,8 @@
  * его частью — интерфейс здесь именно для этого, а не для красоты (Р-038).
  */
 
+import { COUNTERS, count } from "./metrics.js";
+
 /** Одна запись хвоста: что изменилось, кому видно и что отдавать. */
 interface Remembered<Line> {
   /** Номер изменения — тот же курсор, которым ходит `/v1/sync`. */
@@ -177,6 +179,22 @@ export function forget(workspaceId: string): void {
  * и отдать молча. Поэтому она часть ответа, а не совет.
  */
 export function visibleTo<Line>(
+  workspaceId: string,
+  afterSeq: number,
+  limit: number,
+  participantId: string,
+): { lines: Line[]; head: number } | null {
+  const answer = answerFrom<Line>(workspaceId, afterSeq, limit, participantId);
+  count(answer === null ? COUNTERS.tailMisses : COUNTERS.tailHits);
+  return answer;
+}
+
+/**
+ * Сам ответ. Вынесен, чтобы счёт попаданий стоял в ОДНОМ месте,
+ * а не у каждого из пяти выходов: забытый счётчик на одном из них
+ * дал бы тихо завышенную долю попаданий — то есть враньё в нашу пользу.
+ */
+function answerFrom<Line>(
   workspaceId: string,
   afterSeq: number,
   limit: number,

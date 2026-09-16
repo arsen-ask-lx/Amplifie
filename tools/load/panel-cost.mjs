@@ -50,9 +50,35 @@ if (!health.ok) {
   process.exit(1);
 }
 
+/**
+ * ВТОРОЙ СВИДЕТЕЛЬ: счётчик самого сервера (task-087).
+ *
+ * Стенд считает только СВОИ запросы и только по заголовкам — именно
+ * так он четыре раза соврал за один день. Сервер считает ВСЁ. Расхождение
+ * между ними — то самое место, где прячется враньё.
+ *
+ * Числа берутся ПОСЛЕ подготовки: регистрации и входы стенд не считает
+ * вовсе, и включи мы их — свидетели расходились бы всегда и без повода.
+ */
+const INSIDE = process.env.AMPLIFIE_API_URL ?? "http://localhost:3477";
+
+async function serverCounts() {
+  try {
+    const text = await (await fetch(`${INSIDE}/metrics`)).text();
+    const line = text.split("\n").find((one) => one.startsWith("amplifie_db_queries_total "));
+    return line ? Number(line.split(" ")[1]) : null;
+  } catch {
+    // Дверь метрик внутренняя: снаружи её может не быть видно,
+    // и это не повод ронять замер. Тогда свидетель один, и это сказано.
+    return null;
+  }
+}
+
 const owner = await registerOwner();
 const token = await inviteLink(owner.cookie, TABS + 2);
 const workers = await holdTabs(token, owner.room, TABS);
+
+const serverBefore = await serverCounts();
 
 let write = 0;
 for (let n = 0; n < MESSAGES; n++) {
@@ -68,10 +94,11 @@ for (let n = 0; n < MESSAGES; n++) {
 
 await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
 const reaction = await releaseTabs(workers);
+const serverAfter = await serverCounts();
 
 const total = write + reaction.queries;
 console.log(
-  `${TABS} вкладок, ${MESSAGES} реплик подряд с паузой ${GAP_MS} мс ` + `(в одном чате):`,
+  `${TABS} вкладок, ${MESSAGES} реплик подряд с паузой ${GAP_MS} мс (в одном чате):`,
 );
 console.log(
   `  запросов к базе всего ${total} = запись ${write} + реакция вкладок ${reaction.queries}`,
@@ -81,3 +108,17 @@ console.log(
   `  НА ОДНО СООБЩЕНИЕ: ${(total / MESSAGES).toFixed(1)} запросов, ` +
     `${(reaction.panels / MESSAGES / TABS).toFixed(2)} перечитываний панели на вкладку`,
 );
+
+if (serverBefore === null || serverAfter === null) {
+  console.log("  второго свидетеля нет: дверь /metrics недоступна");
+} else {
+  const server = serverAfter - serverBefore;
+  const apart = Math.abs(server - total) / Math.max(total, 1);
+  console.log(
+    `  СВЕРКА: стенд насчитал ${total}, сервер ${server} ` +
+      `— расхождение ${(apart * 100).toFixed(1)}%`,
+  );
+  if (apart > 0.05) {
+    console.log("  ⚠️ больше 5% — один из двух врёт, и числа выше нельзя считать доказанными");
+  }
+}

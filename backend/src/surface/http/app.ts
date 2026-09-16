@@ -7,6 +7,7 @@ import { audienceFor } from "../../kernel/talk/index.js";
 import { setAudienceResolver, setBusFailureReporter } from "../../platform/bus.js";
 import { config } from "../../platform/config.js";
 import { countQueries, queriesSoFar } from "../../platform/db.js";
+import { answered } from "../../platform/metrics.js";
 import { answerKnownFailures } from "./failures.js";
 import { OVERALL } from "./limits.js";
 import { registerAgentRoutes } from "./routes/agents.js";
@@ -14,6 +15,7 @@ import { registerAccountRoutes, registerAuthRoutes } from "./routes/auth.js";
 import { registerBridgeHumanRoutes, registerBridgeMachineRoutes } from "./routes/bridge.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerMetricsRoutes } from "./routes/metrics.js";
 import { registerStreamRoutes } from "./routes/stream.js";
 import { requireSession } from "./routes/viewer.js";
 
@@ -71,8 +73,21 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setSerializerCompiler(serializerCompiler);
   answerKnownFailures(app);
 
+  /**
+   * Всякий ответ — три числа RED разом: частота, доля неудачных,
+   * время. Общим крюком, а не в каждой двери: тогда новая дверь
+   * не может забыть себя посчитать.
+   *
+   * Имя двери — шаблон маршрута, а не адрес: иначе меток стало бы
+   * столько же, сколько разговоров, и метрики съели бы память.
+   */
+  app.addHook("onResponse", async (request, reply) => {
+    answered(request.routeOptions.url ?? "неизвестная", reply.statusCode, reply.elapsedTime / 1000);
+  });
+
   // Открытые двери: здоровье, вход и машина моста со своим удостоверением.
   registerHealthRoutes(app);
+  registerMetricsRoutes(app);
   registerAuthRoutes(app);
   registerBridgeMachineRoutes(app);
 
