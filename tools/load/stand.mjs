@@ -12,6 +12,8 @@
  * с «command not found». Проверено, а не предположено.
  */
 
+import { fork } from "node:child_process";
+
 export const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 
 const password = "ochen-dlinnyi-parol-dlya-zamera";
@@ -126,7 +128,9 @@ export async function openTab(cookie, seen, { sync = true, watching = null, stat
   if (response.status === 429) throw new OwnRateLimitError("подключение к потоку");
   if (!response.ok || !response.body) throw new Error(`поток: ${response.status}`);
 
-  void follow(response.body.getReader(), { cookie, seen, sync, watching, stats });
+  // У каждой вкладки своё окно — как у каждого браузера своё.
+  const panel = coalesced(() => void readPanel(cookie, stats), PANEL_WINDOW_MS);
+  void follow(response.body.getReader(), { cookie, seen, sync, watching, stats, panel });
   return controller;
 }
 
@@ -146,7 +150,7 @@ async function follow(reader, options) {
 }
 
 /** Что вкладка делает с прочитанным куском потока. Возвращает свой курсор. */
-async function reacted(chunk, cursor, { cookie, seen, sync, watching, stats }) {
+async function reacted(chunk, cursor, { cookie, seen, sync, watching, stats, panel }) {
   // Событие приехало — только время и важно. Что именно приехало,
   // проверяют приёмочные, а не замер.
   if (!chunk.includes("data:")) return cursor;
@@ -165,7 +169,7 @@ async function reacted(chunk, cursor, { cookie, seen, sync, watching, stats }) {
    * цены события. Тот же класс ошибки, что и трижды до него:
    * прибор был зелёным потому, что не смотрел туда, где дорого.
    */
-  await readPanel(cookie, stats);
+  panel();
 
   /**
    * ⚠️ ПОСЫЛКА ПРИМЕНЯЕТСЯ БЕЗ ЗАПРОСА — ТОЧНО ТАК ЖЕ, КАК ЭТО
@@ -197,6 +201,48 @@ function lineOf(chunk) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Сколько вкладка держит окно между перечитываниями панели.
+ *
+ * ⚠️ ЭТО ВТОРАЯ КОПИЯ ЧИСЛА, И Я ГОВОРЮ ОБ ЭТОМ ВСЛУХ.
+ * Настоящее живёт в `frontend/src/data/useRooms.ts` (`PANEL_WINDOW_MS`).
+ * Стенд — подделка клиента, и подделка обязана вести себя как оригинал;
+ * импортировать число оттуда нельзя — там рядом React.
+ *
+ * Разойдутся — замер соврёт, и направление вранья названо: окно
+ * больше клиентского — цена выйдет заниженной (покажет победу,
+ * которой нет), меньше — завышенной. За сегодня это четвёртый
+ * случай, когда стенд вёл себя не как клиент.
+ */
+const PANEL_WINDOW_MS = Number(process.env.PANEL_WINDOW_MS ?? 3000);
+
+/**
+ * То же правило, что у клиента (`frontend/src/data/coalesced.ts`):
+ * сразу, потом не чаще раза в окно, и хвост обязателен.
+ */
+function coalesced(run, windowMs) {
+  let closing;
+  let waiting = false;
+  const fire = () => {
+    run();
+    closing = setTimeout(() => {
+      closing = undefined;
+      if (!waiting) return;
+      waiting = false;
+      fire();
+    }, windowMs);
+    // Окно не должно держать процесс живым после конца замера.
+    closing.unref?.();
+  };
+  return () => {
+    if (closing) {
+      waiting = true;
+      return;
+    }
+    fire();
+  };
 }
 
 /** Панель после звонка — так же, как её перечитывает браузер. */
@@ -264,4 +310,59 @@ export async function openTabs(token, count, seen, onProgress, options) {
     }
   }
   return held;
+}
+
+/**
+ * Держатели вкладок — ОТДЕЛЬНЫМИ ПРОЦЕССАМИ, и это не украшение.
+ *
+ * Пока вкладки и отправка жили в одном процессе Node, замер мерил СЕБЯ:
+ * 400 вкладок давали 4,8 с при свободном сервере. Сто вкладок на процесс —
+ * тогда ни один не становится узким местом раньше сервера.
+ *
+ * Живёт здесь, а не в гейте: держатели нужны всем замерам, и вторая
+ * копия разошлась бы с первой при первой же правке.
+ */
+const PER_WORKER = 100;
+
+export async function holdTabs(token, watching, count) {
+  const workers = [];
+  for (let left = count; left > 0; left -= PER_WORKER) {
+    workers.push(await oneWorker(token, watching, Math.min(PER_WORKER, left)));
+  }
+  return workers;
+}
+
+function oneWorker(token, watching, count) {
+  return new Promise((resolve, reject) => {
+    const child = fork(new URL("./tabs-worker.mjs", import.meta.url), { stdio: "inherit" });
+    child.on("message", (message) => {
+      if (message.failed) reject(new Error(message.failed));
+      else if (message.ready !== undefined) resolve({ child, tabs: message.ready });
+    });
+    child.on("error", reject);
+    child.send({ open: { token, count, watching } });
+  });
+}
+
+/** Погасить держателей и собрать, во что обошлись их вкладки. */
+export async function releaseTabs(workers) {
+  const reports = await Promise.all(
+    workers.map(
+      (one) =>
+        new Promise((resolve) => {
+          one.child.on("message", (message) => {
+            if (message.queries !== undefined) resolve(message);
+          });
+          one.child.send({ stop: true });
+        }),
+    ),
+  );
+  return reports.reduce(
+    (sum, one) => ({
+      syncs: sum.syncs + one.syncs,
+      panels: sum.panels + (one.panels ?? 0),
+      queries: sum.queries + one.queries,
+    }),
+    { syncs: 0, panels: 0, queries: 0 },
+  );
 }

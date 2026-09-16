@@ -27,9 +27,8 @@
  * Запуск: make event-cost (стек должен быть поднят: make up)
  */
 
-import { fork } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { inviteLink, registerOwner, request } from "../load/stand.mjs";
+import { holdTabs, inviteLink, registerOwner, releaseTabs, request } from "../load/stand.mjs";
 
 const RATCHET = "tools/ratchets/event-cost.txt";
 
@@ -65,42 +64,6 @@ function allowed() {
   }
 }
 
-/** Держатели вкладок — отдельными процессами: иначе замер мерит себя. */
-function startWorker(token, watching, count) {
-  return new Promise((resolve, reject) => {
-    const child = fork(new URL("../load/tabs-worker.mjs", import.meta.url), { stdio: "inherit" });
-    child.on("message", (message) => {
-      if (message.failed) reject(new Error(message.failed));
-      else if (message.ready !== undefined) resolve({ child, tabs: message.ready });
-    });
-    child.on("error", reject);
-    child.send({ open: { token, count, watching } });
-  });
-}
-
-/** Погасить держателей и собрать, сколько запросов к базе стоили их догоны. */
-async function stopWorkers(workers) {
-  const reports = await Promise.all(
-    workers.map(
-      (one) =>
-        new Promise((resolve) => {
-          one.child.on("message", (message) => {
-            if (message.queries !== undefined) resolve(message);
-          });
-          one.child.send({ stop: true });
-        }),
-    ),
-  );
-  return reports.reduce(
-    (sum, one) => ({
-      syncs: sum.syncs + one.syncs,
-      panels: sum.panels + (one.panels ?? 0),
-      queries: sum.queries + one.queries,
-    }),
-    { syncs: 0, panels: 0, queries: 0 },
-  );
-}
-
 /**
  * Цена одного сообщения при заданном числе вкладок — в запросах к базе.
  *
@@ -111,11 +74,7 @@ async function costAt(tabs) {
   const owner = await registerOwner();
   const token = await inviteLink(owner.cookie, tabs + 2);
 
-  const perWorker = 100;
-  const workers = [];
-  for (let left = tabs; left > 0; left -= perWorker) {
-    workers.push(await startWorker(token, owner.room, Math.min(perWorker, left)));
-  }
+  const workers = await holdTabs(token, owner.room, tabs);
 
   const sent = await request(`/v1/conversations/${owner.room}/messages`, {
     method: "POST",
@@ -127,7 +86,7 @@ async function costAt(tabs) {
   if (write === 0) throw new Error("стенд не отдал x-db-queries — это не стенд");
 
   await new Promise((resolve) => setTimeout(resolve, WINDOW_MS));
-  const reaction = await stopWorkers(workers);
+  const reaction = await releaseTabs(workers);
 
   return { total: write + reaction.queries, write, ...reaction };
 }

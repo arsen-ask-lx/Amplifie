@@ -339,6 +339,11 @@ db-per-event: ## цена одного события в транзакциях 
 event-cost: ## гейт: цена события не растёт с числом вкладок (сначала: make up)
 > node tools/checks/check-event-cost.mjs
 
+# Настройки: TABS=40 MESSAGES=10 GAP_MS=300 make panel-cost
+.PHONY: panel-cost
+panel-cost: ## цена потока сообщений: что стоит панель на реплику (сначала: make up)
+> node tools/load/panel-cost.mjs
+
 # Настройки: SENDERS=50 EACH=5 SPREAD=same|spaces make write-ceiling
 .PHONY: write-ceiling
 write-ceiling: ## потолок записи в одно пространство, Д-2 (сначала: make up)
