@@ -51,7 +51,12 @@ export const conversationView = z.object({
   moderator: z.boolean(),
 });
 
-/** Панель целиком одним ответом: разговоры и проекты. */
+/**
+ * Все видимые разговоры одним ответом. Панель этим больше не пользуется
+ * (с task-064 у неё `panelSnapshot` и курсорные двери) — форма осталась
+ * у `/v1/conversations`, которую зовёт окно пересылки. Без предела
+ * и страниц: это Д-41/Д-15, и чинится поиском, а не обрезкой.
+ */
 export const panelView = z.object({
   items: z.array(conversationView),
   projects: z.array(projectView),

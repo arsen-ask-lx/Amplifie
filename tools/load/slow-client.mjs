@@ -24,7 +24,7 @@
  */
 
 import { connect } from "node:net";
-import { inviteLink, joined, registerOwner, request } from "./stand.mjs";
+import { inviteLink, joined, registerOwner, reportRefusals, request } from "./stand.mjs";
 
 /** Сколько клиентов перестали читать. */
 const SLOW = Number(process.env.SLOW ?? 1);
@@ -152,6 +152,7 @@ console.log(
 );
 console.log(`  оборвано сервером: ${after.dropped ?? "числа нет"}`);
 console.log(`  читающий сосед получил событий: ${seen.length}`);
+reportRefusals();
 
 for (const one of deafOnes) one.destroy();
 process.exit(0);

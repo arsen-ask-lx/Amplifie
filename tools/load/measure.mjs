@@ -22,8 +22,17 @@
  * Запуск: make load (стек должен быть поднят: make up)
  */
 
-import { fork } from "node:child_process";
-import { BASE, inviteLink, joined, OwnRateLimitError, registerOwner, request } from "./stand.mjs";
+import {
+  BASE,
+  holdTabs,
+  inviteLink,
+  joined,
+  OwnRateLimitError,
+  registerOwner,
+  releaseTabs,
+  reportRefusals,
+  request,
+} from "./stand.mjs";
 
 const TABS = Number(process.env.TABS ?? 400);
 
@@ -64,6 +73,12 @@ function percentiles(numbers) {
   const sorted = [...numbers].sort((a, b) => a - b);
   const at = (share) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))];
   return { p50: at(0.5), p90: at(0.9), p99: at(0.99), worst: sorted.at(-1) };
+}
+
+/** Генератор и сервер на одной машине — тогда числа оптимистичны. */
+function alone() {
+  const host = new URL(BASE).hostname;
+  return host === "localhost" || host === "127.0.0.1";
 }
 
 function ms(value) {
@@ -112,51 +127,6 @@ async function load(room, senders) {
   return { latencies, failures, seconds: (Date.now() - startedAt) / 1000, total };
 }
 
-/**
- * Поднять держателей вкладок и дождаться, пока ВСЕ вкладки открыты.
- *
- * Отправка, начатая раньше, измерила бы нагрузку не на том числе
- * слушателей, которое потом напечатано в отчёте.
- */
-async function openTabsInWorkers(token, watching) {
-  const starting = [];
-  let left = TABS;
-  while (left > 0) {
-    const count = Math.min(TABS_PER_WORKER, left);
-    left -= count;
-    starting.push(startWorker(token, watching, count));
-  }
-  return Promise.all(starting);
-}
-
-function startWorker(token, watching, count) {
-  return new Promise((resolve, reject) => {
-    const child = fork(new URL("tabs-worker.mjs", import.meta.url), { stdio: "inherit" });
-    child.on("message", (message) => {
-      if (message.failed) reject(new Error(message.failed));
-      else if (message.ready !== undefined) resolve({ child, tabs: message.ready });
-    });
-    child.on("error", reject);
-    child.send({ open: { token, count, watching } });
-  });
-}
-
-/** Погасить держателей и собрать, сколько событий они увидели. */
-async function stopWorkers(workers) {
-  const counts = await Promise.all(
-    workers.map(
-      (one) =>
-        new Promise((resolve) => {
-          one.child.on("message", (message) => {
-            if (message.seen !== undefined) resolve(message.seen);
-          });
-          one.child.send({ stop: true });
-        }),
-    ),
-  );
-  return counts.reduce((sum, one) => sum + one, 0);
-}
-
 async function run() {
   console.log(`стенд: ${BASE}`);
   console.log(
@@ -177,7 +147,20 @@ async function run() {
   const other = (await aside.json()).id;
   const watching = WATCHING === "any" ? null : WATCHING === "other" ? other : owner.room;
 
-  const workers = await openTabsInWorkers(token, watching);
+  /**
+   * ⚠️ ДЕРЖАТЕЛИ БЕРУТСЯ ИЗ `stand.mjs`, А НЕ ЗАВОДЯТСЯ ЗДЕСЬ.
+   *
+   * Здесь лежала вторая копия `holdTabs`/`releaseTabs`, и она уже разошлась
+   * с первой: собирала у держателей только число увиденных событий, а всё
+   * остальное, чем они отчитываются, молча выбрасывала. Вместе с этим
+   * терялись бы и отказы по частоте — то самое число, без которого замер
+   * на 3000 вкладках рассказал бы про НАШ порог вместо предела сервера
+   * (task-091, П-7).
+   *
+   * Ждём, пока открыты ВСЕ вкладки: отправка, начатая раньше, измерила бы
+   * нагрузку не на том числе слушателей, которое потом напечатано в отчёте.
+   */
+  const workers = await holdTabs(token, watching, TABS, TABS_PER_WORKER);
   const tabs = workers.reduce((sum, one) => sum + one.tabs, 0);
   console.log(`открыто вкладок: ${tabs} в ${workers.length} процессах`);
 
@@ -190,9 +173,9 @@ async function run() {
 
   // Даём событиям доехать: раздача идёт после ответа на отправку.
   await new Promise((r) => setTimeout(r, 3000));
-  const events = await stopWorkers(workers);
+  const reaction = await releaseTabs(workers);
 
-  report({ latencies, failures, total, seconds, tabs, events });
+  report({ latencies, failures, total, seconds, tabs, reaction });
 }
 
 /**
@@ -202,9 +185,10 @@ async function run() {
  * голове. Замер с одной машины систематически приукрашивает, и число
  * без этой строки однажды процитируют как обещание клиенту.
  */
-function report({ latencies, failures, total, seconds, tabs, events }) {
+function report({ latencies, failures, total, seconds, tabs, reaction }) {
   const expected = latencies.length * tabs;
   const stats = percentiles(latencies);
+  const events = reaction.seen;
 
   console.log("\n── что получилось ─────────────────────────────────");
   console.log(`отправлено:        ${latencies.length} из ${total} за ${seconds.toFixed(1)} с`);
@@ -221,8 +205,27 @@ function report({ latencies, failures, total, seconds, tabs, events }) {
       `(${expected ? Math.round((events / expected) * 100) : 0}%)`,
   );
   console.log(`память процесса:   ${Math.round(process.memoryUsage().rss / 1e6)} МБ у ИЗМЕРИТЕЛЯ`);
-  console.log("\n⚠️ Оговорка: замер с ОДНОЙ машины. Сто вкладок отсюда и сто человек");
-  console.log("   из разных сетей — не одно и то же; числа получаются оптимистичными.");
+
+  // ⚠️ ОТКАЗЫ ПО ЧАСТОТЕ — ПОСЛЕДНЯЯ СТРОКА ОТЧЁТА, И ОНА ОБЯЗАТЕЛЬНА.
+  // Общий порог у нас 5000 в минуту на АДРЕС, а генератор приходит
+  // с одного. Числа выше без этой строки недоказаны (task-091, П-7).
+  reportRefusals(reaction.refusals);
+
+  /**
+   * Оговорка про одну машину — только когда машина одна.
+   *
+   * Раньше она печаталась всегда. Стоило бы запустить генератор с другой
+   * машины (этап 7), и отчёт продолжил бы извиняться за то, чего уже нет,
+   * — а такую строку однажды процитируют вместе с числами.
+   */
+  if (alone()) {
+    console.log("\n⚠️ Оговорка: замер с ОДНОЙ машины. Сто вкладок отсюда и сто человек");
+    console.log("   из разных сетей — не одно и то же; числа получаются оптимистичными.");
+  } else {
+    console.log(`
+⚠️ Условия: генератор и сервер РАЗНЫЕ машины, сервер — ${BASE}.`);
+    console.log("   Что между ними за сеть, числа не знают: назови это в журнале плана.");
+  }
 }
 
 run().catch((error) => {

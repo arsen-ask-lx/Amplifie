@@ -38,8 +38,66 @@ export function emailFor(tag) {
   return `load-${Date.now()}-${tag}-${Math.floor(Math.random() * 1e6)}@example.test`;
 }
 
+/**
+ * Сколько раз сервер ответил 429, и каким дверям.
+ *
+ * ⚠️ ЭТО ГЛАВНЫЙ СТОРОЖ ЗАМЕРА, А НЕ УКРАШЕНИЕ ОТЧЁТА (task-091).
+ * Общий порог частоты у нас 5000 в минуту НА АДРЕС
+ * (`surface/http/limits.ts`, `OVERALL`), и ключа у него нет — значит
+ * ключ адрес. Генератор на отдельной машине приходит с ОДНОГО адреса,
+ * а 3000 вкладок дают три тысячи подключений плюс входы, перечитывания
+ * панели и догоны: это заметно больше пяти тысяч в минуту.
+ *
+ * Без этого счётчика мы упёрлись бы в СВОЙ порог и записали его как
+ * предел сервера. Молча: `readPanel` не смотрел на код ответа вовсе,
+ * а догон при неуспехе просто возвращал прежний курсор. Ровно тот класс
+ * ошибки, на котором прибор соврал пять раз за 16.09.2026.
+ */
+const refused = new Map();
+
+/** Дверь без имён и запроса: `/v1/conversations/<uuid>/messages` → `.../:id/messages`. */
+function doorOf(path) {
+  return path
+    .split("?")[0]
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu, ":id");
+}
+
+function refusal(path) {
+  const door = doorOf(path);
+  refused.set(door, (refused.get(door) ?? 0) + 1);
+}
+
+/** Кому и сколько раз отказали по частоте. Пусто — отказов не было. */
+export function refusals() {
+  return Object.fromEntries(refused);
+}
+
+/**
+ * Сказать вслух, были ли отказы по частоте.
+ *
+ * Отдаёт `true`, когда замер НЕЛЬЗЯ считать доказанным: числа выше
+ * рассказывают про наш порог, а не про сервер.
+ */
+export function reportRefusals(extra = {}) {
+  const all = { ...refusals() };
+  for (const [door, times] of Object.entries(extra)) {
+    all[door] = (all[door] ?? 0) + times;
+  }
+  const total = Object.values(all).reduce((sum, one) => sum + one, 0);
+  if (total === 0) {
+    console.log("  отказов по частоте (429): 0 — упёрлись не в свой порог");
+    return false;
+  }
+  const where = Object.entries(all)
+    .map(([door, times]) => `${door} ×${times}`)
+    .join(", ");
+  console.log(`  ⚠️ ОТКАЗОВ ПО ЧАСТОТЕ (429): ${total} — ${where}`);
+  console.log("  числа выше рассказывают про НАШ порог, а не про предел сервера");
+  return true;
+}
+
 export async function request(path, { method = "GET", body, cookie } = {}) {
-  return fetch(`${BASE}${path}`, {
+  const response = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
@@ -47,6 +105,10 @@ export async function request(path, { method = "GET", body, cookie } = {}) {
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+  // Единственное место, где считается отказ по частоте: разойдись счёт
+  // по вызывающим — половина забыла бы, и забывший показал бы ноль.
+  if (response.status === 429) refusal(path);
+  return response;
 }
 
 export function cookieOf(response) {
@@ -125,7 +187,12 @@ export async function openTab(cookie, seen, { sync = true, watching = null, stat
     headers: { cookie, accept: "text/event-stream" },
     signal: controller.signal,
   });
-  if (response.status === 429) throw new OwnRateLimitError("подключение к потоку");
+  if (response.status === 429) {
+    // Поток идёт голым `fetch`, мимо `request`: считаем здесь, иначе
+    // самый частый отказ замера оказался бы единственным несчитанным.
+    refusal("/v1/stream");
+    throw new OwnRateLimitError("подключение к потоку");
+  }
   if (!response.ok || !response.body) throw new Error(`поток: ${response.status}`);
 
   // У каждой вкладки своё окно — как у каждого браузера своё.
@@ -324,10 +391,11 @@ export async function openTabs(token, count, seen, onProgress, options) {
  */
 const PER_WORKER = 100;
 
-export async function holdTabs(token, watching, count) {
+export async function holdTabs(token, watching, count, perWorker = PER_WORKER) {
   const workers = [];
-  for (let left = count; left > 0; left -= PER_WORKER) {
-    workers.push(await oneWorker(token, watching, Math.min(PER_WORKER, left)));
+  const each = Math.max(1, perWorker);
+  for (let left = count; left > 0; left -= each) {
+    workers.push(await oneWorker(token, watching, Math.min(each, left)));
   }
   return workers;
 }
@@ -342,6 +410,13 @@ function oneWorker(token, watching, count) {
     child.on("error", reject);
     child.send({ open: { token, count, watching } });
   });
+}
+
+/** Сложить отказы двух отчётов по дверям. */
+function merged(into, added = {}) {
+  const all = { ...into };
+  for (const [door, times] of Object.entries(added)) all[door] = (all[door] ?? 0) + times;
+  return all;
 }
 
 /** Погасить держателей и собрать, во что обошлись их вкладки. */
@@ -359,10 +434,13 @@ export async function releaseTabs(workers) {
   );
   return reports.reduce(
     (sum, one) => ({
+      // Сколько событий увидели вкладки — это доставка, главное число этапа 7.
+      seen: sum.seen + (one.seen ?? 0),
       syncs: sum.syncs + one.syncs,
       panels: sum.panels + (one.panels ?? 0),
       queries: sum.queries + one.queries,
+      refusals: merged(sum.refusals, one.refusals),
     }),
-    { syncs: 0, panels: 0, queries: 0 },
+    { seen: 0, syncs: 0, panels: 0, queries: 0, refusals: {} },
   );
 }

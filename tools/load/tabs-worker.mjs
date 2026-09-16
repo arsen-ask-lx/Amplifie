@@ -17,7 +17,7 @@
  * Запускается не руками, а `measure.mjs` через `fork`.
  */
 
-import { openTabs } from "./stand.mjs";
+import { openTabs, refusals } from "./stand.mjs";
 
 const seen = [];
 let held = [];
@@ -47,6 +47,10 @@ process.on("message", async (message) => {
       syncs: stats.syncs,
       panels: stats.panels,
       queries: stats.queries,
+      // ⚠️ ОТКАЗЫ ЕДУТ ВМЕСТЕ С ЧИСЛАМИ, А НЕ ОСТАЮТСЯ ЗДЕСЬ. Вкладки живут
+      // в чужих процессах: их 429 родитель иначе не увидит никогда,
+      // и замер показал бы наш порог как предел сервера (task-091).
+      refusals: refusals(),
     });
     process.exit(0);
   }

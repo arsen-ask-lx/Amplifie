@@ -23,7 +23,14 @@
  * Настройки: TABS=40 MESSAGES=10 GAP_MS=300 make panel-cost
  */
 
-import { holdTabs, inviteLink, registerOwner, releaseTabs, request } from "./stand.mjs";
+import {
+  holdTabs,
+  inviteLink,
+  registerOwner,
+  releaseTabs,
+  reportRefusals,
+  request,
+} from "./stand.mjs";
 
 const TABS = Number(process.env.TABS ?? 40);
 
@@ -97,9 +104,7 @@ const reaction = await releaseTabs(workers);
 const serverAfter = await serverCounts();
 
 const total = write + reaction.queries;
-console.log(
-  `${TABS} вкладок, ${MESSAGES} реплик подряд с паузой ${GAP_MS} мс (в одном чате):`,
-);
+console.log(`${TABS} вкладок, ${MESSAGES} реплик подряд с паузой ${GAP_MS} мс (в одном чате):`);
 console.log(
   `  запросов к базе всего ${total} = запись ${write} + реакция вкладок ${reaction.queries}`,
 );
@@ -108,6 +113,9 @@ console.log(
   `  НА ОДНО СООБЩЕНИЕ: ${(total / MESSAGES).toFixed(1)} запросов, ` +
     `${(reaction.panels / MESSAGES / TABS).toFixed(2)} перечитываний панели на вкладку`,
 );
+
+// Отказ по частоте съел бы часть перечитываний, и цена вышла бы заниженной.
+reportRefusals(reaction.refusals);
 
 if (serverBefore === null || serverAfter === null) {
   console.log("  второго свидетеля нет: дверь /metrics недоступна");
