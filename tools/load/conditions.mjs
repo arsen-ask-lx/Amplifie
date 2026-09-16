@@ -16,11 +16,19 @@
  * считать сегодняшний замер чистым. Гасить чужое — решение человека,
  * у которого могут быть свои причины держать соседей поднятыми.
  *
+ * ⚠️ ФАЙЛ И ПРИБОР, И МОДУЛЬ. `sample()` нужен свидетелю прогона
+ * (`strangers-worker.mjs`): чужая нагрузка меряется не только ДО замера,
+ * но и ВО ВРЕМЯ него — владелец не гасит соседей, и другого способа
+ * отличить испорченный прогон от честного нет. Вторая копия опроса
+ * разошлась бы с этой при первой же правке порогов.
+ *
  * Запуск: make conditions
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, fork } from "node:child_process";
 import { cpus, freemem, totalmem } from "node:os";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Наши контейнеры зовутся так: всё прочее в этой машине Docker — чужое. */
 const OURS = /^amplifie[-_]/u;
@@ -56,11 +64,21 @@ const SPIKE = 50;
  */
 const SAMPLES = Number(process.env.SAMPLES ?? 5);
 
+/**
+ * Сколько вкладок собираемся держать: под них считается нужная память.
+ *
+ * Держатель — процесс Node на сотню вкладок, и стоит он около 60 МБ:
+ * сам рантайм плюс сотня открытых потоков по замеру task-090. Ноль —
+ * вопрос не задан, и про память прибор молчит.
+ */
+const TABS = Number(process.env.TABS ?? 0);
+const PER_WORKER_MB = 60;
+
 function docker(args) {
   return execFileSync("docker", args, { encoding: "utf8", timeout: 30_000 });
 }
 
-function sample() {
+export function sample() {
   const rows = docker([
     "stats",
     "--no-stream",
@@ -108,77 +126,147 @@ function machine() {
   return { cores: Number(raw[0]), bytes: Number(raw[1]) };
 }
 
-const gb = (bytes) => (bytes / 1e9).toFixed(1);
-
-let all;
-let vm;
-try {
-  vm = machine();
-  all = containers();
-} catch (error) {
-  console.error(`не удалось расспросить Docker: ${error.message}`);
-  console.error("  ПОЧИНИТЬ: стек должен быть поднят — make up");
-  process.exit(2);
+/**
+ * Следить за чужими ВО ВРЕМЯ прогона, а не только до него.
+ *
+ * Сосед просыпается по своему расписанию, и разбудить его может как раз
+ * наша нагрузка на общую машину. Покой до замера на это не отвечает.
+ * Опрос идёт отдельным процессом: в измеряющем он встал бы прямо
+ * в измеряемое время.
+ */
+export function watchStrangers() {
+  const child = fork(new URL("./strangers-worker.mjs", import.meta.url), { stdio: "inherit" });
+  child.send({ start: true });
+  return {
+    stop: () =>
+      new Promise((resolve) => {
+        child.on("message", (message) => {
+          if (message.samples !== undefined) resolve(message);
+        });
+        child.send({ stop: true });
+      }),
+  };
 }
 
-const strangers = all.filter((one) => !one.ours);
-const ourApi = all.find((one) => one.name.includes("api"));
-const busiest = [...all].sort((a, b) => b.peak - a.peak)[0];
-const load = all.reduce((sum, one) => sum + one.cpu, 0);
-const strangerLoad = strangers.reduce((sum, one) => sum + one.cpu, 0);
-
-console.log("── условия стенда ─────────────────────────────────");
-console.log(
-  `хозяин:        ${cpus().length} ядер · ${gb(totalmem())} ГБ, свободно ${gb(freemem())} ГБ`,
-);
-console.log(`машина Docker: ${vm.cores} ядер из ${cpus().length} · ${gb(vm.bytes)} ГБ`);
-console.log(`контейнеров:   ${all.length}, из них чужих ${strangers.length}`);
-console.log(
-  `процессор:     занято ${load.toFixed(0)}% из ${vm.cores * 100}% В ПОКОЕ ` +
-    `(чужими ${strangerLoad.toFixed(0)}%, ${SAMPLES} проб)`,
-);
-if (busiest) {
+/**
+ * Сказать, что делали чужие, пока мы мерили.
+ *
+ * Отдаёт `true`, когда прогон считается испорченным обстановкой: их
+ * всплеск вредит не мощностью, а повторимостью, и два одинаковых прогона
+ * дадут разные числа.
+ */
+export function reportStrangers(report) {
+  if (!report || report.samples === 0) {
+    console.log("  чужие рядом: проб не вышло — обстановка НЕ названа, и это минус замеру");
+    return true;
+  }
+  const { usual, peak, loudest, samples } = report;
+  const tail = loudest ? `, громче всех ${loudest}` : "";
+  if (peak <= SPIKE) {
+    console.log(
+      `  чужие рядом: обычно ${usual.toFixed(0)}%, всплеск ${peak.toFixed(0)}% ` +
+        `за ${samples} проб${tail} — прогон не испорчен`,
+    );
+    return false;
+  }
   console.log(
-    `самый громкий: ${busiest.name} — обычно ${busiest.cpu.toFixed(0)}%, ` +
-      `всплеск до ${busiest.peak.toFixed(0)}%`,
+    `  ⚠️ ЧУЖИЕ ВСПЛЕСНУЛИ ВО ВРЕМЯ ПРОГОНА: до ${peak.toFixed(0)}% ` +
+      `при обычных ${usual.toFixed(0)}% за ${samples} проб${tail}`,
   );
+  console.log(`  это больше ${SPIKE}% — числа этого прогона не повторятся, повтори его`);
+  return true;
 }
-if (ourApi) {
+
+/** Позвали как прибор, а не подключили как модуль. */
+function runDirectly() {
+  const asked = process.argv[1];
+  return asked !== undefined && resolve(asked) === fileURLToPath(import.meta.url);
+}
+
+if (runDirectly()) {
+  const gb = (bytes) => (bytes / 1e9).toFixed(1);
+
+  let all;
+  let vm;
+  try {
+    vm = machine();
+    all = containers();
+  } catch (error) {
+    console.error(`не удалось расспросить Docker: ${error.message}`);
+    console.error("  ПОЧИНИТЬ: стек должен быть поднят — make up");
+    process.exit(2);
+  }
+
+  const strangers = all.filter((one) => !one.ours);
+  const ourApi = all.find((one) => one.name.includes("api"));
+  const busiest = [...all].sort((a, b) => b.peak - a.peak)[0];
+  const load = all.reduce((sum, one) => sum + one.cpu, 0);
+  const strangerLoad = strangers.reduce((sum, one) => sum + one.cpu, 0);
+  const needGb = TABS > 0 ? (Math.ceil(TABS / 100) * PER_WORKER_MB) / 1000 : 0;
+
+  console.log("── условия стенда ─────────────────────────────────");
   console.log(
-    `наш сервер:    ${ourApi.name} — ${ourApi.cpu.toFixed(0)}%, ` +
-      `всплеск ${ourApi.peak.toFixed(0)}%, ${ourApi.memory}`,
+    `хозяин:        ${cpus().length} ядер · ${gb(totalmem())} ГБ, свободно ${gb(freemem())} ГБ`,
   );
-}
-
-const reasons = [];
-if (strangers.length > 0) {
-  const names = strangers
-    .slice(0, 3)
-    .map((one) => one.name)
-    .join(", ");
-  reasons.push(
-    `чужих контейнеров ${strangers.length} (${names}${strangers.length > 3 ? ", …" : ""}), ` +
-      `они берут ${strangerLoad.toFixed(0)}% процессора в покое`,
+  console.log(`машина Docker: ${vm.cores} ядер из ${cpus().length} · ${gb(vm.bytes)} ГБ`);
+  console.log(`контейнеров:   ${all.length}, из них чужих ${strangers.length}`);
+  if (needGb > 0) {
+    console.log(
+      `под ${TABS} вкладок: нужно около ${needGb.toFixed(1)} ГБ у держателей, ` +
+        `свободно ${gb(freemem())} ГБ`,
+    );
+  }
+  console.log(
+    `процессор:     занято ${load.toFixed(0)}% из ${vm.cores * 100}% В ПОКОЕ ` +
+      `(чужими ${strangerLoad.toFixed(0)}%, ${SAMPLES} проб)`,
   );
-}
-if (ourApi && ourApi.cpu > QUIET_CPU) {
-  reasons.push(`сервер в покое ест ${ourApi.cpu.toFixed(0)}% при пороге ${QUIET_CPU}%`);
-}
-if (busiest && !busiest.ours && busiest.peak > SPIKE) {
-  reasons.push(
-    `чужой ${busiest.name} всплескивает до ${busiest.peak.toFixed(0)}% — повторимости не будет`,
-  );
-}
+  if (busiest) {
+    console.log(
+      `самый громкий: ${busiest.name} — обычно ${busiest.cpu.toFixed(0)}%, ` +
+        `всплеск до ${busiest.peak.toFixed(0)}%`,
+    );
+  }
+  if (ourApi) {
+    console.log(
+      `наш сервер:    ${ourApi.name} — ${ourApi.cpu.toFixed(0)}%, ` +
+        `всплеск ${ourApi.peak.toFixed(0)}%, ${ourApi.memory}`,
+    );
+  }
 
-console.log("");
-if (reasons.length === 0) {
-  console.log("стенд тихий — замер можно считать чистым");
-  process.exit(0);
-}
+  /**
+   * ⚠️ ПРИСУТСТВИЕ ЧУЖИХ — НЕ ПРИГОВОР, А УСЛОВИЕ. Владелец 16.09.2026
+   * решил соседей не гасить: это его второй проект, и у него своя работа.
+   * Значит прибор не требует тишины, которой не будет, — он называет
+   * обстановку и ругается только на то, что ДЕЙСТВИТЕЛЬНО портит замер.
+   */
+  const reasons = [];
+  if (ourApi && ourApi.cpu > QUIET_CPU) {
+    reasons.push(`сервер в покое ест ${ourApi.cpu.toFixed(0)}% при пороге ${QUIET_CPU}%`);
+  }
+  if (busiest && !busiest.ours && busiest.peak > SPIKE) {
+    // Всплеск вредит не мощностью, а ПОВТОРИМОСТЬЮ: два одинаковых прогона
+    // дадут разные числа, и мы не узнаем, почему.
+    reasons.push(
+      `чужой ${busiest.name} всплескивает до ${busiest.peak.toFixed(0)}% — повторимости не будет`,
+    );
+  }
+  if (needGb > 0 && freemem() / 1e9 < needGb) {
+    reasons.push(
+      `на ${TABS} вкладок нужно около ${needGb.toFixed(1)} ГБ, ` +
+        `свободно ${gb(freemem())} — держатели уйдут в подкачку`,
+    );
+  }
 
-console.log("⚠️ СТЕНД НЕ ТИХИЙ, и числа замера будут про эту обстановку, а не про сервер:");
-for (const one of reasons) console.log(`   · ${one}`);
-console.log("");
-console.log("   ПОЧИНИТЬ: погасить чужое и повторить. Гасить сам не буду —");
-console.log("   это чужие контейнеры, и у них может быть своя работа.");
-process.exit(1);
+  console.log("");
+  if (reasons.length === 0) {
+    console.log(`замер можно считать чистым (чужие рядом есть, берут ${strangerLoad.toFixed(0)}%)`);
+    process.exit(0);
+  }
+
+  console.log("⚠️ ЗАМЕР БУДЕТ ПРО ЭТУ ОБСТАНОВКУ, А НЕ ПРО СЕРВЕР:");
+  for (const one of reasons) console.log(`   · ${one}`);
+  console.log("");
+  console.log("   Повтори прогон или назови это условие в журнале плана — но не");
+  console.log("   выдавай такие числа за предел сервера.");
+  process.exit(1);
+}

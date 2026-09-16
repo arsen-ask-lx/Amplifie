@@ -22,6 +22,7 @@
  * Запуск: make load (стек должен быть поднят: make up)
  */
 
+import { reportStrangers, watchStrangers } from "./conditions.mjs";
 import {
   BASE,
   holdTabs,
@@ -170,13 +171,17 @@ async function run() {
     senders.push(await joined(token, `send${n}`));
   }
 
+  // Свидетель обстановки заводится ровно на время нагрузки: чужие соседи
+  // не гасятся (решение владельца), значит надо знать, что они делали.
+  const strangers = watchStrangers();
   const { latencies, failures, seconds, total } = await load(owner.room, senders);
 
   // Даём событиям доехать: раздача идёт после ответа на отправку.
   await new Promise((r) => setTimeout(r, 3000));
   const reaction = await releaseTabs(workers);
+  const around = await strangers.stop();
 
-  report({ latencies, failures, total, seconds, tabs, reaction });
+  report({ latencies, failures, total, seconds, tabs, reaction, around });
 }
 
 /**
@@ -186,7 +191,7 @@ async function run() {
  * голове. Замер с одной машины систематически приукрашивает, и число
  * без этой строки однажды процитируют как обещание клиенту.
  */
-function report({ latencies, failures, total, seconds, tabs, reaction }) {
+function report({ latencies, failures, total, seconds, tabs, reaction, around }) {
   const expected = latencies.length * tabs;
   const stats = percentiles(latencies);
   const events = reaction.seen;
@@ -205,16 +210,29 @@ function report({ latencies, failures, total, seconds, tabs, reaction }) {
     `событий в потоках: ${events} из ${expected} ожидаемых ` +
       `(${expected ? Math.round((events / expected) * 100) : 0}%)`,
   );
+  /**
+   * ⚠️ ЧЕМ ВКЛАДКИ ЗАНЯЛИ СЕРВЕР — БЕЗ ЭТОЙ СТРОКИ ОТЧЁТ НЕ ОБЪЯСНЯЕТ ХВОСТ.
+   *
+   * Время ответа на отправку — это следствие; причина в том, что делают
+   * в ту же секунду сто вкладок. Числа собирают сами держатели по заголовку
+   * `x-db-queries`, то есть это цена НА СЕРВЕРЕ, а не догадка.
+   */
+  console.log(
+    `вкладки в ответ:   догонов ${reaction.syncs}, перечитываний панели ${reaction.panels}, ` +
+      `запросов к базе ${reaction.queries}`,
+  );
   console.log(`память процесса:   ${Math.round(process.memoryUsage().rss / 1e6)} МБ у ИЗМЕРИТЕЛЯ`);
 
   // ⚠️ ОТКАЗЫ ПО ЧАСТОТЕ — ПОСЛЕДНЯЯ СТРОКА ОТЧЁТА, И ОНА ОБЯЗАТЕЛЬНА.
   // Общий порог у нас 5000 в минуту на АДРЕС, а генератор приходит
   // с одного. Числа выше без этой строки недоказаны (task-091, П-7).
-  // ⚠️ ДВА СТОРОЖА ИДУТ ВМЕСТЕ И ПЕРЕД ВЫВОДАМИ. Первый ловит, что мы
-  // упёрлись в свой порог частоты; второй — что упёрлись в сам прибор.
-  // Оба отвечают на один вопрос: про сервер ли числа выше (task-091).
+  // ⚠️ ТРИ СТОРОЖА ИДУТ ВМЕСТЕ И ПЕРЕД ВЫВОДАМИ, и все отвечают на один
+  // вопрос: про сервер ли числа выше (task-091). Первый ловит, что мы
+  // упёрлись в свой порог частоты; второй — что упёрлись в сам прибор;
+  // третий — что рядом шумел чужой проект, который мы не гасим.
   reportRefusals(reaction.refusals);
   reportLag(reaction.lagMs);
+  reportStrangers(around);
 
   /**
    * Оговорка про одну машину — только когда машина одна.
