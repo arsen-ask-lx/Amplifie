@@ -30,7 +30,7 @@
  * Настройки: TABS=200 make db-per-event
  */
 
-import { committed, wait, windowOf } from "./pg-counter.mjs";
+import { wait, windowOf } from "./pg-counter.mjs";
 import { inviteLink, OwnRateLimitError, openTabs, registerOwner, request } from "./stand.mjs";
 
 /**

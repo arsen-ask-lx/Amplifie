@@ -250,7 +250,11 @@ export async function listMessages(
   return { items: rows.map(presentMessage), hasMore: rows.length === limit, head };
 }
 
-/** Записать сообщение: номер, вставка, упоминания, событие, вид. Общее для человека и агента. */
+/**
+ * Записать сообщение: номер, вставка, упоминания, событие. Общее для человека
+ * и агента. Отдаёт идентификатор, а НЕ готовый вид — см. `viewOf` ниже:
+ * вид собирается после фиксации, чтобы не держать замок пространства чтением.
+ */
 async function writeMessage(
   tx: Executor,
   target: { workspaceId: string },
@@ -264,9 +268,15 @@ async function writeMessage(
     replyToId?: string | null;
     forwardedFromId?: string | null;
   },
-): Promise<MessageView> {
+): Promise<{ id: string }> {
   // Номер — `UPDATE` строки в этой же транзакции, а не последовательность:
   // при откате он возвращается, и дыры не остаётся.
+  //
+  // ⚠️ ОТСЮДА И ДО ФИКСАЦИИ СТРОКА ПРОСТРАНСТВА ЗАПЕРТА, и все остальные
+  // отправители стоят в очереди. Замер task-081: одно пространство держит
+  // 64-107 записей в секунду против 181-212 у разных пространств на той же
+  // машине. Поэтому ниже — только то, без чего запись неполна; всякое
+  // чтение «для ответа» делается после фиксации.
   const seq = await repo.nextSeq(tx, target.workspaceId);
 
   const created = await repo.insertMessage(tx, {
@@ -275,7 +285,12 @@ async function writeMessage(
     ...input,
   });
 
-  await setMentions(tx, created.id, await mentionedWhoSee(tx, input.conversationId, input.body));
+  // ⚠️ ПРИ ВСТАВКЕ ЗОВЁМ ТОЛЬКО ЕСЛИ ЕСТЬ КОГО ЗВАТЬ. `setMentions`
+  // переписывает упоминания целиком, то есть начинает с `DELETE`, — и правке
+  // это нужно (снятый зов обязан погаснуть). У новой строки удалять нечего,
+  // и пустой `DELETE` здесь стоял под замком пространства на каждой отправке.
+  const mentioned = await mentionedWhoSee(tx, input.conversationId, input.body);
+  if (mentioned.length > 0) await setMentions(tx, created.id, mentioned);
 
   // Ответил — значит видел всё до ответа (как у Slack и Telegram). Своих
   // непрочитанных тогда не бывает, и счётчику не нужно перебирать свои
@@ -292,7 +307,7 @@ async function writeMessage(
     payload: { conversationId: input.conversationId, seq },
   });
 
-  return viewOf(tx, created.id);
+  return { id: created.id };
 }
 
 export interface SendResult {
@@ -356,18 +371,18 @@ export async function sendMessage(
   },
 ): Promise<SendResult> {
   try {
-    const result = await withTransaction(async (tx) => {
+    const written = await withTransaction(async (tx) => {
       const target = await requireVisible(tx, viewer, conversationId);
 
       const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
-      if (already) return { replayed: true, message: await viewOf(tx, already.id) };
+      if (already) return { replayed: true, id: already.id };
 
       // Цитата показывает текст, а её номер пришёл от клиента: без проверки
       // видимости по нему вытаскивался бы кусок чужого разговора.
       const replyToId = await visibleMessageId(tx, viewer, input.replyToId);
       const forwardedFromId = await visibleMessageId(tx, viewer, input.forwardedFromId);
 
-      const message = await writeMessage(tx, target, {
+      const made = await writeMessage(tx, target, {
         conversationId,
         authorParticipantId: viewer.participantId,
         body: input.body,
@@ -376,13 +391,26 @@ export async function sendMessage(
         forwardedFromId,
       });
 
-      return { replayed: false, message };
+      return { replayed: false, id: made.id };
     });
+
+    /**
+     * ⚠️ ВИД СОБИРАЕТСЯ ПОСЛЕ ФИКСАЦИИ, А НЕ ВНУТРИ ТРАНЗАКЦИИ.
+     * Это чтение с пятью присоединениями, и внутри оно шло под замком
+     * строки пространства, то есть за счёт ожидания всех остальных отправителей
+     * (Д-2, замер task-081). Записи это не касается: всё-или-ничего
+     * осталось в транзакции, а за ней живёт только чтение для ответа.
+     *
+     * Цена названа: успей кто-то править реплику в эту щель — отправитель
+     * увидит в ответе правку. Это не потеря: правка двигает номер изменения,
+     * и та же строка приедет всем догоном.
+     */
+    const message = await viewOf(db, written.id);
 
     // Звонок после фиксации (Р-006); повтор не звонит — ничего не изменилось.
     // Адрес — этот разговор: вкладки других разговоров не поднимаются (task-067).
-    if (!result.replayed) await told(viewer.workspaceId, conversationId, result.message);
-    return result;
+    if (!written.replayed) await told(viewer.workspaceId, conversationId, message);
+    return { replayed: written.replayed, message };
   } catch (error) {
     // Гонка двух запросов с одним ключом: проигравший откатывается
     // и получает то же сообщение, а не 500.
@@ -405,14 +433,14 @@ export async function sendAsAgent(
   conversationId: string,
   input: { body: string; clientMsgId: string },
 ): Promise<MessageView> {
-  const result = await withTransaction(async (tx) => {
+  const written = await withTransaction(async (tx) => {
     const target = await requireVisible(tx, onBehalfOf, conversationId);
 
     // Ключ выведен из обращения: двойной зов — один ответ.
     const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
-    if (already) return { fresh: false, message: await viewOf(tx, already.id) };
+    if (already) return { fresh: false, id: already.id };
 
-    const message = await writeMessage(tx, target, {
+    const made = await writeMessage(tx, target, {
       conversationId,
       authorParticipantId: agentParticipantId,
       body: input.body,
@@ -421,12 +449,15 @@ export async function sendAsAgent(
       trust: "untrusted",
     });
 
-    return { fresh: true, message };
+    return { fresh: true, id: made.id };
   });
 
+  // Вид — после фиксации, по той же причине, что у отправки человека.
+  const message = await viewOf(db, written.id);
+
   // Звонок только после фиксации (Р-006), и только если что-то изменилось.
-  if (result.fresh) await told(onBehalfOf.workspaceId, conversationId, result.message);
-  return result.message;
+  if (written.fresh) await told(onBehalfOf.workspaceId, conversationId, message);
+  return message;
 }
 
 export async function createThread(viewer: Viewer, parentId: string, title: string) {
