@@ -36,6 +36,9 @@ gates:
   typecheck: "npm run typecheck"
   arch: "npm run arch"
   decisions: "npm run decisions"
+  # Критерии успеха среза называются числами, а не словами. Храповик:
+  # старые планы не переписываем — сделанный план есть запись о случившемся.
+  proof: "make proof"
   arbiter-check: "npm run arbiter:check"
   contrast: "npm run contrast"
   unit: "npm run unit"
