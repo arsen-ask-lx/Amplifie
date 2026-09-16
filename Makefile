@@ -339,6 +339,11 @@ db-per-event: ## цена одного события в транзакциях 
 event-cost: ## гейт: цена события не растёт с числом вкладок (сначала: make up)
 > node tools/checks/check-event-cost.mjs
 
+# Настройки: SLOW=1 SENDERS=3 EACH=25 SIZE=8000 make slow-client
+.PHONY: slow-client
+slow-client: ## что медленный клиент делает с памятью, Д-14 (сначала: make up)
+> node tools/load/slow-client.mjs
+
 # Настройки: TABS=40 MESSAGES=10 GAP_MS=300 make panel-cost
 .PHONY: panel-cost
 panel-cost: ## цена потока сообщений: что стоит панель на реплику (сначала: make up)

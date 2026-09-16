@@ -32,6 +32,7 @@ export const COUNTERS = {
   tailMisses: "amplifie_tail_misses_total",
   events: "amplifie_events_total",
   listenerFailures: "amplifie_listener_failures_total",
+  streamsDropped: "amplifie_streams_dropped_total",
 } as const;
 
 type Counter = (typeof COUNTERS)[keyof typeof COUNTERS];
@@ -42,6 +43,7 @@ const HELP: Record<string, string> = {
   [COUNTERS.tailMisses]: "догонов, ушедших в базу",
   [COUNTERS.events]: "разосланных изменений",
   [COUNTERS.listenerFailures]: "падений слушателей при раздаче",
+  [COUNTERS.streamsDropped]: "потоков оборвано за невыбранный буфер",
 };
 
 const counters = new Map<Counter, number>();

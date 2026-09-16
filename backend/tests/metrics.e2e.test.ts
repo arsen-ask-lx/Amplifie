@@ -10,7 +10,7 @@
  * Бьёт по живому стеку. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { call, newPerson, type Person, requireStand } from "./stand.js";
+import { call, colleague, listenCalls, newPerson, type Person, requireStand } from "./stand.js";
 
 /** Дверь метрик внутренняя: она живёт на порту api, а не за Caddy. */
 const INSIDE = process.env.AMPLIFIE_API_URL ?? "http://localhost:3477";
@@ -81,6 +81,33 @@ describe("числа от самого сервера", () => {
     // и не в разы больше: в тишине между двумя опросами больше нечему идти.
     expect(after - before, "счётчик сервера против заголовка").toBeGreaterThanOrEqual(said);
     expect(after - before, "счётчик сервера считает лишнее").toBeLessThan(said + 10);
+  });
+
+  it("здорового слушателя сервер не обрывает", async () => {
+    // ⚠️ СТОРОЖ ОБРАТНОЙ СТОРОНЫ (Д-14). Предел незабранного буфера нужен,
+    // чтобы один залипший не съел память процесса. Но ошибись он в другую
+    // сторону — и сервер начнёт рвать живых, а те будут переподключаться
+    // и догонять, то есть мы своими руками вернём то самое стадо.
+    const owner = await newPerson("Хозяин");
+    const mate = await colleague(owner, "Слушатель");
+    const channel = await firstChannel(owner);
+
+    const before = numberOf(await metrics(), "amplifie_streams_dropped_total");
+    const stream = await listenCalls(mate);
+    try {
+      await call("POST", `/v1/conversations/${channel}/messages`, owner, {
+        body: "обычная реплика обычному слушателю",
+        clientMsgId: crypto.randomUUID(),
+      });
+      expect((await stream.next())?.conversation, "звонок дошёл").toBe(channel);
+    } finally {
+      stream.stop();
+    }
+
+    expect(
+      numberOf(await metrics(), "amplifie_streams_dropped_total") - before,
+      "того, кто читает, обрывать не за что",
+    ).toBe(0);
   });
 
   it("снаружи дверь метрик не видна", async () => {
