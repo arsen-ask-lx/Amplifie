@@ -470,6 +470,22 @@ function oneWorker(token, watching, count) {
       else if (message.ready !== undefined) resolve({ child, tabs: message.ready });
     });
     child.on("error", reject);
+    /**
+     * ⚠️ УМЕРШИЙ ДЕРЖАТЕЛЬ ОБЯЗАН УРОНИТЬ ЗАМЕР, А НЕ ПОДВЕСИТЬ ЕГО.
+     *
+     * Без этой строки замер на 3000 вкладках висел двенадцать минут
+     * с нулём открытых труб: держатели падали на `UND_ERR_CONNECT_TIMEOUT`,
+     * родитель ждал от них сообщения, а прислать его было уже некому —
+     * процесс умер необработанным отказом, то есть мимо `failed`
+     * и мимо `error`. Тихий отказ в чистом виде, и в приборе, который
+     * ровно для ловли тихих отказов и написан.
+     *
+     * `exit` приходит и после удачи — тогда обещание уже исполнено,
+     * и повторное решение ничего не делает.
+     */
+    child.on("exit", (code, signal) => {
+      reject(new Error(`держатель вкладок умер, не открыв их: код ${code ?? signal}`));
+    });
     child.send({ open: { token, count, watching } });
   });
 }
@@ -490,6 +506,10 @@ export async function releaseTabs(workers) {
           one.child.on("message", (message) => {
             if (message.queries !== undefined) resolve(message);
           });
+          // Умер, не отчитавшись, — берём пустой отчёт и идём дальше:
+          // ждать вечно хуже, чем недосчитать одного из тридцати. То, что
+          // его нет, видно по числу увиденных событий.
+          one.child.on("exit", () => resolve({ seen: 0, syncs: 0, panels: 0, queries: 0 }));
           one.child.send({ stop: true });
         }),
     ),
