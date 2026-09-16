@@ -18,3 +18,11 @@ export {
   type ProjectColor,
   type ProjectIcon,
 } from "./projectLook.js";
+export {
+  eventOf,
+  framed,
+  nextDelay,
+  RECONNECT,
+  retryAfterMs,
+  type StreamEvent,
+} from "./stream.js";

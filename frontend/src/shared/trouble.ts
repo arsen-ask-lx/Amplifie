@@ -46,15 +46,38 @@ export function troubleOf(error: unknown): Trouble {
   }
 }
 
+/** Отказ живых обновлений — потока и догона (task-093). */
+export type LiveTrouble =
+  /** Сервер больше не узнаёт сессию: повторять бессмысленно, нужен вход. */
+  | "сессии-нет"
+  /** Всё остальное — повод попробовать снова. */
+  | "иное";
+
+/**
+ * По коду ответа. Отдельно от `liveTroubleOf`, потому что поток читает
+ * `fetch` сам и до `ApiError` не доходит.
+ */
+export function liveTroubleOfStatus(status: number | null): LiveTrouble {
+  return status === 401 ? "сессии-нет" : "иное";
+}
+
+export function liveTroubleOf(error: unknown): LiveTrouble {
+  return liveTroubleOfStatus(statusOf(error));
+}
+
 /** Отказ при загрузке ленты разговора. */
 export type FeedTrouble =
   /**
    * Такого разговора для этого человека нет: удалён, стёрта база, вошёл
    * другим. Снаружи «нет такого» и «не твой» — один ответ (Р-010).
    */
-  "нет-такого" | "иное";
+  | "нет-такого"
+  /** Сервер больше не узнаёт сессию: истекла или вышли в другой вкладке (task-093). */
+  | "сессии-нет"
+  | "иное";
 
 export function feedTroubleOf(error: unknown): FeedTrouble {
+  if (liveTroubleOf(error) === "сессии-нет") return "сессии-нет";
   switch (statusOf(error)) {
     case 404:
       return "нет-такого";

@@ -1,18 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { feedTroubleOf, troubleOf } from "../shared/trouble.js";
-import {
-  api,
-  type ChangeEvent,
-  type Conversation,
-  type Me,
-  type Message,
-  type Quote,
-  type SyncLine,
-} from "./api.js";
-import { type Carried, carried } from "./carried.js";
+import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
 import { catchUpWith } from "./catchUp.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
+import { TROUBLE, useLiveUpdates } from "./useLiveUpdates.js";
 import { type Panel, usePanel } from "./usePanel.js";
 import { useReading } from "./useReading.js";
 import { useRooms } from "./useRooms.js";
@@ -124,35 +116,15 @@ const SAYS: Record<string, string> = {
   "модель-отказала": "Нейросеть вернула ошибку. Ответа не будет.",
 };
 
-/**
- * Что приехало звонком: адрес изменения и, если сервер сумел описать
- * его точно, сама реплика (task-085).
- *
- * Звонок, который не разобрался, считаем «пространством»: тогда список
- * обновится, а лишнего догона не будет. Лучше не обновить ленту, чем
- * поднять её на каждый чужой чих.
- */
-function eventOf(data: string): ChangeEvent {
-  try {
-    const parsed = JSON.parse(data || "{}") as Partial<ChangeEvent>;
-    return {
-      conversation: parsed.conversation ?? null,
-      ...(parsed.line ? { line: parsed.line } : {}),
-      // Кого позвали (task-092): без этого списка клиент не может отличить
-      // зов себе от чужого, а разбирать текст здесь — заводить вторую
-      // разметку рядом с серверной (Р-020).
-      ...(Array.isArray(parsed.mentions) ? { mentions: parsed.mentions } : {}),
-    };
-  } catch {
-    return { conversation: null };
-  }
-}
-
 function agentTrouble(error: unknown): string {
   return SAYS[troubleOf(error)] ?? "Не получилось позвать memo.";
 }
 
-export function useChat(me: Me): Chat {
+/**
+ * @param onSessionEnded — сервер перестал узнавать печеньку (401 на потоке
+ *   или догоне). Решает не лента, а приложение: ему показывать вход.
+ */
+export function useChat(me: Me, onSessionEnded: () => void = () => undefined): Chat {
   const [agentFailure, setAgentFailure] = useState<string | null>(null);
   /** На что сейчас отвечаем. `null` — обычная отправка. */
   const [replying, setReplying] = useState<Quote | null>(null);
@@ -190,6 +162,24 @@ export function useChat(me: Me): Chat {
   // Курсор догона живёт в ref, а не в состоянии: он меняется чаще, чем экран,
   // и перерисовывать ленту ради него незачем.
   const cursor = useRef(0);
+
+  /**
+   * Лента уже встала на курсор — значит догонять есть от чего.
+   *
+   * ⚠️ ОТДЕЛЬНЫМ ПРИЗНАКОМ, А НЕ «КУРСОР БОЛЬШЕ НУЛЯ». В новом пространстве
+   * без единой реплики голова равна нулю и ПОСЛЕ загрузки — первая редакция
+   * путала это с «ещё не загрузили» и не догоняла после обрыва вовсе.
+   * Поймано UI-сценарием task-093 на пустом канале.
+   */
+  const feedReady = useRef(false);
+
+  /**
+   * Сессия кончилась — ссылкой: приложение передаёт новую функцию на каждой
+   * перерисовке, а поток не имеет права переоткрываться из-за этого.
+   */
+  const sessionEnded = useRef(onSessionEnded);
+  sessionEnded.current = onSessionEnded;
+  const endSession = useCallback(() => sessionEnded.current(), []);
 
   /**
    * Какой разговор открыт — ссылкой, ради подписки на поток.
@@ -355,6 +345,7 @@ export function useChat(me: Me): Chat {
          * путём, постраничной загрузкой разговора, и он уже написан.
          */
         cursor.current = Math.max(cursor.current, page.head);
+        feedReady.current = true;
         await catchUp();
       })
       .catch((error: unknown) => {
@@ -367,6 +358,11 @@ export function useChat(me: Me): Chat {
          * (владелец ловил это не раз). Теперь заменяем адрес на «/» —
          * корень сам открывает первый доступный чат.
          */
+        // Сессии нет — это не «не загрузилось», а повод показать вход (task-093).
+        if (feedTroubleOf(error) === "сессии-нет") {
+          endSession();
+          return;
+        }
         if (feedTroubleOf(error) === "нет-такого") {
           shown.current = null;
           navigate("/", { replace: true });
@@ -381,95 +377,25 @@ export function useChat(me: Me): Chat {
     return () => {
       cancelled = true;
     };
-  }, [currentId, catchUp, wanted, navigate]);
+  }, [currentId, catchUp, wanted, navigate, endSession]);
 
-  // Звонок. EventSource переподключается сам — этим SSE и хорош.
-  useEffect(() => {
-    const stream = new EventSource("/v1/stream");
-    const asked = () =>
-      catchUp().catch(() => setFailure("Обновления не доходят — обновите страницу"));
+  /** Строка беды живых обновлений гасит только саму себя, не чужую. */
+  const onTrouble = useCallback((message: string | null) => {
+    setFailure((current) => message ?? (current === TROUBLE ? null : current));
+  }, []);
 
-    /**
-     * ⚠️ ПОСЫЛКА ПРИМЕНЯЕТСЯ ТЕМ ЖЕ КУРСОРОМ, ЧТО И СТРАНИЦА
-     * ДОГОНА (task-085). Это не придирка, а единственная страховка
-     * от второго пути доставки: путь остаётся один, у него появляется
-     * сокращение. Номер идёт сразу за курсором — применили; любой
-     * разрыв — идём в догон, как ходили раньше.
-     *
-     * ⚠️ ПРИМЕНЯЕТСЯ ЛЮБАЯ ПРИЕХАВШАЯ РЕПЛИКА, А НЕ ТОЛЬКО СВОЕГО
-     * ЧАТА. В ленту попадёт только реплика открытого (это решает `accept`),
-     * но курсор обязан двигаться на каждой: иначе следующая реплика
-     * в моём чате выглядела бы разрывом, и сокращение не работало бы никогда.
-     */
-    const applyCarried = (line: Message, mentioned: string[]): Carried => {
-      const what = carried(line.seq, cursor.current);
-      if (what === "применить") {
-        cursor.current = line.seq;
-        accept([line]);
-        // ⚠️ И ПАНЕЛЬ ТОЖЕ — ТЕМ ЖЕ СОБЫТИЕМ, БЕЗ ЗАПРОСА (task-092).
-        // Раньше здесь панель перечитывалась целиком: замер task-091 показал
-        // 500 перечитываний и 2000 запросов к базе на 50 реплик при ста
-        // вкладках. Теперь строка двигается приращением — и только потому,
-        // что непрерывность уже доказана номером строкой выше.
-        rooms.applied(line, mentioned);
-        return what;
-      }
-      // «Уже видели» — не делаем ничего и никуда не идём.
-      if (what === "догнать") void asked();
-      return what;
-    };
-
-    /**
-     * Что делать со звонком, у которого посылки НЕТ: правка, удаление,
-     * закрепление — их сервер описать точно не умеет; и изменения
-     * пространства (папку завели, чат перенесли).
-     *
-     * ⚠️ ЗА ЛЕНТОЙ ИДЁМ ТОЛЬКО ЗА СВОЕЙ (task-067). Раньше сюда шёл догон
-     * на ЛЮБОЙ звонок: сообщение в чужом чате поднимало все открытые
-     * вкладки, и каждая шла в базу. Звонок без адреса (`null`) ленту
-     * не меняет вовсе.
-     */
-    const described = (changed: ChangeEvent) => {
-      if (changed.conversation !== null && changed.conversation === openRef.current) void asked();
-      rooms.refresh();
-    };
-
-    /**
-     * ⚠️ ПАНЕЛЬ ПЕРЕЧИТЫВАЕТСЯ ТОЛЬКО ТОГДА, КОГДА ПОСЫЛКУ ПРИМЕНИТЬ
-     * НЕ ВЫШЛО (task-092).
-     *
-     * Раньше здесь стояло безусловное перечитывание, и это была последняя
-     * дорога, по которой каждое чужое сообщение шло в базу. Замер task-091:
-     * сто вкладок, пятьдесят реплик — 500 перечитываний панели и 2000
-     * из 2100 запросов к базе. Окно в три секунды (task-086) сбило частоту,
-     * но не разорвало связь с числом вкладок: на трёх тысячах это тысяча
-     * перечитываний в секунду.
-     *
-     * Теперь: применили — панель поправила строку сама; разрыв — берём
-     * панель заново, посчитанную сервером, потому что приращению после
-     * разрыва верить нельзя; «уже видели» — не делаем ничего, это повтор
-     * звонка, и на нём панель не менялась.
-     *
-     * ⚠️ КАК ЧАСТО перечитывать — знание самого списка, и оно живёт
-     * в `useRooms`, а не здесь: лента не должна решать за панель.
-     *
-     * ⚠️ ЗАКРЕПЛЁННОЕ ЗДЕСЬ НЕ ЧИТАЕТСЯ. Оно приходит догоном вместе
-     * с самой репликой: закрепление двигает номер изменения.
-     */
-    const onChanged = (event: MessageEvent<string>) => {
-      const changed = eventOf(event.data);
-      if (!changed.line) {
-        described(changed);
-        return;
-      }
-      if (applyCarried(changed.line, changed.mentions ?? []) === "догнать") rooms.refresh();
-    };
-    stream.addEventListener("changed", onChanged);
-    return () => {
-      stream.removeEventListener("changed", onChanged);
-      stream.close();
-    };
-  }, [catchUp, rooms.refresh, rooms.applied, accept]);
+  // Поток, посылки, догон при восстановлении и его страховка — отдельным
+  // знанием (task-093).
+  useLiveUpdates({
+    catchUp,
+    cursor,
+    feedReady,
+    accept,
+    rooms,
+    openRef,
+    onTrouble,
+    onSessionEnded: endSession,
+  });
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]?.seq;

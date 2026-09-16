@@ -27,8 +27,17 @@ function railWasOpen(): boolean {
   }
 }
 
-export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
-  const chat = useChat(me);
+export function ChatScreen({
+  me,
+  onLeave,
+  onSessionEnded,
+}: {
+  me: Me;
+  onLeave: () => void;
+  /** Сервер перестал узнавать сессию — показывать вход решает приложение. */
+  onSessionEnded: () => void;
+}) {
+  const chat = useChat(me, onSessionEnded);
 
   const [railOpen, setRailOpen] = useState(railWasOpen);
 
