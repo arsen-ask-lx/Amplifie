@@ -35,7 +35,15 @@ process.on("message", async (message) => {
       held = await openTabs(token, count, seen, undefined, { watching, stats });
       process.send({ ready: held.length });
     } catch (error) {
-      process.send({ failed: String(error?.message ?? error) });
+      /**
+       * ⚠️ ПРИЧИНУ ПЕРЕДАЁМ, А НЕ ТЕРЯЕМ. У `fetch` сообщение всегда одно —
+       * «fetch failed», — и родитель, получив только его, не отличит
+       * «кончились порты у держателя» от «сервер отказал». Я потерял
+       * на этом два захода лестницы (task-091).
+       */
+      const why = error?.cause;
+      const tail = why ? ` (${why.code ?? why.message ?? String(why)})` : "";
+      process.send({ failed: `${String(error?.message ?? error)}${tail}` });
     }
     return;
   }
