@@ -144,6 +144,13 @@ export interface CallSeen {
    * шло бы с ней, а не с тем, что отдаёт сервер.
    */
   line?: unknown;
+  /**
+   * Кого позвали этой репликой (task-092). Нет зовов — поля нет вовсе.
+   *
+   * Клиент считает счётчик зовов приращением и посчитать его по тексту
+   * не может: зов живёт в теле реплики (Р-020).
+   */
+  mentions?: string[];
 }
 
 /** Один кадр потока: звонок это или что-то другое (биение, комментарий). */
@@ -154,10 +161,12 @@ function callOf(frame: string): CallSeen | null {
   const parsed = JSON.parse(raw === "" ? "{}" : raw) as {
     conversation?: string | null;
     line?: unknown;
+    mentions?: string[];
   };
   return {
     conversation: parsed.conversation ?? null,
     ...(parsed.line === undefined ? {} : { line: parsed.line }),
+    ...(parsed.mentions === undefined ? {} : { mentions: parsed.mentions }),
   };
 }
 

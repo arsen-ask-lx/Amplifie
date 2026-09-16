@@ -9,6 +9,7 @@
  *
  * Бьёт по живому стеку. Перед запуском: make up
  */
+import { mentionMarkup } from "@amplifie/contract";
 import { beforeAll, describe, expect, it } from "vitest";
 import { call, colleague, listenCalls, newPerson, type Person, requireStand } from "./stand.js";
 
@@ -48,6 +49,58 @@ describe("событие несёт саму реплику", () => {
         conversationId: channel,
         body: "привет из события",
       });
+    } finally {
+      stream.stop();
+    }
+  });
+
+  it("событие называет позванных — иначе панель не покажет зов (task-092)", async () => {
+    /**
+     * ⚠️ БЕЗ ЭТОГО СПИСКА ТИХО ЛОМАЕТСЯ Р-031. С task-092 панель считает
+     * счётчики приращением и сервер о них больше не спрашивает. Зов же
+     * живёт в ТЕКСТЕ реплики (Р-020), и клиент отличить «позвали меня»
+     * от «позвали не меня» сам не может — разбирать текст на клиенте
+     * значило бы завести вторую разметку рядом с серверной.
+     *
+     * Ошибка здесь не видна ни типами, ни замером: человека зовут,
+     * а значок не загорается.
+     */
+    const owner = await newPerson("Хозяин");
+    const mate = await colleague(owner, "Коллега");
+    const channel = await firstChannel(owner);
+
+    const who = await call("GET", `/v1/conversations/${channel}/people`, owner);
+    const people = (await who.json()) as { items: { id: string; name: string }[] };
+    const called = people.items.find((one) => one.name === "Коллега");
+    expect(called, "коллега виден в списке зовущихся").toBeDefined();
+
+    const stream = await listenCalls(mate);
+    try {
+      // ⚠️ ЗОВ ПИШЕТСЯ РАЗМЕТКОЙ ИЗ ОБЩЕГО ПАКЕТА, А НЕ «СОБАЧКОЙ РУКАМИ».
+      // Первая редакция теста послала `@Коллега` текстом и была красной:
+      // упоминание — это `[подпись](@номер)` (Р-031), и своя копия записи
+      // в тесте разошлась бы с продуктом ровно так, как об этом
+      // предупреждает сам `mentions.ts`.
+      await said(owner, channel, `${mentionMarkup("Коллега", called?.id ?? "")} глянь смету`);
+      const heard = await stream.next();
+
+      expect(heard?.mentions, "позванные названы в событии").toContain(called?.id);
+    } finally {
+      stream.stop();
+    }
+  });
+
+  it("реплика без зова список позванных не возит — байты на каждой вкладке", async () => {
+    const owner = await newPerson("Хозяин");
+    const mate = await colleague(owner, "Коллега");
+    const channel = await firstChannel(owner);
+
+    const stream = await listenCalls(mate);
+    try {
+      await said(owner, channel, "просто реплика");
+      const heard = await stream.next();
+
+      expect(heard?.mentions, "пустого списка в событии нет вовсе").toBeUndefined();
     } finally {
       stream.stop();
     }

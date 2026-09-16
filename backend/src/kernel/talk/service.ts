@@ -268,7 +268,7 @@ async function writeMessage(
     replyToId?: string | null;
     forwardedFromId?: string | null;
   },
-): Promise<{ id: string }> {
+): Promise<{ id: string; mentioned: string[] }> {
   // Номер — `UPDATE` строки в этой же транзакции, а не последовательность:
   // при откате он возвращается, и дыры не остаётся.
   //
@@ -307,7 +307,11 @@ async function writeMessage(
     payload: { conversationId: input.conversationId, seq },
   });
 
-  return { id: created.id };
+  // ⚠️ ПОЗВАННЫЕ ЕДУТ НАРУЖУ, А НЕ ОСТАЮТСЯ ЗДЕСЬ (task-092). С панелью,
+  // считающей приращение сама, клиенту нужен ответ на «позвали ли меня»,
+  // а посчитать его он не может: упоминание живёт в тексте (Р-020).
+  // Список уже посчитан выше — отдать его стоит ноль запросов.
+  return { id: created.id, mentioned };
 }
 
 export interface SendResult {
@@ -331,7 +335,12 @@ export interface SendResult {
  * и тот же на обеих дорогах, и номер изменения у новой реплики равен
  * её номеру.
  */
-async function told(workspaceId: string, conversationId: string, line: MessageView) {
+async function told(
+  workspaceId: string,
+  conversationId: string,
+  line: MessageView,
+  mentioned: string[],
+) {
   const audience = await audienceFor(conversationId);
   remember(workspaceId, { seq: line.seq, audience, line });
 
@@ -360,7 +369,17 @@ async function told(workspaceId: string, conversationId: string, line: MessageVi
    * Адресаты те же и посчитаны один раз — второго вопроса к базе
    * из-за посылки не появляется.
    */
-  void publish(workspaceId, { conversation: conversationId, line }, audience);
+  void publish(
+    workspaceId,
+    // Пустой список не возим: у большинства реплик зовов нет, а поле
+    // в каждом событии — это байты на каждую вкладку.
+    {
+      conversation: conversationId,
+      line,
+      ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
+    },
+    audience,
+  );
 }
 
 /**
@@ -382,7 +401,8 @@ export async function sendMessage(
       const target = await requireVisible(tx, viewer, conversationId);
 
       const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
-      if (already) return { replayed: true, id: already.id };
+      // Повтор не звонит, поэтому и позванных ему знать незачем.
+      if (already) return { replayed: true, id: already.id, mentioned: [] };
 
       // Цитата показывает текст, а её номер пришёл от клиента: без проверки
       // видимости по нему вытаскивался бы кусок чужого разговора.
@@ -398,7 +418,7 @@ export async function sendMessage(
         forwardedFromId,
       });
 
-      return { replayed: false, id: made.id };
+      return { replayed: false, id: made.id, mentioned: made.mentioned };
     });
 
     /**
@@ -416,7 +436,9 @@ export async function sendMessage(
 
     // Звонок после фиксации (Р-006); повтор не звонит — ничего не изменилось.
     // Адрес — этот разговор: вкладки других разговоров не поднимаются (task-067).
-    if (!written.replayed) await told(viewer.workspaceId, conversationId, message);
+    if (!written.replayed) {
+      await told(viewer.workspaceId, conversationId, message, written.mentioned);
+    }
     return { replayed: written.replayed, message };
   } catch (error) {
     // Гонка двух запросов с одним ключом: проигравший откатывается
@@ -445,7 +467,7 @@ export async function sendAsAgent(
 
     // Ключ выведен из обращения: двойной зов — один ответ.
     const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
-    if (already) return { fresh: false, id: already.id };
+    if (already) return { fresh: false, id: already.id, mentioned: [] };
 
     const made = await writeMessage(tx, target, {
       conversationId,
@@ -456,14 +478,16 @@ export async function sendAsAgent(
       trust: "untrusted",
     });
 
-    return { fresh: true, id: made.id };
+    return { fresh: true, id: made.id, mentioned: made.mentioned };
   });
 
   // Вид — после фиксации, по той же причине, что у отправки человека.
   const message = await viewOf(db, written.id);
 
   // Звонок только после фиксации (Р-006), и только если что-то изменилось.
-  if (written.fresh) await told(onBehalfOf.workspaceId, conversationId, message);
+  if (written.fresh) {
+    await told(onBehalfOf.workspaceId, conversationId, message, written.mentioned);
+  }
   return message;
 }
 

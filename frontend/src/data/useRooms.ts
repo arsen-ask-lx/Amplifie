@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { api, type Conversation, type Project } from "./api.js";
+import { api, type Conversation, type Message, type Project } from "./api.js";
+import { bumped, type Who } from "./bumped.js";
 import { coalesced } from "./coalesced.js";
 import type { Address } from "./useAddress.js";
 
@@ -78,8 +79,22 @@ export interface Rooms {
   /**
    * Перечитать по звонку — но не чаще, чем имеет смысл (task-086).
    * Сразу, потом раз в окно. Отказы глотаются осознанно — см. `unshown`.
+   *
+   * ⚠️ ЗОВЁТСЯ ТОЛЬКО ТОГДА, КОГДА ПОСЫЛКУ ПРИМЕНИТЬ НЕ ВЫШЛО (task-092):
+   * разрыв, правка, удаление, изменение пространства. Непрерывную реплику
+   * панель применяет сама — см. `applied`.
    */
   refresh: () => void;
+
+  /**
+   * Реплика приехала событием и признана непрерывной — поправить строку
+   * самим, не спрашивая сервер (task-092).
+   *
+   * ⚠️ ЗВАТЬ ТОЛЬКО ПОСЛЕ `carried() === "применить"`. Это условие —
+   * единственное, что не даёт приращению копить ошибку: правило Телеграма
+   * «номер идёт сразу за курсором, иначе разрыв».
+   */
+  applied: (line: Message, mentioned: string[]) => void;
   /** Раскрыли папку — привезти её первую порцию (10 чатов). */
   openProject: (projectId: string) => void;
   /** Есть ли в папке ещё чаты: по этому рисуется «Показать ещё». */
@@ -153,7 +168,11 @@ async function pagesOf(
   };
 }
 
-export function useRooms(where: Address): Rooms {
+/**
+ * @param me кто смотрит — нужно, чтобы считать непрочитанное приращением
+ *   (task-092): свои реплики непрочитанными не бывают (Р-029).
+ */
+export function useRooms(where: Address, me: string): Rooms {
   const [projects, setProjects] = useState<PanelProject[]>([]);
   const [loaded, setLoaded] = useState(false);
   /** «Недавние»: первая порция приезжает со сводным ответом. */
@@ -442,12 +461,49 @@ export function useRooms(where: Address): Rooms {
     [reload],
   );
 
+  /**
+   * Поправить строку самим по приехавшей реплике (task-092).
+   *
+   * ⚠️ ТРИ ХРАНИЛИЩА, ОДНО ПРАВИЛО. Строка может лежать в «Недавних»,
+   * в раскрытой папке или быть строкой открытого чата — панель грузится
+   * порциями (Р-037). Правило одно на все три: `bumped`. Не найдёт нигде —
+   * не сделает ничего, и это законно: разговор просто не загружен.
+   *
+   * ⚠️ ССЫЛКА НЕ МЕНЯЕТСЯ, ЕСЛИ НИЧЕГО НЕ ИЗМЕНИЛОСЬ. `bumped` отдаёт тот же
+   * массив — тогда `setState` не перерисовывает панель. На тысяче чужих
+   * реплик это разница между живым экраном и мигающим.
+   */
+  const applied = useCallback(
+    (line: Message, mentioned: string[]) => {
+      const who: Who = { me, openId: currentIdRef.current, mentioned };
+      setRecent((before) => {
+        const items = bumped(before.items, line, who);
+        return items === before.items ? before : { ...before, items };
+      });
+      setInProject((before) => {
+        let touched = false;
+        const after = Object.fromEntries(
+          Object.entries(before).map(([projectId, page]) => {
+            const items = bumped(page.items, line, who);
+            if (items === page.items) return [projectId, page];
+            touched = true;
+            return [projectId, { ...page, items }];
+          }),
+        );
+        return touched ? after : before;
+      });
+      setOpen((before) => (before ? (bumped([before], line, who)[0] ?? before) : before));
+    },
+    [me, currentIdRef],
+  );
+
   return {
     items,
     projects,
     loaded,
     reload,
     refresh,
+    applied,
     openProject,
     moreIn,
     loadMoreIn,

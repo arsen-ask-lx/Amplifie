@@ -9,7 +9,7 @@ import {
   type Quote,
   type SyncLine,
 } from "./api.js";
-import { carried } from "./carried.js";
+import { type Carried, carried } from "./carried.js";
 import { catchUpWith } from "./catchUp.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
@@ -138,6 +138,10 @@ function eventOf(data: string): ChangeEvent {
     return {
       conversation: parsed.conversation ?? null,
       ...(parsed.line ? { line: parsed.line } : {}),
+      // Кого позвали (task-092): без этого списка клиент не может отличить
+      // зов себе от чужого, а разбирать текст здесь — заводить вторую
+      // разметку рядом с серверной (Р-020).
+      ...(Array.isArray(parsed.mentions) ? { mentions: parsed.mentions } : {}),
     };
   } catch {
     return { conversation: null };
@@ -166,7 +170,7 @@ export function useChat(me: Me): Chat {
 
   // Список каналов — отдельным знанием (Д-10, task-020). Лента про него
   // не спрашивает, он про ленту не знает.
-  const rooms = useRooms(where);
+  const rooms = useRooms(where, me.participant.id);
 
   // Перечитывание списка — ссылкой: догон зовёт его из эффекта, который
   // не имеет права пересоздаваться на каждом обновлении списка.
@@ -397,56 +401,75 @@ export function useChat(me: Me): Chat {
      * но курсор обязан двигаться на каждой: иначе следующая реплика
      * в моём чате выглядела бы разрывом, и сокращение не работало бы никогда.
      */
-    const applyCarried = (line: Message) => {
+    const applyCarried = (line: Message, mentioned: string[]): Carried => {
       const what = carried(line.seq, cursor.current);
       if (what === "применить") {
         cursor.current = line.seq;
         accept([line]);
-        return;
+        // ⚠️ И ПАНЕЛЬ ТОЖЕ — ТЕМ ЖЕ СОБЫТИЕМ, БЕЗ ЗАПРОСА (task-092).
+        // Раньше здесь панель перечитывалась целиком: замер task-091 показал
+        // 500 перечитываний и 2000 запросов к базе на 50 реплик при ста
+        // вкладках. Теперь строка двигается приращением — и только потому,
+        // что непрерывность уже доказана номером строкой выше.
+        rooms.applied(line, mentioned);
+        return what;
       }
       // «Уже видели» — не делаем ничего и никуда не идём.
       if (what === "догнать") void asked();
+      return what;
     };
 
+    /**
+     * Что делать со звонком, у которого посылки НЕТ: правка, удаление,
+     * закрепление — их сервер описать точно не умеет; и изменения
+     * пространства (папку завели, чат перенесли).
+     *
+     * ⚠️ ЗА ЛЕНТОЙ ИДЁМ ТОЛЬКО ЗА СВОЕЙ (task-067). Раньше сюда шёл догон
+     * на ЛЮБОЙ звонок: сообщение в чужом чате поднимало все открытые
+     * вкладки, и каждая шла в базу. Звонок без адреса (`null`) ленту
+     * не меняет вовсе.
+     */
+    const described = (changed: ChangeEvent) => {
+      if (changed.conversation !== null && changed.conversation === openRef.current) void asked();
+      rooms.refresh();
+    };
+
+    /**
+     * ⚠️ ПАНЕЛЬ ПЕРЕЧИТЫВАЕТСЯ ТОЛЬКО ТОГДА, КОГДА ПОСЫЛКУ ПРИМЕНИТЬ
+     * НЕ ВЫШЛО (task-092).
+     *
+     * Раньше здесь стояло безусловное перечитывание, и это была последняя
+     * дорога, по которой каждое чужое сообщение шло в базу. Замер task-091:
+     * сто вкладок, пятьдесят реплик — 500 перечитываний панели и 2000
+     * из 2100 запросов к базе. Окно в три секунды (task-086) сбило частоту,
+     * но не разорвало связь с числом вкладок: на трёх тысячах это тысяча
+     * перечитываний в секунду.
+     *
+     * Теперь: применили — панель поправила строку сама; разрыв — берём
+     * панель заново, посчитанную сервером, потому что приращению после
+     * разрыва верить нельзя; «уже видели» — не делаем ничего, это повтор
+     * звонка, и на нём панель не менялась.
+     *
+     * ⚠️ КАК ЧАСТО перечитывать — знание самого списка, и оно живёт
+     * в `useRooms`, а не здесь: лента не должна решать за панель.
+     *
+     * ⚠️ ЗАКРЕПЛЁННОЕ ЗДЕСЬ НЕ ЧИТАЕТСЯ. Оно приходит догоном вместе
+     * с самой репликой: закрепление двигает номер изменения.
+     */
     const onChanged = (event: MessageEvent<string>) => {
       const changed = eventOf(event.data);
-      if (changed.line) {
-        applyCarried(changed.line);
-      } else if (changed.conversation !== null && changed.conversation === openRef.current) {
-        /**
-         * ⚠️ ЗА ЛЕНТОЙ ИДЁМ ТОЛЬКО ЗА СВОЕЙ (task-067). Раньше сюда шёл
-         * догон на ЛЮБОЙ звонок: сообщение в чужом чате поднимало все
-         * открытые вкладки, и каждая шла в базу.
-         *
-         * Сюда теперь попадают только изменения без посылки — правка,
-         * удаление, закрепление: их сервер описать точно не умеет.
-         *
-         * Звонок без адреса (`null`) — изменение пространства: папку
-         * завели, чат перенесли. Лента от этого не меняется.
-         */
-        void asked();
+      if (!changed.line) {
+        described(changed);
+        return;
       }
-
-      /**
-       * Список — на любой звонок: непрочитанное и порядок меняются
-       * и от чужой реплики.
-       *
-       * ⚠️ НО НЕ ЧАЩЕ, ЧЕМ НУЖНО (task-086). Как ЧАСТО — знание
-       * самого списка, и оно живёт в `useRooms`, а не здесь: лента
-       * не должна решать за панель, как ей себя обновлять.
-       *
-       * ⚠️ ЗАКРЕПЛЁННОЕ ЗДЕСЬ НЕ ЧИТАЕТСЯ. Оно приходит догоном
-       * вместе с самой репликой: закрепление двигает номер изменения,
-       * как правка и удаление.
-       */
-      rooms.refresh();
+      if (applyCarried(changed.line, changed.mentions ?? []) === "догнать") rooms.refresh();
     };
     stream.addEventListener("changed", onChanged);
     return () => {
       stream.removeEventListener("changed", onChanged);
       stream.close();
     };
-  }, [catchUp, rooms.refresh, accept]);
+  }, [catchUp, rooms.refresh, rooms.applied, accept]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]?.seq;

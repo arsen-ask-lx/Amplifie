@@ -47,6 +47,11 @@ export interface Change {
    * утёкшего адреса закрытого чата; теперь — утёкшего текста.
    */
   line?: unknown;
+  /**
+   * Кого позвали — по той же причине `unknown`, что и `line`: шина
+   * не знает, что возит. Форма — в общем контракте (`changeEvent`).
+   */
+  mentions?: unknown;
 }
 
 type Listener = (change: Change) => void;
