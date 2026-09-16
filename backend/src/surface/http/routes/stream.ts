@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { type Change, subscribe } from "../../../platform/bus.js";
 import { COUNTERS, count, gauge } from "../../../platform/metrics.js";
-import { STREAM } from "../limits.js";
+import { STREAM, STREAM_OPEN } from "../limits.js";
 import { actorOf } from "./viewer.js";
 
 /**
@@ -41,6 +41,9 @@ const open = new Set<{ raw: { writableLength: number } }>();
  */
 const BACKLOG_LIMIT = 64 * 1024;
 
+/** Сколько потоков открыто у каждого участника — ради предела `STREAM_OPEN`. */
+const openByPerson = new Map<string, number>();
+
 gauge("amplifie_stream_backlog_bytes", "написано, но клиентом не забрано", () => {
   let waiting = 0;
   for (const one of open) waiting += one.raw.writableLength;
@@ -58,6 +61,21 @@ export function registerStreamRoutes(app: FastifyInstance): void {
       // и это именно отказ, а не пустой поток — висящий пустой поток
       // снаружи неотличим от исправного.
       const actor = actorOf(request);
+
+      /**
+       * ⚠️ ПРЕДЕЛ ОТКРЫТЫХ ПОТОКОВ ЧЕЛОВЕКА (task-093, слой 3). Порог частоты
+       * считает попытки, а дорогое — то, что уже открыто и живёт часами:
+       * дескриптор, память, место в раздаче. 429 с `Retry-After` клиент
+       * понимает (`liveStream.ts`) и вернётся позже, а не будет ломиться.
+       */
+      const already = openByPerson.get(actor.participantId) ?? 0;
+      if (already >= STREAM_OPEN.max) {
+        return reply
+          .code(429)
+          .header("retry-after", String(STREAM_OPEN.retryAfterSeconds))
+          .send({ error: "too_many_streams" });
+      }
+      openByPerson.set(actor.participantId, already + 1);
 
       reply.raw.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
@@ -89,8 +107,9 @@ export function registerStreamRoutes(app: FastifyInstance): void {
        * Накопленное для мёртвой вкладки живёт в памяти ЕДИНСТВЕННОГО процесса —
        * того самого, который обслуживает всех остальных.
        *
-       * Для самого клиента обрыв не потеря: `EventSource` переподключается сам,
-       * а пропущенное заберёт догоном по своему курсору — тем же единственным
+       * Для самого клиента обрыв не потеря: он переподключается сам
+       * (`frontend/src/data/liveStream.ts`), а пропущенное заберёт догоном
+       * после подключения по своему курсору — тем же единственным
        * путём, который у нас уже написан и проверен. Это и есть graceful
        * degradation: плохо одному и ненадолго вместо «всем и насовсем».
        */
@@ -108,10 +127,18 @@ export function registerStreamRoutes(app: FastifyInstance): void {
       // сеть, упал сервер соединения. Подписчик, переживший поток, — утечка,
       // которая тихо копится и проявляется через недели.
       open.add(reply);
+      // Закрытие приходит и `close`, и `error` — место человека освобождается
+      // ровно один раз, иначе счёт ушёл бы в минус и предел перестал держать.
+      let stopped = false;
       const stop = () => {
+        if (stopped) return;
+        stopped = true;
         clearInterval(heartbeat);
         unsubscribe();
         open.delete(reply);
+        const left = (openByPerson.get(actor.participantId) ?? 1) - 1;
+        if (left > 0) openByPerson.set(actor.participantId, left);
+        else openByPerson.delete(actor.participantId);
       };
       request.raw.on("close", stop);
       request.raw.on("error", stop);

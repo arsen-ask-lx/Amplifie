@@ -13,6 +13,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
+/** Порт `api` напрямую, мимо Caddy: только стенд публикует его на петле. */
+const API = process.env.AMPLIFIE_API_URL ?? "http://localhost:3477";
 
 function freshEmail(tag: string): string {
   return `${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
@@ -106,6 +108,89 @@ describe("пороги у дверей", () => {
       last?.headers.get("retry-after"),
       "клиенту не сказано, когда возвращаться",
     ).not.toBeNull();
+  });
+
+  /**
+   * П-6 (task-093, слой 1): выдуманная печенька на каждом запросе больше
+   * не обходит порог и не гоняет проверку сессии в базу.
+   *
+   * ⚠️ СВОЙ АДРЕС, А НЕ ОБЩИЙ. Прямо в порт `api` из частной сети сервер
+   * доверяет `X-Forwarded-For` (`trustProxy: "uniquelocal"`), поэтому
+   * у этого теста свой адрес: его блок не заденет соседние файлы, которые
+   * ходят с общего адреса стенда. Через Caddy подмена не проходит —
+   * проверено живьём (журнал task-093).
+   */
+  it("П-6: поток выдуманных печенек упирается в барьер без похода в базу, а настоящая сессия проходит", async () => {
+    const address = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+    const direct = (path: string, cookie: string) =>
+      fetch(`${API}${path}`, { headers: { cookie, "x-forwarded-for": address } });
+
+    // Настоящий человек с того же адреса — сессию сервер подтвердил при входе.
+    const registered = await fetch(`${API}/v1/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": address },
+      body: JSON.stringify({
+        email: freshEmail("nat-neighbour"),
+        password: "очень-длинный-пароль-для-теста",
+        displayName: "Сосед по NAT",
+        workspaceName: "Барьер",
+      }),
+    });
+    const real = sessionCookie(registered);
+
+    let blocked: Response | null = null;
+    for (let n = 0; n < 1000 && !blocked; n++) {
+      const response = await direct(
+        "/v1/sync?after=0",
+        `amplifie_session=made-up-${crypto.randomUUID()}`,
+      );
+      if (response.status === 429) blocked = response;
+      await response.arrayBuffer();
+    }
+
+    expect(blocked, "тысяча выдуманных печенек прошла к проверке сессии").not.toBeNull();
+    expect(blocked?.headers.get("x-db-queries"), "отказ барьера сходил в базу").toBe("0");
+    expect(blocked?.headers.get("retry-after")).not.toBeNull();
+
+    const neighbour = await direct("/v1/sync?after=0", real);
+    expect(neighbour.status, "настоящую сессию наказали за чужие выдуманные печеньки").toBe(200);
+  });
+
+  it("П-7: две сессии одного человека делят один порог отправки", async () => {
+    const email = freshEmail("two-sessions");
+    const password = "очень-длинный-пароль-для-теста";
+    const first = await post("/v1/auth/register", {
+      email,
+      password,
+      displayName: "Два входа",
+      workspaceName: "Две сессии",
+    });
+    const cookieA = sessionCookie(first);
+    const cookieB = sessionCookie(await post("/v1/auth/login", { email, password }));
+    const rooms = await get("/v1/conversations", cookieA);
+    const room = ((await rooms.json()) as { items: Array<{ id: string }> }).items[0]?.id;
+    if (!room) throw new Error("у нового пространства нет канала");
+
+    const say = async (cookie: string, n: number) =>
+      (
+        await post(
+          `/v1/conversations/${room}/messages`,
+          { body: `строка ${n}`, clientMsgId: crypto.randomUUID() },
+          cookie,
+        )
+      ).status;
+
+    for (let n = 0; n < 20; n++) expect(await say(cookieA, n)).toBe(201);
+
+    let fromSecond = 0;
+    for (let n = 0; n < 30; n++) {
+      if ((await say(cookieB, n)) === 429) break;
+      fromSecond += 1;
+    }
+    expect(
+      fromSecond,
+      "вторая сессия получила свой порог — считается печенька, а не человек",
+    ).toBeLessThanOrEqual(10);
   });
 
   it("П-4: порог отправки считается по человеку, а не по адресу", async () => {

@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest, RouteOptions } from "fastify";
 import { type Actor, resolveActor } from "../../../kernel/identity/index.js";
+import { INVALID_SESSIONS } from "../limits.js";
+import { gateWait, noteConfirmed, noteFailure } from "../sessionGate.js";
 
 /**
  * Имя печеньки сессии.
@@ -20,19 +22,33 @@ declare module "fastify" {
 /**
  * Проверить сессию и положить человека в запрос. Нет сессии — 401.
  *
- * ⚠️ ПОСЛЕ ПОРОГА ЧАСТОТЫ, А НЕ ДО. Проверка ходит в базу; стоит она
- * раньше порога — поток запросов с выдуманными печеньками оплачивался бы
- * запросом к базе на каждую попытку. Порог вешается на маршрут в том же
- * `preValidation` при его объявлении, поэтому проверка дописывается
- * В КОНЕЦ того же списка, а не общим хуком области: общий хук области
- * выполняется раньше хуков маршрута.
+ * ⚠️ ПОСЛЕ ОБЩЕГО ПОРОГА И БАРЬЕРА, А НЕ ДО. Проверка ходит в базу. Перед ней
+ * стоят: общий порог по адресу (у дверей без своего порога, в том же
+ * `preValidation`, поэтому проверка дописывается В КОНЕЦ списка) и барьер
+ * выдуманных печенек (`sessionGate.ts`). Пороги по человеку — после неё,
+ * в `preHandler`: ключ им нужен настоящий, а не строка печеньки (task-093).
  */
 async function checkSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const actor = await resolveActor(request.cookies[SESSION_COOKIE]);
+  const token = request.cookies[SESSION_COOKIE];
+  // Без печеньки база не спрашивается — и барьеру здесь нечего беречь.
+  if (token) {
+    const wait = gateWait(request.ip, token, INVALID_SESSIONS.max);
+    if (wait !== null) {
+      await reply
+        .code(429)
+        .header("retry-after", String(wait))
+        .send({ error: "too_many_requests" });
+      return;
+    }
+  }
+
+  const actor = await resolveActor(token);
   if (!actor) {
+    if (token) noteFailure(request.ip);
     await reply.code(401).send({ error: "not_authenticated" });
     return;
   }
+  if (token) noteConfirmed(token);
   request.actor = actor;
 }
 

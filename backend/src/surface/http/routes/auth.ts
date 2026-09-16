@@ -14,6 +14,7 @@ import {
 } from "../../../kernel/identity/index.js";
 import { config } from "../../../platform/config.js";
 import { INVITE, JOIN, LOGIN, REGISTER } from "../limits.js";
+import { forgetConfirmed, noteConfirmed } from "../sessionGate.js";
 import { actorOf, SESSION_COOKIE } from "./viewer.js";
 
 const registerSchema = z.object({
@@ -61,6 +62,10 @@ const loginSchema = z.object({
 });
 
 function setSessionCookie(reply: FastifyReply, token: string): void {
+  // Сессия только что выдана — барьер выдуманных печенек её не задерживает
+  // (task-093, `sessionGate.ts`): человек за NAT, где кто-то подбирает,
+  // входит и сразу работает.
+  noteConfirmed(token);
   reply.setCookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -128,7 +133,10 @@ export function registerAuthRoutes(scope: FastifyInstance): void {
 
   app.post("/v1/auth/logout", async (request, reply) => {
     const token = request.cookies[SESSION_COOKIE];
-    if (token) await logout(token);
+    if (token) {
+      await logout(token);
+      forgetConfirmed(token);
+    }
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
     return reply.code(204).send();
   });

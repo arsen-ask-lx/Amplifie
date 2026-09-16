@@ -119,6 +119,20 @@ async function listen(person: Person): Promise<{
   };
 }
 
+/**
+ * Открыть поток, когда место освободилось. Закрытие доезжает до сервера
+ * не мгновенно — ждём положительного признака, а не паузу наугад.
+ */
+async function openWhenFreed(person: Person): Promise<Awaited<ReturnType<typeof listen>> | null> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const stream = await listen(person);
+    if (stream.status === 200) return stream;
+    stream.close();
+  }
+  return null;
+}
+
 describe("живые обновления", () => {
   beforeAll(async () => {
     const health = await fetch(`${BASE}/health`);
@@ -185,6 +199,55 @@ describe("живые обновления", () => {
       expect(seen).toEqual(["раз", "два", "три"]);
     } finally {
       stream.close();
+    }
+  });
+
+  /**
+   * task-093, слой 2: восемь вкладок человека после обрыва возвращаются,
+   * не упираясь в порог. Расчёт в плане: восемь открытий и около 56 попыток
+   * переподключения за минуту простоя — 64.
+   */
+  it("64 подключения одного человека за минуту — ни одного 429", async () => {
+    const person = await newPerson("Восемь вкладок");
+    const codes: number[] = [];
+    for (let n = 0; n < 64; n++) {
+      const stream = await listen(person);
+      codes.push(stream.status);
+      stream.close();
+    }
+    expect(
+      codes.filter((one) => one === 429),
+      "возвращение вкладок после выкладки упёрлось в порог",
+    ).toHaveLength(0);
+  });
+
+  /**
+   * task-093, слой 3: дорогой ресурс — одновременно открытые потоки,
+   * а не частота попыток. Порог частоты их не держит: открытые живут часами.
+   */
+  it("17-й одновременный поток человека отклонён, после закрытия одного — снова можно", async () => {
+    const person = await newPerson("Шестнадцать потоков");
+    const open: Array<Awaited<ReturnType<typeof listen>>> = [];
+    try {
+      for (let n = 0; n < 16; n++) {
+        const stream = await listen(person);
+        open.push(stream);
+        expect(stream.status, `поток №${n + 1} не открылся`).toBe(200);
+      }
+
+      const extra = await fetch(`${BASE}/v1/stream`, {
+        headers: { cookie: person.cookie, accept: "text/event-stream" },
+      });
+      expect(extra.status, "семнадцатый одновременный поток открылся").toBe(429);
+      expect(extra.headers.get("retry-after")).not.toBeNull();
+      await extra.arrayBuffer();
+
+      open.shift()?.close();
+      const freed = await openWhenFreed(person);
+      if (freed) open.push(freed);
+      expect(freed, "после закрытия потока место не освободилось").not.toBeNull();
+    } finally {
+      for (const stream of open) stream.close();
     }
   });
 

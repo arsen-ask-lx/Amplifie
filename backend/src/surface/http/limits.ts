@@ -11,14 +11,24 @@ import { config } from "../../platform/config.js";
  */
 
 /**
- * Кто спрашивает — по печеньке сессии, без похода в базу. Это различение,
- * а не проверка права (её делает вход дальше по пути): поход в базу
- * до порога сделал бы каждую попытку перебора запросом к базе.
+ * Кто спрашивает — настоящий участник, уже проверенный сессией (task-093).
+ *
+ * ⚠️ РАНЬШЕ КЛЮЧОМ БЫЛА СТРОКА ПЕЧЕНЬКИ, И ЭТО БЫЛА ДЫРА. Выдуманная печенька
+ * на каждом запросе получала новый счётчик: порог не срабатывал никогда,
+ * а проверка сессии шла в базу на каждую попытку (внешнее ревью 16.09,
+ * приёмочный П-6). Заодно две сессии одного человека получали два порога
+ * (Д-22, приёмочный П-7).
+ *
+ * Поэтому пороги по человеку стоят ПОСЛЕ проверки сессии (`preHandler`),
+ * а до неё запросы с печенькой сторожит барьер неудач (`sessionGate.ts`).
+ * Порог маршрута в плагине не складывается с общим, а заменяет его —
+ * общий порог по адресу на этих дверях не действует, и это сознательно:
+ * в офисе за одним NAT он бил бы по всем сразу.
  */
-function whoRoughly(request: FastifyRequest): string {
-  const session = request.cookies?.amplifie_session;
-  return session ? `s:${session}` : `ip:${request.ip}`;
-}
+const byPerson = {
+  hook: "preHandler",
+  keyGenerator: (request: FastifyRequest) => `p:${request.actor?.participantId ?? request.ip}`,
+} as const;
 
 /**
  * На стенде пороги по адресу выше: сотня приёмочных приходит с одного
@@ -28,6 +38,14 @@ function whoRoughly(request: FastifyRequest): string {
 const onStand = config.multiWorkspace;
 
 export const OVERALL = { max: onStand ? 5000 : 300, timeWindow: "1 minute" } as const;
+
+/**
+ * Неудачных проверок сессии с печенькой — с одного адреса за минуту.
+ * Настоящая недавно подтверждённая сессия с того же адреса проходит
+ * и после предела (`sessionGate.ts`). На стенде выше: приёмочные ходят
+ * с одного адреса и сознательно шлют выдуманные печеньки.
+ */
+export const INVALID_SESSIONS = { max: onStand ? 200 : 60 } as const;
 
 /**
  * Ключ — пара «почта и адрес»: по одному адресу сосед по офису отнимал бы
@@ -51,20 +69,20 @@ export const JOIN = { max: onStand ? 500 : 30, timeWindow: "1 minute" } as const
 export const INVITE = {
   max: 20,
   timeWindow: "1 hour",
-  keyGenerator: whoRoughly,
+  ...byPerson,
 } as const;
 
 export const SEND = {
   max: 30,
   timeWindow: "1 minute",
-  keyGenerator: whoRoughly,
+  ...byPerson,
 } as const;
 
 /** Самый горячий путь: клиент зовёт догон на каждое событие пространства. */
 export const SYNC = {
   max: 600,
   timeWindow: "1 minute",
-  keyGenerator: whoRoughly,
+  ...byPerson,
 } as const;
 
 /**
@@ -75,12 +93,29 @@ export const SYNC = {
 export const READ = {
   max: 300,
   timeWindow: "1 minute",
-  keyGenerator: whoRoughly,
+  ...byPerson,
 } as const;
 
-/** Подключение к потоку, а не сам поток: открытый живёт часами. */
+/**
+ * Подключение к потоку, а не сам поток: открытый живёт часами.
+ *
+ * ⚠️ 80, И ЭТО ИЗМЕРИТЕЛЬНОЕ ЧИСЛО, А НЕ ВЕЧНОЕ (решение владельца 17.09).
+ * Было 10 на печеньку — и после выкладки вкладки одного человека, возвращаясь
+ * с разбросом, упирались в порог: 10 с простоя превращались в 90 с (task-093,
+ * `make load-outage`). Расчёт: восемь вкладок открываются (8) и за минуту
+ * простоя делают около 56 попыток — 64; 80 даёт запас. Окно пропускает весь
+ * предел пачкой, это не «раз в секунду». Дорогой ресурс — открытые потоки —
+ * держит отдельный предел, `STREAM_OPEN`.
+ */
 export const STREAM = {
-  max: 10,
+  max: 80,
   timeWindow: "1 minute",
-  keyGenerator: whoRoughly,
+  ...byPerson,
 } as const;
+
+/**
+ * Сколько потоков одного участника открыто одновременно (task-093, слой 3).
+ * Порог частоты их не держит: открытый поток живёт часами, и новые копились бы.
+ * Шестнадцать — вдвое больше восьми вкладок стенда; измерительное число.
+ */
+export const STREAM_OPEN = { max: 16, retryAfterSeconds: 30 } as const;
