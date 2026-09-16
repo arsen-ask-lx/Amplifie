@@ -24,6 +24,7 @@
  */
 
 import { connect } from "node:net";
+import { framed } from "./sse.mjs";
 import { inviteLink, joined, registerOwner, reportRefusals, request } from "./stand.mjs";
 
 /** Сколько клиентов перестали читать. */
@@ -84,11 +85,16 @@ async function healthy(cookie, seen) {
   if (!body) throw new Error("у потока нет тела");
   const reader = body.getReader();
   void (async () => {
+    const decoder = new TextDecoder();
+    let rest = "";
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) return;
-        if (new TextDecoder().decode(value).includes("data:")) seen.push(Date.now());
+        // По событиям, а не по кускам сокета: слипшиеся считались за одно.
+        const cut = framed(rest + decoder.decode(value, { stream: true }));
+        rest = cut.rest;
+        seen.push(...cut.events.map(() => Date.now()));
       }
     } catch {
       // Поток закрыли — конец замера, а не поломка.

@@ -14,6 +14,7 @@
 
 import { fork } from "node:child_process";
 import { monitorEventLoopDelay } from "node:perf_hooks";
+import { framed } from "./sse.mjs";
 
 export const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 
@@ -256,15 +257,26 @@ export async function openTab(cookie, seen, { sync = true, watching = null, stat
   return controller;
 }
 
-/** Читать поток до конца и вести себя на каждый звонок, как ведёт клиент. */
+/**
+ * Читать поток до конца и вести себя на каждый звонок, как ведёт клиент.
+ *
+ * ⚠️ ПО СОБЫТИЯМ, А НЕ ПО КУСКАМ СОКЕТА (task-091). Здесь каждый `read()`
+ * считался одним событием: под нагрузкой два слипшихся события давали
+ * одно применённое и одно потерянное, потеря — «разрыв», разрыв — догон
+ * и панель у трёх тысяч вкладок сразу. Шторм устраивал прибор, а не
+ * сервер: браузер с `EventSource` режет поток на события сам.
+ */
 async function follow(reader, options) {
   const decoder = new TextDecoder();
   let cursor = 0;
+  let rest = "";
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) return;
-      cursor = await reacted(decoder.decode(value, { stream: true }), cursor, options);
+      const cut = framed(rest + decoder.decode(value, { stream: true }));
+      rest = cut.rest;
+      for (const one of cut.events) cursor = await reacted(one, cursor, options);
     }
   } catch {
     // Поток закрыли — это конец замера, а не поломка.
