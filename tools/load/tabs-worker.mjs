@@ -24,47 +24,50 @@ let held = [];
 
 /**
  * Что вкладки этого процесса сделали: сколько раз сходили в догон и сколько
- * запросов к базе это стоило серверу (по заголовку `x-db-queries`).
+ * запросов к базе это стоило серверу (по заголовку `x-db-queries`), сколько
+ * раз возвращались к потоку после обрыва и сколько догонов получили отказ
+ * (task-093).
  */
-const stats = { syncs: 0, panels: 0, queries: 0 };
+const stats = { syncs: 0, panels: 0, queries: 0, reconnects: 0, syncFailures: 0, sessionEnded: 0 };
 
-process.on("message", async (message) => {
-  if (message.open) {
-    const { token, count, watching } = message.open;
-    try {
-      held = await openTabs(token, count, seen, undefined, { watching, stats });
-      process.send({ ready: held.length });
-    } catch (error) {
-      /**
-       * ⚠️ ПРИЧИНУ ПЕРЕДАЁМ, А НЕ ТЕРЯЕМ. У `fetch` сообщение всегда одно —
-       * «fetch failed», — и родитель, получив только его, не отличит
-       * «кончились порты у держателя» от «сервер отказал». Я потерял
-       * на этом два захода лестницы (task-091).
-       */
-      const why = error?.cause;
-      const tail = why ? ` (${why.code ?? why.message ?? String(why)})` : "";
-      process.send({ failed: `${String(error?.message ?? error)}${tail}` });
-    }
-    return;
+/** Открыть вкладки и сказать родителю, сколько вышло, — или почему нет. */
+async function open({ token, count, watching }) {
+  try {
+    held = await openTabs(token, count, seen, undefined, { watching, stats });
+    process.send({ ready: held.length });
+  } catch (error) {
+    /**
+     * ⚠️ ПРИЧИНУ ПЕРЕДАЁМ, А НЕ ТЕРЯЕМ. У `fetch` сообщение всегда одно —
+     * «fetch failed», — и родитель, получив только его, не отличит
+     * «кончились порты у держателя» от «сервер отказал». Я потерял
+     * на этом два захода лестницы (task-091).
+     */
+    const why = error?.cause;
+    const tail = why ? ` (${why.code ?? why.message ?? String(why)})` : "";
+    process.send({ failed: `${String(error?.message ?? error)}${tail}` });
   }
+}
 
-  if (message.stop) {
-    for (const controller of held) controller.abort();
-    process.send({
-      seen: seen.length,
-      syncs: stats.syncs,
-      panels: stats.panels,
-      queries: stats.queries,
-      // ⚠️ ОТКАЗЫ ЕДУТ ВМЕСТЕ С ЧИСЛАМИ, А НЕ ОСТАЮТСЯ ЗДЕСЬ. Вкладки живут
-      // в чужих процессах: их 429 родитель иначе не увидит никогда,
-      // и замер показал бы наш порог как предел сервера (task-091).
-      refusals: refusals(),
-      // ⚠️ СВОЯ ЗАДЕРЖКА, А НЕ СЕРВЕРА. Держатель, стоящий в очереди
-      // на единственный поток, отдаёт своё ожидание как время сервера.
-      // Без этого числа замер врёт тем сильнее, чем интереснее ступень
-      // (task-091, П-0).
-      lagMs: ownLagMs(),
-    });
-    process.exit(0);
-  }
+/** Погасить вкладки и отчитаться. */
+function stop() {
+  for (const controller of held) controller.abort();
+  process.send({
+    seen: seen.length,
+    ...stats,
+    // ⚠️ ОТКАЗЫ ЕДУТ ВМЕСТЕ С ЧИСЛАМИ, А НЕ ОСТАЮТСЯ ЗДЕСЬ. Вкладки живут
+    // в чужих процессах: их 429 родитель иначе не увидит никогда,
+    // и замер показал бы наш порог как предел сервера (task-091).
+    refusals: refusals(),
+    // ⚠️ СВОЯ ЗАДЕРЖКА, А НЕ СЕРВЕРА. Держатель, стоящий в очереди
+    // на единственный поток, отдаёт своё ожидание как время сервера.
+    // Без этого числа замер врёт тем сильнее, чем интереснее ступень
+    // (task-091, П-0).
+    lagMs: ownLagMs(),
+  });
+  process.exit(0);
+}
+
+process.on("message", (message) => {
+  if (message.open) void open(message.open);
+  else if (message.stop) stop();
 });

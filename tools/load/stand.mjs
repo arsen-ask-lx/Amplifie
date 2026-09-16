@@ -14,7 +14,7 @@
 
 import { fork } from "node:child_process";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import { framed } from "./sse.mjs";
+import { framed, nextDelay, retryAfterMs } from "./sse.mjs";
 
 export const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 
@@ -239,22 +239,103 @@ export async function joined(token, tag) {
  */
 export async function openTab(cookie, seen, { sync = true, watching = null, stats } = {}) {
   const controller = new AbortController();
-  const response = await fetch(`${BASE}/v1/stream`, {
-    headers: { cookie, accept: "text/event-stream" },
-    signal: controller.signal,
-  });
-  if (response.status === 429) {
-    // Поток идёт голым `fetch`, мимо `request`: считаем здесь, иначе
-    // самый частый отказ замера оказался бы единственным несчитанным.
-    refusal("/v1/stream");
-    throw new OwnRateLimitError("подключение к потоку");
-  }
+  const response = await connectStream(cookie, controller.signal);
+  if (response.status === 429) throw new OwnRateLimitError("подключение к потоку");
   if (!response.ok || !response.body) throw new Error(`поток: ${response.status}`);
 
   // У каждой вкладки своё окно — как у каждого браузера своё.
   const panel = coalesced(() => void readPanel(cookie, stats), PANEL_WINDOW_MS);
-  void follow(response.body.getReader(), { cookie, seen, sync, watching, stats, panel });
+  const tab = { cookie, seen, sync, watching, stats, panel, cursor: 0, signal: controller.signal };
+  void live(response.body, tab);
   return controller;
+}
+
+/** Подключиться к потоку. 429 считается здесь: поток идёт мимо `request`. */
+async function connectStream(cookie, signal) {
+  const response = await fetch(`${BASE}/v1/stream`, {
+    headers: { cookie, accept: "text/event-stream" },
+    signal,
+  });
+  if (response.status === 429) refusal("/v1/stream");
+  return response;
+}
+
+/** Сколько должно прожить соединение, чтобы окно повтора сбросилось. */
+const STABLE_MS = 10_000;
+
+function bump(stats, name) {
+  if (stats) stats[name] = (stats[name] ?? 0) + 1;
+}
+
+/**
+ * Слушать поток, а оборвался — вернуться, как это делает клиент (task-093).
+ *
+ * ⚠️ ТОТ ЖЕ ПОРЯДОК, ЧТО У `frontend/src/data/useLiveUpdates.ts`, И ТЕ ЖЕ
+ * ЧИСЛА ИЗ КОНТРАКТА. Задержка — `nextDelay`, срок сервера — `retryAfterMs`,
+ * сброс окна — после десяти секунд жизни соединения. После возвращения —
+ * догон и панель. Раньше вкладка прибора, как и старый клиент, после обрыва
+ * молчала до конца замера, и «волну переподключений» мерить было нечем.
+ *
+ * Сам порядок «подключился → догнал» здесь всё же копия: клиентский код
+ * живёт рядом с React и в Node не запускается. Копия названа, её числа —
+ * общие.
+ */
+async function live(firstBody, tab) {
+  let body = firstBody;
+  let failures = 0;
+  for (let first = true; body; first = false) {
+    if (!first) {
+      bump(tab.stats, "reconnects");
+      await catchUpAfterReconnect(tab);
+      tab.panel();
+    }
+    const openedAt = Date.now();
+    await follow(body.getReader(), tab);
+    if (tab.signal.aborted) return;
+    if (Date.now() - openedAt >= STABLE_MS) failures = 0;
+    ({ body, failures } = await reconnect(tab, failures));
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Вернуться к потоку по правилу клиента. `body: null` — возвращаться некуда. */
+async function reconnect(tab, startFailures) {
+  let failures = startFailures;
+  let floorMs = 0;
+  for (;;) {
+    await sleep(nextDelay(failures, Math.random, floorMs));
+    failures += 1;
+    if (tab.signal.aborted) return { body: null, failures };
+    let response;
+    try {
+      response = await connectStream(tab.cookie, tab.signal);
+    } catch {
+      floorMs = 0;
+      continue;
+    }
+    if (response.status === 401) {
+      bump(tab.stats, "sessionEnded");
+      return { body: null, failures };
+    }
+    if (response.ok && response.body) return { body: response.body, failures };
+    floorMs = retryAfterMs(response.headers.get("retry-after"), Date.now());
+    await response.body?.cancel().catch(() => undefined);
+  }
+}
+
+/** Догнать после возвращения; отказ — повтор по тому же правилу, а не сдача. */
+async function catchUpAfterReconnect(tab) {
+  if (!tab.sync) return;
+  for (let failures = 0; !tab.signal.aborted; failures++) {
+    const page = await syncOnce(tab.cookie, tab.cursor, tab.stats).catch(() => null);
+    if (page?.ok) {
+      tab.cursor = page.cursor;
+      return;
+    }
+    bump(tab.stats, "syncFailures");
+    await sleep(nextDelay(failures, Math.random));
+  }
 }
 
 /**
@@ -264,11 +345,10 @@ export async function openTab(cookie, seen, { sync = true, watching = null, stat
  * считался одним событием: под нагрузкой два слипшихся события давали
  * одно применённое и одно потерянное, потеря — «разрыв», разрыв — догон
  * и панель у трёх тысяч вкладок сразу. Шторм устраивал прибор, а не
- * сервер: браузер с `EventSource` режет поток на события сам.
+ * сервер: браузер режет поток на события сам.
  */
-async function follow(reader, options) {
+async function follow(reader, tab) {
   const decoder = new TextDecoder();
-  let cursor = 0;
   let rest = "";
   try {
     for (;;) {
@@ -276,10 +356,10 @@ async function follow(reader, options) {
       if (done) return;
       const cut = framed(rest + decoder.decode(value, { stream: true }));
       rest = cut.rest;
-      for (const one of cut.events) cursor = await reacted(one, cursor, options);
+      for (const one of cut.events) tab.cursor = await reacted(one, tab.cursor, tab);
     }
   } catch {
-    // Поток закрыли — это конец замера, а не поломка.
+    // Оборвался или закрыт — решает `live`: вернуться или закончить.
   }
 }
 
@@ -407,14 +487,22 @@ async function readPanel(cookie, stats) {
  * получается детерминированным. В коробке заголовка нет, он только на стенде.
  */
 async function caughtUp(cookie, cursor, stats) {
+  return (await syncOnce(cookie, cursor, stats)).cursor;
+}
+
+/** Один проход догона: удался ли и куда встал курсор. */
+async function syncOnce(cookie, cursor, stats) {
   const response = await request(`/v1/sync?after=${cursor}`, { cookie });
   if (stats) {
     stats.syncs += 1;
     stats.queries += Number(response.headers.get("x-db-queries") ?? 0);
   }
-  if (!response.ok) return cursor;
+  if (!response.ok) {
+    await response.arrayBuffer().catch(() => undefined);
+    return { ok: false, cursor };
+  }
   const page = await response.json();
-  return typeof page.seq === "number" ? page.seq : cursor;
+  return { ok: true, cursor: typeof page.seq === "number" ? page.seq : cursor };
 }
 
 /**
@@ -536,8 +624,23 @@ export async function releaseTabs(workers) {
       syncs: sum.syncs + one.syncs,
       panels: sum.panels + (one.panels ?? 0),
       queries: sum.queries + one.queries,
+      // Волна переподключений (task-093): сколько раз вернулись к потоку,
+      // сколько догонов после этого получили отказ, у скольких кончилась сессия.
+      reconnects: sum.reconnects + (one.reconnects ?? 0),
+      syncFailures: sum.syncFailures + (one.syncFailures ?? 0),
+      sessionEnded: sum.sessionEnded + (one.sessionEnded ?? 0),
       refusals: merged(sum.refusals, one.refusals),
     }),
-    { seen: 0, lagMs: 0, syncs: 0, panels: 0, queries: 0, refusals: {} },
+    {
+      seen: 0,
+      lagMs: 0,
+      syncs: 0,
+      panels: 0,
+      queries: 0,
+      reconnects: 0,
+      syncFailures: 0,
+      sessionEnded: 0,
+      refusals: {},
+    },
   );
 }

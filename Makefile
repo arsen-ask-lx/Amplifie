@@ -345,6 +345,12 @@ event-cost: ## гейт: цена события не растёт с число
 conditions: ## условия замера числами: тихо ли на стенде (сначала: make up)
 > node tools/load/conditions.mjs
 
+# Настройки: TABS=3000 DOWN_S=10 MESSAGES=20 make load-outage
+# ⚠️ Останавливает настоящий api стенда на DOWN_S секунд (task-093).
+.PHONY: load-outage
+load-outage: ## выкладка посреди прогона: возвращаются ли все вкладки (сначала: make up)
+> MSYS_NO_PATHCONV=1 docker run --rm --network amplifie_default -v "$(CURDIR):/work" -w /work >   -v /var/run/docker.sock:/var/run/docker.sock -e AMPLIFIE_BASE_URL=http://api:3000 >   -e TABS=$${TABS:-500} -e DOWN_S=$${DOWN_S:-10} -e MESSAGES=$${MESSAGES:-20} >   node:24-bookworm-slim node tools/load/outage.mjs
+
 .PHONY: slow-client
 slow-client: ## что медленный клиент делает с памятью, Д-14 (сначала: make up)
 > node tools/load/slow-client.mjs
@@ -388,4 +394,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load conditions check
+.PHONY: help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
