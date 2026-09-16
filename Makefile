@@ -336,6 +336,11 @@ db-per-event: ## цена одного события в транзакциях 
 event-cost: ## гейт: цена события не растёт с числом вкладок (сначала: make up)
 > node tools/checks/check-event-cost.mjs
 
+# Настройки: SENDERS=50 EACH=5 SPREAD=same|spaces make write-ceiling
+.PHONY: write-ceiling
+write-ceiling: ## потолок записи в одно пространство, Д-2 (сначала: make up)
+> node tools/load/write-ceiling.mjs
+
 # ⚠️ УСТАНОВКА БРАУЗЕРА СТОИТ ЗДЕСЬ, А НЕ В ЧЬЕЙ-ТО ПАМЯТИ. Самая частая
 # поломка Playwright у других — версия пакета уехала, браузеры остались
 # старые, и прогон падает «нет браузера» на исправном коде. Команда
