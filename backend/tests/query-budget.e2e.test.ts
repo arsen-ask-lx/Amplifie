@@ -122,4 +122,30 @@ describe("бюджет запросов к базе", () => {
     // Её арбитр другой: `make write-ceiling` (task-082, П-3).
     expect(cost, "лишний запрос на горячей дороге записи — чужое ожидание").toBeLessThanOrEqual(12);
   });
+
+  /**
+   * ⚠️ САМАЯ ЧАСТАЯ ДВЕРЬ ПРОЕКТА, И ПОСЛЕ task-067 ОНА НЕ ЧИТАЕТ РЕПЛИК.
+   * Их отдаёт хвост в памяти, поэтому вся цена догона — это вход: проверка
+   * сессии на каждый запрос (Д-39). Сто вкладок в одном чате при десяти
+   * сообщениях в секунду — это тысяча догонов в секунду, и каждый лишний
+   * запрос здесь умножается на тысячу.
+   *
+   * Догон зовётся по СВЕЖЕМУ курсору — так его зовёт браузер после звонка.
+   * С нулевого курсора отвечает база, и это другая дорога.
+   */
+  it("догон по свежему курсору стоит не больше одного запроса к базе", async () => {
+    const person = await newPerson("Догоняющий");
+    const channel = await firstChannel(person);
+    await call("POST", `/v1/conversations/${channel}/messages`, person, {
+      body: "чтобы хвосту было что помнить",
+      clientMsgId: crypto.randomUUID(),
+    });
+
+    const head = (await (await call("GET", "/v1/sync?after=0&limit=50", person)).json()) as {
+      seq: number;
+    };
+    const cost = await queriesOf(await call("GET", `/v1/sync?after=${head.seq}&limit=50`, person));
+
+    expect(cost, "догон не читает реплик — значит платит только за вход").toBeLessThanOrEqual(1);
+  });
 });

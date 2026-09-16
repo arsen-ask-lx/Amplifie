@@ -85,10 +85,18 @@ export async function deleteSessionByTokenHash(tx: Executor, tokenHash: string) 
   await tx.delete(session).where(eq(session.tokenHash, tokenHash));
 }
 
-/** Живая сессия + кто это + где. Один запрос, чтобы не плодить N+1 на каждом вызове. */
+/**
+ * Живая сессия + кто это + где. Один запрос, чтобы не плодить N+1 на каждом вызове.
+ *
+ * ⚠️ ОТДАЁТ ПАРУ, А НЕ ОДИН ОБЪЕКТ. Отметка «сессия жива» нужна
+ * зовущему, чтобы решить, пора ли её обновлять, — но в «кто пришёл»
+ * ей места нет. Незаявленное поле, приехавшее вместе с правами, однажды
+ * прочтут по ошибке — поэтому оно стоит рядом, а не внутри.
+ */
 export async function findLiveSession(tx: Executor, tokenHash: string, now: Date) {
   const rows = await tx
     .select({
+      lastSeenAt: session.lastSeenAt,
       sessionId: session.id,
       accountId: account.id,
       email: account.email,
@@ -105,7 +113,10 @@ export async function findLiveSession(tx: Executor, tokenHash: string, now: Date
     .innerJoin(workspace, eq(workspace.id, participant.workspaceId))
     .where(and(eq(session.tokenHash, tokenHash), gt(session.expiresAt, now)))
     .limit(1);
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  const { lastSeenAt, ...actor } = row;
+  return { actor, lastSeenAt };
 }
 
 /**
@@ -118,8 +129,21 @@ export async function findLiveSession(tx: Executor, tokenHash: string, now: Date
  *
  * Условие в самом запросе: строка обновляется, только если отметка старее
  * порога. Гонки не боимся — идемпотентно по построению.
+ *
+ * ⚠️ НО УСЛОВИЯ В ЗАПРОСЕ МАЛО, И ВОТ ПОЧЕМУ. Оно избавляет
+ * от письма, но не от самого круга до базы и занятого соединения
+ * из десяти. Замерено: догон после task-067 не читает реплик вовсе,
+ * и вся его цена — два этих запроса (Д-39). Поэтому решение «пора ли»
+ * принимается до запроса, по отметке, которую мы и так только что прочли
+ * (`staleTouch`), а условие в `UPDATE` остаётся вторым рубежом от гонки
+ * двух вкладок.
  */
 const TOUCH_EVERY_MS = 5 * 60 * 1000;
+
+/** Пора ли отмечать сессию живой. Никогда не отмечали — значит пора. */
+export function staleTouch(lastSeenAt: Date | null, now: Date): boolean {
+  return lastSeenAt === null || lastSeenAt.getTime() < now.getTime() - TOUCH_EVERY_MS;
+}
 
 export async function touchSession(tx: Executor, sessionId: string, now: Date) {
   const staleBefore = new Date(now.getTime() - TOUCH_EVERY_MS);
