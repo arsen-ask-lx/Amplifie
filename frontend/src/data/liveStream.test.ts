@@ -11,6 +11,9 @@ import { type LiveStreamDeps, openLiveStream } from "./liveStream.js";
 
 const encoder = new TextEncoder();
 
+/** Так отвечает настоящий поток: без типа ответ потоком не считается. */
+const STREAM_HEADERS = { "content-type": "text/event-stream; charset=utf-8" };
+
 /** Тело ответа, отдающее куски по одному и затем закрывающееся. */
 function body(...chunks: string[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -88,6 +91,7 @@ describe("хозяин потока", () => {
       () =>
         new Response(body(': поток открыт\n\nevent: changed\ndata: {"a"', ":1}\n\n"), {
           status: 200,
+          headers: STREAM_HEADERS,
         }),
     ]);
     const { log, handlers } = recorder();
@@ -97,7 +101,9 @@ describe("хозяин потока", () => {
   });
 
   it("поток кончился — возвращается снова, а не молчит", async () => {
-    const h = harness([() => new Response(body(": поток открыт\n\n"), { status: 200 })]);
+    const h = harness([
+      () => new Response(body(": поток открыт\n\n"), { status: 200, headers: STREAM_HEADERS }),
+    ]);
     const { handlers } = recorder();
     openLiveStream("/v1/stream", handlers, h.deps);
     await settle();
@@ -140,6 +146,21 @@ describe("хозяин потока", () => {
     expect(h.timers).toHaveLength(1);
   });
 
+  it("200, но не поток событий (страница прокси) — не открыт, а повтор", async () => {
+    const h = harness([
+      () =>
+        new Response("<html>шлюз</html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+    ]);
+    const { log, handlers } = recorder();
+    openLiveStream("/v1/stream", handlers, h.deps);
+    await settle();
+    expect(log).toEqual(["trouble:1"]);
+    expect(h.timers).toHaveLength(1);
+  });
+
   it("401 — сессия кончилась: сигнал и ни одной новой попытки", async () => {
     const h = harness([() => new Response("{}", { status: 401 })]);
     const { log, handlers } = recorder();
@@ -152,7 +173,7 @@ describe("хозяин потока", () => {
   it("закрыли — чтение отменено, запланированная попытка снята", async () => {
     const h = harness([
       () => new Response("", { status: 502 }),
-      () => new Response(endless(": поток открыт\n\n"), { status: 200 }),
+      () => new Response(endless(": поток открыт\n\n"), { status: 200, headers: STREAM_HEADERS }),
     ]);
     const { handlers } = recorder();
     const close = openLiveStream("/v1/stream", handlers, h.deps);
@@ -166,7 +187,7 @@ describe("хозяин потока", () => {
 
   it("соединение, умершее сразу после открытия, не сбрасывает окно", async () => {
     const h = harness(
-      [() => new Response(body(": поток открыт\n\n"), { status: 200 })],
+      [() => new Response(body(": поток открыт\n\n"), { status: 200, headers: STREAM_HEADERS })],
       () => 0.999,
     );
     const { handlers } = recorder();

@@ -74,7 +74,11 @@ async function attempt(url: string, signal: AbortSignal, deps: LiveStreamDeps): 
     return { kind: "повторить", floorMs: 0 };
   }
   if (liveTroubleOfStatus(response.status) === "сессии-нет") return { kind: "сессии нет" };
-  if (response.ok && response.body) return { kind: "открыт", body: response.body };
+  // ⚠️ И ТИП ТОЖЕ: 200 от прокси со страницей ошибки — не поток. WHATWG
+  // требует `text/event-stream`; без проверки такая страница считалась бы
+  // открытым потоком, по которому никогда ничего не придёт.
+  const isStream = response.headers.get("content-type")?.startsWith("text/event-stream") ?? false;
+  if (response.ok && response.body && isStream) return { kind: "открыт", body: response.body };
   // Тело отказа не нужно, но непрочитанное держит соединение.
   void response.body?.cancel().catch(() => undefined);
   return {

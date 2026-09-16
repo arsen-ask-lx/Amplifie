@@ -51,6 +51,25 @@ export function retrying(
   let failures = 0;
   let timer: unknown;
   let stopped = false;
+  /** Проход, за исходом которого уже следим. */
+  let watched: Promise<void> | null = null;
+
+  const failed = (error: unknown) => {
+    if (liveTroubleOf(error) === "сессии-нет") {
+      stopped = true;
+      handlers.onSessionEnded();
+      return;
+    }
+    failures += 1;
+    handlers.onFailures(failures);
+    timer = deps.setTimeout(
+      () => {
+        timer = undefined;
+        kick();
+      },
+      nextDelay(failures - 1, deps.random),
+    );
+  };
 
   const kick = () => {
     if (stopped) return;
@@ -58,29 +77,25 @@ export function retrying(
       deps.clearTimeout(timer);
       timer = undefined;
     }
-    run().then(
+    /**
+     * ⚠️ `run` ЗОВЁТСЯ ВСЕГДА, А ИСХОД ОДНОГО ПРОХОДА СЧИТАЕТСЯ ОДИН РАЗ.
+     * Догон во время прохода отдаёт тот же промис и заказывает ещё один
+     * круг — поэтому звать его надо. Но второй обработчик на тот же промис
+     * посчитал бы один отказ дважды и перескочил ступень задержки.
+     */
+    const pass = run();
+    if (pass === watched) return;
+    watched = pass;
+    pass.then(
       () => {
+        if (watched === pass) watched = null;
+        if (stopped) return;
         failures = 0;
         handlers.onRecovered();
       },
       (error: unknown) => {
-        if (stopped) return;
-        if (liveTroubleOf(error) === "сессии-нет") {
-          stopped = true;
-          handlers.onSessionEnded();
-          return;
-        }
-        failures += 1;
-        handlers.onFailures(failures);
-        // Два отказа подряд от двух сигналов не ставят два таймера.
-        if (timer !== undefined) deps.clearTimeout(timer);
-        timer = deps.setTimeout(
-          () => {
-            timer = undefined;
-            kick();
-          },
-          nextDelay(failures - 1, deps.random),
-        );
+        if (watched === pass) watched = null;
+        if (!stopped) failed(error);
       },
     );
   };

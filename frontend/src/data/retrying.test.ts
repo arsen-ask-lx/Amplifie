@@ -76,6 +76,68 @@ describe("догон, который не сдаётся", () => {
     expect(h.timers).toHaveLength(0);
   });
 
+  it("два сигнала во время одного прохода — один отказ, один таймер", async () => {
+    let fail: (error: unknown) => void = () => undefined;
+    let calls = 0;
+    const timers: Array<{ cleared: boolean }> = [];
+    const log: string[] = [];
+    // Как настоящий догон: пока проход идёт, повторный вызов отдаёт ТОТ ЖЕ промис.
+    let running: Promise<void> | null = null;
+    const control = retrying(
+      () => {
+        running ??= new Promise<void>((_, reject) => {
+          calls += 1;
+          fail = reject;
+        });
+        return running;
+      },
+      {
+        onFailures: (n) => log.push(`fail:${n}`),
+        onRecovered: () => log.push("ok"),
+        onSessionEnded: () => log.push("401"),
+      },
+      {
+        random: () => 0,
+        setTimeout: () => {
+          const timer = { cleared: false };
+          timers.push(timer);
+          return timer;
+        },
+        clearTimeout: (timer) => {
+          (timer as { cleared: boolean }).cleared = true;
+        },
+      },
+    );
+    control.kick();
+    control.kick();
+    fail(new ApiError(500, { error: "отказ" }));
+    await settle();
+    expect(calls).toBe(1);
+    expect(log).toEqual(["fail:1"]);
+    expect(timers.filter((one) => !one.cleared)).toHaveLength(1);
+  });
+
+  it("остановлен во время прохода — удача никому не сообщается", async () => {
+    let succeed: () => void = () => undefined;
+    const log: string[] = [];
+    const control = retrying(
+      () =>
+        new Promise<void>((resolve) => {
+          succeed = resolve;
+        }),
+      {
+        onFailures: (n) => log.push(`fail:${n}`),
+        onRecovered: () => log.push("ok"),
+        onSessionEnded: () => log.push("401"),
+      },
+    );
+    control.kick();
+    control.stop();
+    succeed();
+    await settle();
+    expect(log).toEqual([]);
+  });
+
   it("остановлен — повтор снят и больше не случается", async () => {
     const h = harness([500]);
     h.control.kick();
