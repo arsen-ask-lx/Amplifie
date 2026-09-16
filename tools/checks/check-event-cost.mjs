@@ -92,8 +92,12 @@ async function stopWorkers(workers) {
     ),
   );
   return reports.reduce(
-    (sum, one) => ({ syncs: sum.syncs + one.syncs, queries: sum.queries + one.queries }),
-    { syncs: 0, queries: 0 },
+    (sum, one) => ({
+      syncs: sum.syncs + one.syncs,
+      panels: sum.panels + (one.panels ?? 0),
+      queries: sum.queries + one.queries,
+    }),
+    { syncs: 0, panels: 0, queries: 0 },
   );
 }
 
@@ -139,14 +143,13 @@ const small = await costAt(SMALL);
 const large = await costAt(LARGE);
 const growth = (large.total - small.total) / (LARGE - SMALL);
 
-console.log(
-  `${SMALL} вкладок: ${small.total} запросов к базе ` +
-    `(запись ${small.write}, догонов ${small.syncs})`,
-);
-console.log(
-  `${LARGE} вкладок: ${large.total} запросов к базе ` +
-    `(запись ${large.write}, догонов ${large.syncs})`,
-);
+const say = (tabs, at) =>
+  console.log(
+    `${tabs} вкладок: ${at.total} запросов к базе ` +
+      `(запись ${at.write}, догонов ${at.syncs}, панелей ${at.panels})`,
+  );
+say(SMALL, small);
+say(LARGE, large);
 console.log(`прирост на вкладку: ${growth.toFixed(2)} (разрешено ${limit})`);
 
 if (growth > limit + SLACK) {

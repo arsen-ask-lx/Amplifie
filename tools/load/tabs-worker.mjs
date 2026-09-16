@@ -26,7 +26,7 @@ let held = [];
  * Что вкладки этого процесса сделали: сколько раз сходили в догон и сколько
  * запросов к базе это стоило серверу (по заголовку `x-db-queries`).
  */
-const stats = { syncs: 0, queries: 0 };
+const stats = { syncs: 0, panels: 0, queries: 0 };
 
 process.on("message", async (message) => {
   if (message.open) {
@@ -42,7 +42,12 @@ process.on("message", async (message) => {
 
   if (message.stop) {
     for (const controller of held) controller.abort();
-    process.send({ seen: seen.length, syncs: stats.syncs, queries: stats.queries });
+    process.send({
+      seen: seen.length,
+      syncs: stats.syncs,
+      panels: stats.panels,
+      queries: stats.queries,
+    });
     process.exit(0);
   }
 });

@@ -152,8 +152,34 @@ async function reacted(chunk, cursor, { cookie, seen, sync, watching, stats }) {
   if (!chunk.includes("data:")) return cursor;
   seen.push(Date.now());
   if (!sync) return cursor;
+
+  /**
+   * ⚠️ ПАНЕЛЬ ПЕРЕЧИТЫВАЕТСЯ НА ЛЮБОЙ ЗВОНОК, И ЭТО НЕ ВЫДУМКА
+   * ЗАМЕРА, А ПОВЕДЕНИЕ КЛИЕНТА. В `useChat.ts` на каждое событие
+   * стоит `rooms.reload()` без всяких условий: непрочитанное и порядок
+   * меняются и от чужой реплики. Значит ВСЯКАЯ вкладка на ВСЯКое
+   * событие идёт в `/v1/panel` — и это четыре запроса к базе против
+   * одного у догона.
+   *
+   * До 16.09.2026 замер этого не делал и потому мерил пятую часть
+   * цены события. Тот же класс ошибки, что и трижды до него:
+   * прибор был зелёным потому, что не смотрел туда, где дорого.
+   */
+  await readPanel(cookie, stats);
+
   if (watching !== null && !addressed(chunk, watching)) return cursor;
   return caughtUp(cookie, cursor, stats);
+}
+
+/** Панель после звонка — так же, как её перечитывает браузер. */
+async function readPanel(cookie, stats) {
+  const response = await request("/v1/panel", { cookie });
+  if (stats) {
+    stats.panels = (stats.panels ?? 0) + 1;
+    stats.queries += Number(response.headers.get("x-db-queries") ?? 0);
+  }
+  // Тело читаем и выбрасываем: непрочитанное тело держит соединение.
+  await response.arrayBuffer();
 }
 
 /**
