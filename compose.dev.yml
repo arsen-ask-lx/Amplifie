@@ -51,3 +51,26 @@ services:
       args:
         AMPLIFIE_VERSION: ${AMPLIFIE_VERSION:-}
     image: ${AMPLIFIE_IMAGE_WEB:-amplifie/web:latest}
+
+  # ⚠️ ТОЛЬКО СТЕНД. Коробке клиента Prometheus не достаётся: он объявлен
+  # здесь и больше нигде. `docker compose -f compose.yml config` обязан
+  # о нём не знать — это и проверяет приёмочный.
+  #
+  # ⚠️ ВЕРСИЯ ЗАКРЕПЛЕНА. Плавающий тег даёт два разных образа из одного
+  # коммита — ровно то, за что у нас записан Д-36.
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    volumes:
+      - ./tools/ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - amplifie_promdata:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Трое суток: нам нужен ряд на время работы, а не архив.
+      - --storage.tsdb.retention.time=3d
+    ports:
+      # Порт свой, не стандартный 9090: на общих портах уже был разбор
+      # несуществующей поломки из-за чужого следа.
+      - "127.0.0.1:${PROM_HOST_PORT:-9477}:9090"
+
+volumes:
+  amplifie_promdata:
