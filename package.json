@@ -19,6 +19,7 @@
     "decisions": "node tools/checks/check-decisions.mjs",
     "contrast": "node tools/checks/check-contrast.mjs",
     "unit": "vitest run --config tools/vitest.unit.ts",
+    "field-from-ui": "node tools/checks/check-field-from-ui.mjs",
     "no-raw-html": "node tools/checks/check-no-raw-html.mjs",
     "failure-map": "node tools/checks/check-failure-map.mjs",
     "favicon": "node tools/checks/check-favicon.mjs",

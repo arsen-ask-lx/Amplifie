@@ -2,6 +2,7 @@ import { PROJECT_PRESETS } from "@amplifie/contract";
 import { useState } from "react";
 import { iconByName, PROJECT_ICONS, ProjectGlyph } from "../shared/projectLook.js";
 import { ICON_LABELS, PRESET_LABELS } from "../shared/projectLookNames.js";
+import { ColorField } from "../shared/ui/color-field.js";
 import { Input } from "../shared/ui/input.js";
 import { Popover, PopoverContent, PopoverTrigger } from "../shared/ui/popover.js";
 
@@ -78,21 +79,8 @@ export function LookPicker({
               />
             ))}
 
-            {/* Своя пипетка — родная браузерная: она знает, как выбирают цвет
-                на этой системе, и не требует своего колеса и ползунков. */}
-            <label
-              className="grid size-6 cursor-pointer place-items-center rounded-pill border border-edge"
-              title="Свой цвет"
-            >
-              <span className="sr-only">Свой цвет</span>
-              <input
-                type="color"
-                value={color ?? "#4180d2"}
-                aria-label="Свой цвет"
-                onChange={(event) => onColor(event.target.value.toLowerCase())}
-                className="size-5 cursor-pointer rounded-pill border-0 bg-transparent p-0"
-              />
-            </label>
+            {/* Свой цвет — родной пипеткой браузера (`ColorField`). */}
+            <ColorField value={color} label="Свой цвет" onChange={onColor} />
 
             <button
               type="button"

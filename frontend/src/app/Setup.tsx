@@ -153,7 +153,7 @@ export function Setup({ onDone }: { onDone: () => void }) {
           ) : null}
 
           {choice === "subscription" ? (
-            <ModelScreen bridges={bridges} onChanged={refresh} issueAtOnce />
+            <ModelScreen bridges={bridges} onChanged={refresh} issueAtOnce framed />
           ) : null}
           {choice === "key" ? (
             <KeyPanel

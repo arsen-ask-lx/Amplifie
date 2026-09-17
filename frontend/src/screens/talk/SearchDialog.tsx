@@ -1,9 +1,9 @@
-import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { SearchHit } from "../../data/api.js";
 import { type SearchState, useSearch } from "../../data/useSearch.js";
 import { lineOf, marksIn, snippetAround } from "../../shared/searchLine.js";
 import { Button } from "../../shared/ui/button.js";
+import { CommandField } from "../../shared/ui/command-field.js";
 import { useDismiss } from "../../shared/useDismiss.js";
 import { dayFormat } from "../../shared/when.js";
 
@@ -131,30 +131,23 @@ export function SearchDialog({
         aria-label="Поиск по сообщениям"
         className="flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-line bg-card shadow-float"
       >
-        <label className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <MagnifyingGlass className="size-5 shrink-0 text-muted" aria-hidden="true" />
-          <input
-            type="search"
-            // biome-ignore lint/a11y/noAutofocus: окно открыто сочетанием ради набора — фокус и есть его назначение
-            autoFocus
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setActive((at) => Math.min(at + 1, items.length - 1));
-              } else if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setActive((at) => Math.max(at - 1, 0));
-              } else if (event.key === "Enter") {
-                pick(items[active]);
-              }
-            }}
-            placeholder="Поиск по сообщениям"
-            aria-label="Что искать"
-            className="min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-muted"
-          />
-        </label>
+        <CommandField
+          value={query}
+          label="Что искать"
+          placeholder="Поиск по сообщениям"
+          onChange={setQuery}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setActive((at) => Math.min(at + 1, items.length - 1));
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActive((at) => Math.max(at - 1, 0));
+            } else if (event.key === "Enter") {
+              pick(items[active]);
+            }
+          }}
+        />
 
         <Status state={state} onRetry={retry} />
 
