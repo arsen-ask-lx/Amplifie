@@ -212,11 +212,16 @@ export function labelColor(color: string | null | undefined): string | undefined
 }
 
 /**
- * Значок папки — с выбранным цветом либо как раньше.
+ * Значок папки — белым на заливке выбранного цвета либо как раньше.
  *
  * ⚠️ ОДНА ФУНКЦИЯ НА ВСЕ МЕСТА, ГДЕ ПАПКА ПОКАЗЫВАЕТСЯ: строка панели,
  * выбор в окне, будущая карточка. Три копии разъехались бы на первой же
  * правке — у одной появился бы новый значок, у другой нет.
+ *
+ * ⚠️ ЗАЛИВКА, А НЕ ЦВЕТНОЙ ЗНАЧОК (task-103, владелец 17.09). Тонкая
+ * цветная линия на панели почти не различалась; квадрат цвета узнаётся
+ * с первого взгляда, как списки в Apple Reminders. Без цвета — прежний
+ * приглушённый значок, с тем же отступом: строки с цветом и без стоят ровно.
  */
 export function ProjectGlyph({
   icon,
@@ -230,7 +235,10 @@ export function ProjectGlyph({
   const Glyph = icon && icon in ICONS ? ICONS[icon as ProjectIcon] : FolderSimple;
   const tint = labelColor(color);
   return (
-    <span className="grid shrink-0 place-items-center" style={tint ? { color: tint } : undefined}>
+    <span
+      className="grid shrink-0 place-items-center rounded-[5px] p-0.5"
+      style={tint ? { backgroundColor: tint, color: "var(--tag-glyph)" } : undefined}
+    >
       <Glyph className={className ?? "size-4"} />
     </span>
   );

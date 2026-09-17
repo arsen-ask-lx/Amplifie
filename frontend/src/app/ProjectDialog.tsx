@@ -41,7 +41,6 @@ function explain(failure: unknown): string {
  * у другого нет.
  */
 function ProjectDialog({
-  open,
   title,
   before,
   lookBefore,
@@ -50,7 +49,6 @@ function ProjectDialog({
   onSubmit,
   onClose,
 }: {
-  open: boolean;
   /** Заголовок окна: «Новый проект» либо «Переименовать проект». */
   title: string;
   /** Прежнее название. Пусто — заводим новый. */
@@ -73,7 +71,6 @@ function ProjectDialog({
 
   return (
     <FormDialog
-      open={open}
       title={title}
       submitLabel={submitLabel}
       canSubmit={name.trim() !== ""}
@@ -128,15 +125,15 @@ function ProjectDialog({
 }
 
 /**
- * Выбор цвета и значка папки (task-038).
+ * Выбор цвета и значка папки (task-038, task-103).
  *
- * ⚠️ ИЗ НАШИХ НАБОРОВ, А НЕ ПРОИЗВОЛЬНЫЙ ЦВЕТ. Семь цветов проверены
- * гейтом контраста на всех девятнадцати темах; произвольный `#hex`
- * из окна выбора прошёл бы мимо любой проверки и стал бы невидимым
- * на половине тем. Значков девять десятков — список в общем пакете.
+ * ⚠️ ИЗ НАШИХ НАБОРОВ, А НЕ ПРОИЗВОЛЬНЫЙ ЦВЕТ. Шестнадцать цветов проверены
+ * гейтом контраста под белым значком; произвольный `#hex` из пипетки
+ * прошёл бы мимо любой проверки (владелец 17.09 выбрал набор, а не пипетку).
+ * Значков девять десятков — список в общем пакете.
  *
  * ⚠️ У КАЖДОЙ КНОПКИ ЕСТЬ ИМЯ СЛОВАМИ. Кружок без имени недоступен
- * тому, кто цвета не различает: для него это семь одинаковых точек.
+ * тому, кто цвета не различает: для него это одинаковые точки.
  */
 function Picker({
   icon,
@@ -151,7 +148,10 @@ function Picker({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
+      {/* Шестнадцать кружков — сеткой 8×2 и группой с именем: рядом девяносто
+          кнопок-значков, и читалке нужна граница «здесь цвета». */}
+      <fieldset className="grid w-fit grid-cols-8 gap-2">
+        <legend className="sr-only">Цвет</legend>
         {(Object.keys(COLOR_LABELS) as ProjectColor[]).map((one) => (
           <button
             key={one}
@@ -169,7 +169,7 @@ function Picker({
             style={{ backgroundColor: labelColor(one) }}
           />
         ))}
-      </div>
+      </fieldset>
 
       {/* ⚠️ ВЫСОТА ОГРАНИЧЕНА, А НЕ «СКОЛЬКО ВЫЙДЕТ». Девяносто значков
           в шесть колонок дали пятнадцать рядов: окно перестало помещаться
@@ -233,22 +233,30 @@ export function ProjectAsks({
 
   return (
     <>
-      <ProjectDialog
-        open={asking?.kind === "create" || renaming !== null}
-        title={renaming ? "Редактировать проект" : "Новый проект"}
-        before={renaming?.title ?? ""}
-        lookBefore={renaming ?? undefined}
-        creating={!renaming}
-        submitLabel={renaming ? "Сохранить" : "Создать проект"}
-        // ⚠️ КЛЮЧ ПО СЛУЧАЮ: без него поле помнит прежнее имя, когда окно
-        // открывают второй раз с другим проектом.
-        key={renaming?.id ?? "create"}
-        onSubmit={async (edit) => {
-          if (renaming) await panel.renameProject(renaming.id, edit);
-          else await panel.addProject(edit.title, { icon: edit.icon, color: edit.color });
-        }}
-        onClose={onClose}
-      />
+      {/* ⚠️ ОКНО НА СТРАНИЦЕ, ТОЛЬКО ПОКА СПРАШИВАЕТ (task-103). Спрятанное
+          окно помнило поля: второй «+» открывал прежний проект, будто его
+          редактируют (владелец 17.09). Ключ по случаю лечил только смену
+          проекта, а не повтор того же вопроса. */}
+      {asking?.kind === "create" ? (
+        <ProjectDialog
+          title="Новый проект"
+          creating
+          submitLabel="Создать проект"
+          onSubmit={(edit) => panel.addProject(edit.title, { icon: edit.icon, color: edit.color })}
+          onClose={onClose}
+        />
+      ) : null}
+      {renaming ? (
+        <ProjectDialog
+          title="Редактировать проект"
+          before={renaming.title}
+          lookBefore={renaming}
+          creating={false}
+          submitLabel="Сохранить"
+          onSubmit={(edit) => panel.renameProject(renaming.id, edit)}
+          onClose={onClose}
+        />
+      ) : null}
 
       {removing ? (
         <ConfirmDialog

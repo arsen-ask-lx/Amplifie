@@ -85,21 +85,24 @@ export function Rail({
           </button>
         </div>
 
-        <NewChatDialog
-          open={creatingFor !== undefined}
-          folderTitle={creatingFor?.title}
-          onCreate={async (title) => {
-            const projectId = creatingFor?.id;
-            await chat.panel.addChannel(title, projectId);
-            if (projectId) {
-              setProjectToReveal((before) => ({
-                id: projectId,
-                revision: (before?.revision ?? 0) + 1,
-              }));
-            }
-          }}
-          onClose={() => setCreatingFor(undefined)}
-        />
+        {/* Окно на странице, только пока спрашивает (task-103): иначе оно
+            помнило набранное после «Отмены». */}
+        {creatingFor === undefined ? null : (
+          <NewChatDialog
+            folderTitle={creatingFor?.title}
+            onCreate={async (title) => {
+              const projectId = creatingFor?.id;
+              await chat.panel.addChannel(title, projectId);
+              if (projectId) {
+                setProjectToReveal((before) => ({
+                  id: projectId,
+                  revision: (before?.revision ?? 0) + 1,
+                }));
+              }
+            }}
+            onClose={() => setCreatingFor(undefined)}
+          />
+        )}
 
         {/* ⚠️ СПИСОК РАЗГОВОРОВ СТОИТ ВСЕГДА, А НЕ ТОЛЬКО В «ЧАТЕ», И ЭТО
             ОТМЕНА ПРЕЖНЕГО РЕШЕНИЯ. Раньше он прятался в «Доске»
