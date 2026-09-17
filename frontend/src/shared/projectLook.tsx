@@ -1,4 +1,4 @@
-import { PROJECT_ICONS, type ProjectIcon } from "@amplifie/contract";
+import { inkOn, PROJECT_ICONS, type ProjectIcon } from "@amplifie/contract";
 import {
   Airplane,
   Anchor,
@@ -206,9 +206,15 @@ const ICONS: Record<ProjectIcon, React.ComponentType<{ className?: string }>> = 
 
 export { PROJECT_ICONS };
 
-/** Цвет метки значением из темы. Пусто — приглушённый цвет темы. */
+/**
+ * Цвет заливки. Пусто — заливки нет вовсе, значок берёт приглушённый цвет темы.
+ *
+ * ⚠️ ЗНАЧЕНИЕ, А НЕ ТОКЕН (task-104, отмена Р-041). Цвет выбирается пипеткой
+ * и приезжает из базы как `#rrggbb`; токен темы подставить сюда нельзя —
+ * он меняется вместе с темой, а цвет проекта у всех один.
+ */
 export function labelColor(color: string | null | undefined): string | undefined {
-  return color ? `var(--tag-${color})` : undefined;
+  return color ?? undefined;
 }
 
 /**
@@ -222,6 +228,10 @@ export function labelColor(color: string | null | undefined): string | undefined
  * цветная линия на панели почти не различалась; квадрат цвета узнаётся
  * с первого взгляда, как списки в Apple Reminders. Без цвета — прежний
  * приглушённый значок, с тем же отступом: строки с цветом и без стоят ровно.
+ *
+ * ⚠️ ЦВЕТ ЗНАЧКА СЧИТАЕТСЯ, А НЕ ЗАДАН (task-104). Заливку называет человек
+ * пипеткой, и белый на светло-жёлтом не прочтёт никто: `inkOn` берёт из белого
+ * и чёрного тот, что читается, — правило проверено перебором куба RGB.
  */
 export function ProjectGlyph({
   icon,
@@ -237,7 +247,7 @@ export function ProjectGlyph({
   return (
     <span
       className="grid shrink-0 place-items-center rounded-[5px] p-0.5"
-      style={tint ? { backgroundColor: tint, color: "var(--tag-glyph)" } : undefined}
+      style={tint ? { backgroundColor: tint, color: inkOn(tint) } : undefined}
     >
       <Glyph className={className ?? "size-4"} />
     </span>

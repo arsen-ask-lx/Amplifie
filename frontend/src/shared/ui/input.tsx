@@ -23,6 +23,11 @@ import { cn } from "@/shared/utils";
  * `styles.css`. Карточка остаётся поверхностью, а поле внутри неё —
  * местом действия; белое поле на белой карточке стирало эту разницу.
  *
+ * ⚠️ ГРАНИЦА В ПИКСЕЛЬ, А НЕ В ДВА (владелец, тыкалка 17.09: «что за обводка
+ * у полей, ужас»). Цвет прежний — `--edge` держит порог 3:1 и остаётся
+ * в гейте контраста; ушла только толщина, от которой поле читалось рамкой,
+ * а не местом для текста.
+ *
  * Размер и внешний радиус те же, что у Select и Button: 36 и 18 px.
  * Локальные случаи меняют только действительно особое — компактную
  * высоту, дополнительный внутренний отступ или read-only состояние.
@@ -33,7 +38,7 @@ function Input({ className, type = "text", ...props }: React.ComponentProps<"inp
       data-slot="input"
       type={type}
       className={cn(
-        "h-9 w-full min-w-0 rounded-lg border-2 border-edge bg-bg px-3 text-body text-ink outline-none placeholder:text-muted focus-visible:border-accent focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger aria-invalid:outline-danger",
+        "h-9 w-full min-w-0 rounded-lg border border-edge bg-bg px-3 text-body text-ink outline-none placeholder:text-muted focus-visible:border-accent focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger aria-invalid:outline-danger",
         className,
       )}
       {...props}

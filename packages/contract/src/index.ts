@@ -13,9 +13,11 @@
  */
 export { MENTION_SOURCE, mentionedIds, mentionMarkup } from "./mentions.js";
 export {
-  PROJECT_COLORS,
+  contrastRatio,
+  inkOn,
+  isProjectColor,
   PROJECT_ICONS,
-  type ProjectColor,
+  PROJECT_PRESETS,
   type ProjectIcon,
 } from "./projectLook.js";
 export { searchFold, searchWords } from "./search.js";

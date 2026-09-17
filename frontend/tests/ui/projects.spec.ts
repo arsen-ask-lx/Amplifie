@@ -225,9 +225,10 @@ test("у папки свой значок и свой цвет, и они пер
 
   await page.getByRole("button", { name: "Новый проект" }).click();
   await page.getByLabel("Название проекта").fill("Объект");
-  await page.getByRole("button", { name: "Настроить вид" }).click();
+  await page.getByRole("button", { name: "Значок и цвет проекта" }).click();
   await page.getByRole("button", { name: "Портфель" }).click();
   await page.getByRole("button", { name: "Оранжевый" }).click();
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Создать проект" }).click();
 
   await expect(folderRow(page, "Объект")).toBeVisible();
@@ -245,7 +246,10 @@ test("у папки свой значок и свой цвет, и они пер
     const own = response.projects.find((one: { title: string }) => one.title === "Объект");
     return { icon: own?.icon ?? null, color: own?.color ?? null };
   });
-  expect(look, "выбранный вид папки не сохранился").toEqual({ icon: "briefcase", color: "orange" });
+  expect(look, "выбранный вид папки не сохранился").toEqual({
+    icon: "briefcase",
+    color: "#b86d1e",
+  });
 
   await inProjectMenu(page, "Объект", "Закрепить");
   const badges = await folderRow(page, "Объект")
@@ -351,14 +355,16 @@ test("плюс проекта создаёт и открывает чат сра
   expect(belonging.channel, "плюс завёл чат вне проекта").toBe(belonging.project);
 });
 
-test("новый проект спрашивает имя до необязательной настройки вида", async ({ page }) => {
+test("вид проекта выбирается поповером, а не стеной в окне", async ({ page }) => {
   await register(page, "Хозяин");
   await page.getByRole("button", { name: "Новый проект" }).click();
 
-  await expect(page.getByRole("button", { name: "Настроить вид" })).toBeVisible();
+  // ⚠️ В ОКНЕ ТОЛЬКО ИМЯ И ОБРАЗЕЦ (владелец, тыкалка 17.09: «вид данного
+  // модального окна полностью переделай»). Значки и цвета — в поповере.
   await expect(page.getByRole("button", { name: "Портфель" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Настроить вид" }).click();
+  await page.getByRole("button", { name: "Значок и цвет проекта" }).click();
   await expect(page.getByRole("button", { name: "Портфель" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Оранжевый" })).toBeVisible();
 });
 
 test("убрать проект — переписка цела и лежит снаружи", async ({ page }) => {

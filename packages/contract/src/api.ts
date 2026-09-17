@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PROJECT_COLORS, PROJECT_ICONS } from "./projectLook.js";
+import { isProjectColor, PROJECT_ICONS } from "./projectLook.js";
 
 /**
  * Контракт дверей чата: что сервер принимает и что отдаёт (Р-034).
@@ -263,7 +263,16 @@ export const threadBody = z.object({
 export const projectBody = z.object({
   title: z.string().trim().min(1, "у проекта нужно название").max(120),
   icon: z.enum(PROJECT_ICONS).nullable().optional(),
-  color: z.enum(PROJECT_COLORS).nullable().optional(),
+  /**
+   * Цвет — значение, а не имя из набора (task-104, отмена Р-041): человек
+   * выбирает его пипеткой. Запись одна — `#rrggbb` строчными, иначе один
+   * цвет лежал бы в базе несколькими разными строками.
+   */
+  color: z
+    .string()
+    .refine(isProjectColor, "цвет записывается как #rrggbb строчными буквами")
+    .nullable()
+    .optional(),
 });
 export const projectPatchBody = projectBody.partial();
 
