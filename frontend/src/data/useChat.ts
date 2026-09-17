@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { feedTroubleOf, screenTroubleOf, troubleOf } from "../shared/trouble.js";
-import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { feedTroubleOf, screenTroubleOf } from "../shared/trouble.js";
+import { api, type Conversation, type Me, type Message, type SyncLine } from "./api.js";
 import { catchUpWith } from "./catchUp.js";
-import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
+import type { Local } from "./feed.js";
+import { FEED_PAGE, pageBackTo } from "./feedPages.js";
+import { emptyFeed, feedState } from "./feedState.js";
 import { type Focus, useAddress } from "./useAddress.js";
 import { useLiveUpdates } from "./useLiveUpdates.js";
+import { type MessageActions, useMessageActions } from "./useMessageActions.js";
 import { type Panel, usePanel } from "./usePanel.js";
 import { useReading } from "./useReading.js";
 import { useRooms } from "./useRooms.js";
@@ -23,36 +26,6 @@ import { useRooms } from "./useRooms.js";
  * находится, — это ровно тот случай, когда они разойдутся молча.
  */
 
-const PAGE = 50;
-
-/**
- * Долистать назад, пока нужная реплика не окажется в ленте.
- *
- * Ограничение по числу страниц, а не «пока не найдём»: цитата может
- * указывать на удалённое сообщение, и тогда цикл вечен.
- */
-const BACK_PAGES = 10;
-
-async function pageBackTo(
-  conversationId: string,
-  start: { items: Message[]; hasMore: boolean; head: number },
-  want: number,
-): Promise<{ items: Message[]; hasMore: boolean; head: number }> {
-  let all = start.items;
-  let more = start.hasMore;
-
-  for (let page = 0; more && page < BACK_PAGES; page++) {
-    const oldest = all[0]?.seq;
-    if (oldest === undefined || oldest <= want) break;
-    const older = await api.messages(conversationId, { limit: PAGE, before: oldest });
-    all = merge(all, older.items);
-    more = older.hasMore;
-  }
-  // Голова остаётся той, что назвал сервер при первой странице: догрузка
-  // старого не двигает конец пространства.
-  return { items: all, hasMore: more, head: start.head };
-}
-
 export type { Focus };
 
 /**
@@ -70,7 +43,11 @@ export interface LoadFailure {
   retry?: () => void;
 }
 
-export interface Chat {
+export interface Chat
+  extends Pick<
+    MessageActions,
+    "send" | "agentFailure" | "replying" | "reply" | "pin" | "edit" | "remove" | "forward"
+  > {
   conversations: Conversation[];
   current: Conversation | null;
   messages: Local[];
@@ -89,13 +66,6 @@ export interface Chat {
    * старое сверху: у листающего назад — не вытесняется (Р-023).
    */
   follow: (yes: boolean) => void;
-  /** `scope` — насколько широко агент читает, отвечая (Р-032). */
-  send: (body: string, clientMsgId: string, scope?: "conversation" | "project") => Promise<void>;
-  /** Почему агент не ответил. Показывается один раз и не как его реплика. */
-  agentFailure: string | null;
-  /** На что отвечаем прямо сейчас. Строка над полем ввода. */
-  replying: Quote | null;
-  reply: (message: Message | null) => void;
   /**
    * Боковая панель ОДНИМ предметом (task-035).
    *
@@ -112,29 +82,9 @@ export interface Chat {
   boundary: number | null;
   /** Закреплённое этого разговора, свежее сверху. */
   pinned: Message[];
-  pin: (messageId: string, pinned: boolean) => Promise<void>;
-  edit: (messageId: string, body: string) => Promise<void>;
-  remove: (messageId: string) => Promise<void>;
-  forward: (message: Message, toConversationId: string) => Promise<void>;
   addChannel: (title: string) => Promise<void>;
   removeChannel: (id: string) => Promise<void>;
   addThread: (title: string) => Promise<void>;
-}
-
-/**
- * Отказ агента человеческими словами.
- *
- * Отдельной строкой над полем ввода, а НЕ сообщением в ленте: реплика
- * «извините, ошибка» от имени участника — это ложь про то, кто говорил.
- */
-const SAYS: Record<string, string> = {
-  "нет-модели": "memo не отвечает: не подключена ни одна нейросеть.",
-  "мост-молчит": "memo взял вопрос и не ответил вовремя.",
-  "модель-отказала": "Нейросеть вернула ошибку. Ответа не будет.",
-};
-
-function agentTrouble(error: unknown): string {
-  return SAYS[troubleOf(error)] ?? "Не получилось позвать memo.";
 }
 
 /**
@@ -142,12 +92,13 @@ function agentTrouble(error: unknown): string {
  *   или догоне). Решает не лента, а приложение: ему показывать вход.
  */
 export function useChat(me: Me, onSessionEnded: () => void = () => undefined): Chat {
-  const [agentFailure, setAgentFailure] = useState<string | null>(null);
-  /** На что сейчас отвечаем. `null` — обычная отправка. */
-  const [replying, setReplying] = useState<Quote | null>(null);
-  const [pinned, setPinned] = useState<Message[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [hasOlder, setHasOlder] = useState(false);
+  /**
+   * Лента, закреплённое и «есть ли старше» — одним редьюсером (task-098).
+   * Меняются они только командами: как лента отвечает на «пришла страница»
+   * или «черновик ушёл», знает `feedState`, а не каждое место отдельно.
+   */
+  const [feed, dispatch] = useReducer(feedState, emptyFeed);
+  const { messages, pinned, hasOlder } = feed;
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [trouble, setTrouble] = useState<string | null>(null);
@@ -176,13 +127,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
 
   // Что на экране сейчас — для отправки, которой нужен последний номер,
   // но не нужна перерисовка при каждом его изменении.
-  const messagesRef = useRef<Message[]>([]);
+  const messagesRef = useRef<Local[]>([]);
   messagesRef.current = messages;
-
-  // Через ссылку, а не через зависимость: иначе `send` пересоздавался бы
-  // на каждый выбор цитаты, а вместе с ним — обработчик поля ввода.
-  const replyingRef = useRef<Quote | null>(null);
-  replyingRef.current = replying;
 
   // Курсор догона живёт в ref, а не в состоянии: он меняется чаще, чем экран,
   // и перерисовывать ленту ради него незачем.
@@ -260,11 +206,12 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
    */
   const accept = useCallback(
     (arrived: SyncLine[]) => {
-      const openId = currentIdRef.current;
-      setMessages((current) =>
-        merge(current, ofRoom(arrived, openId), following.current ? windowSize : undefined),
-      );
-      setPinned((current) => mergePinned(current, arrived, openId));
+      dispatch({
+        type: "arrived",
+        lines: arrived,
+        openId: currentIdRef.current,
+        keep: following.current ? windowSize : undefined,
+      });
     },
     [currentIdRef],
   );
@@ -342,7 +289,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     setFailure((current) => (current?.of === "панель" ? current : null));
 
     api
-      .messages(currentId, { limit: PAGE, signal: stop.signal })
+      .messages(currentId, { limit: FEED_PAGE, signal: stop.signal })
       .then(async (first) => {
         if (cancelled) return;
         const page = wanted === null ? first : await pageBackTo(currentId, first, wanted);
@@ -371,11 +318,12 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
          * сливается с ответом по идентификатору, и ответ сервера
          * побеждает при совпадении.
          */
-        setMessages((current) => {
-          const own = current.filter((one) => one.conversationId === currentId);
-          return own.length === 0 ? page.items : merge(own, page.items);
+        dispatch({
+          type: "loaded",
+          conversationId: currentId,
+          items: page.items,
+          hasMore: page.hasMore,
         });
-        setHasOlder(page.hasMore);
         /**
          * ⚠️ КУРСОР ДОГОНА — ЭТО ГОЛОВА ПРОСТРАНСТВА, А НЕ НОМЕР ИЗ ЭТОЙ
          * КОМНАТЫ. И назад он не ходит никогда.
@@ -434,120 +382,14 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     const oldest = messages[0]?.seq;
     if (!currentId || oldest === undefined) return;
     try {
-      const older = await api.messages(currentId, { limit: PAGE, before: oldest });
-      setMessages((current) => merge(current, older.items));
-      setHasOlder(older.hasMore);
+      const older = await api.messages(currentId, { limit: FEED_PAGE, before: oldest });
+      dispatch({ type: "older", items: older.items, hasMore: older.hasMore });
     } catch (error) {
       // Неудача подгрузки старого не должна ронять экран: человек читает
       // текущее. Но и молчать нельзя — иначе кнопка выглядит сломанной.
       failed("раннее", "Не удалось загрузить более раннее", error, () => void loadOlder());
     }
   }, [currentId, messages, failed]);
-
-  const send = useCallback(
-    async (
-      body: string,
-      clientMsgId: string,
-      scope: "conversation" | "project" = "conversation",
-    ) => {
-      if (!currentId) return;
-
-      /**
-       * ⚠️ РЕПЛИКА ПОЯВЛЯЕТСЯ ДО ОТВЕТА СЕРВЕРА, И ЭТО НЕ УКРАШЕНИЕ.
-       * Раньше поле ввода ждало ответа, а неудачу показывало полосой над
-       * собой — «Сообщение не ушло». Так не делает ни один мессенджер,
-       * и не зря: полоса говорит о СОБЫТИИ, а сломалось КОНКРЕТНОЕ
-       * сообщение, и человеку нужно видеть какое. В Телеграме реплика
-       * встаёт в ленту сразу с часиками, а неудача помечается на ней же.
-       *
-       * Номер на пол-деления больше последнего: место в ленте занимается
-       * сразу, а настоящий номер приедет с сервера. Дробь безопасна —
-       * сортировка числовая, а курсор догона берётся не отсюда.
-       */
-      const draft: Local = {
-        // ⚠️ ИМЯ ЧЕРНОВИКА — ЕГО СОБСТВЕННЫЙ КЛЮЧ, и настоящий `id`
-        // приедет с сервера позже. Оба поля заполнены сразу, поэтому
-        // опознать реплику можно с первой миллисекунды.
-        id: clientMsgId,
-        clientMsgId,
-        conversationId: currentId,
-        body,
-        kind: "human",
-        /**
-         * ⚠️ НОМЕР СЧИТАЕТСЯ ПО ЭТОЙ КОМНАТЕ, А НЕ ПО ВСЕЙ ЛЕНТЕ. В
-         * состоянии лежат реплики ВСЕХ комнат сразу (наружу они уходят
-         * отфильтрованными), и общий максимум брался из чужого разговора.
-         * В пустом канале черновик получал номер на сотню больше соседей
-         * и прыгал по ленте, когда приезжал настоящий.
-         */
-        seq: maxSeq(messagesRef.current.filter((one) => one.conversationId === currentId)) + 0.5,
-        createdAt: new Date().toISOString(),
-        editedAt: null,
-        pinnedAt: null,
-        // Цитата в черновике — та же, что человек видит над полем ввода:
-        // строить её заново из ответа сервера значило бы показать сперва
-        // реплику без цитаты, а потом с ней.
-        replyTo: replyingRef.current,
-        forwardedFrom: null,
-        author: {
-          id: me.participant.id,
-          name: me.participant.displayName,
-          kind: me.participant.kind,
-        },
-        state: "идёт",
-      };
-      setMessages((current) => [...current, draft]);
-
-      let sent: Message;
-      try {
-        sent = await api.send(currentId, body, clientMsgId, {
-          ...(replyingRef.current ? { replyToId: replyingRef.current.id } : {}),
-        });
-      } catch {
-        // Помечаем ту самую реплику и уходим. Ключ идемпотентности у неё
-        // прежний, поэтому повтор не задвоит её на сервере.
-        setMessages((current) =>
-          current.map((one) => (one.id === clientMsgId ? { ...one, state: "не ушло" } : one)),
-        );
-        return;
-      }
-
-      // Ответ отдан: строка над полем ввода больше не нужна.
-      setReplying(null);
-
-      // Черновик заменяется настоящей записью: у неё свой идентификатор
-      // и настоящий номер. Держать обе — значит однажды показать обе.
-      setMessages((current) =>
-        merge(
-          current.filter((one) => one.id !== clientMsgId),
-          [sent],
-        ),
-      );
-
-      // Зовём агента ВСЕГДА, а решает сервер.
-      //
-      // Почему не проверять обращение здесь: правило «звали ли агента»
-      // должно жить в одном месте, иначе две копии разъедутся. Без
-      // обращения сервер отвечает 204 мгновенно и молча.
-      //
-      // ⚠️ БЕЗ await: `send` обязан завершиться, как только сообщение
-      // записано. Первая редакция ждала здесь ответа модели — и поле ввода
-      // держало набранный текст все пять секунд, будто отправка не прошла.
-      // Найдено живым прогоном, тесты этого видеть не могли.
-      setAgentFailure(null);
-      void (async () => {
-        try {
-          // Ответ агента НЕ вклеиваем руками: он приедет тем же путём, что
-          // и чужие сообщения — звонком и догоном через /v1/sync. Второй
-          // путь доставки разошёлся бы с первым, и разошёлся бы молча.
-          await api.ask(currentId, scope);
-        } catch (error) {
-          setAgentFailure(agentTrouble(error));
-        }
-      })();
-    },
-    [currentId, me],
-  );
 
   const select = useCallback(
     (id: string) => {
@@ -565,30 +407,10 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     [navigate],
   );
 
-  /**
-   * Взять реплику в ответ или отменить ответ.
-   *
-   * Здесь же рождается цитата: она нужна ДО отправки, чтобы человек видел,
-   * на что отвечает. Строить её из ответа сервера значило бы показать сперва
-   * реплику без цитаты, а потом с ней.
-   */
-  const reply = useCallback((message: Message | null) => {
-    setReplying(
-      message
-        ? {
-            id: message.id,
-            seq: message.seq,
-            author: message.author.name,
-            excerpt: message.body.replace(/\s+/gu, " ").trim().slice(0, 120),
-          }
-        : null,
-    );
-  }, []);
-
   /** Закреплённое разговора. Читается отдельной дверью и при каждой смене. */
   useEffect(() => {
     if (!currentId) {
-      setPinned([]);
+      dispatch({ type: "pinnedLoaded", items: [] });
       return;
     }
     let cancelled = false;
@@ -596,69 +418,18 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     api
       .pinned(currentId, stop.signal)
       .then(({ items }) => {
-        if (!cancelled) setPinned(items);
+        if (!cancelled) dispatch({ type: "pinnedLoaded", items });
       })
       .catch(() => {
         // Полоска закреплённого — не то, ради чего стоит ронять экран.
         // Не приехала — её просто нет, разговор читается дальше.
-        if (!cancelled) setPinned([]);
+        if (!cancelled) dispatch({ type: "pinnedLoaded", items: [] });
       });
     return () => {
       cancelled = true;
       stop.abort();
     };
   }, [currentId]);
-
-  const pin = useCallback(
-    async (messageId: string, next: boolean) => {
-      await api.pin(messageId, next);
-      // Полоску не перечитываем: закрепление двигает номер изменения,
-      // и реплика приедет ближайшим догоном — тем же путём, каким она
-      // приезжает всем остальным. Правка на месте ниже нужна только
-      // затем, чтобы галочка в меню не мигала до догона.
-      setMessages((current) =>
-        current.map((one) =>
-          one.id === messageId ? { ...one, pinnedAt: next ? new Date().toISOString() : null } : one,
-        ),
-      );
-    },
-    // Разговор здесь больше ни при чём: полоску перестраивает догон.
-    [],
-  );
-
-  const edit = useCallback(async (messageId: string, body: string) => {
-    const changed = await api.edit(messageId, body);
-    setMessages((current) => current.map((one) => (one.id === messageId ? changed : one)));
-  }, []);
-
-  /**
-   * Удалить свою реплику.
-   *
-   * ⚠️ ЦИТАТЫ НА НЕЁ ГАСЯТСЯ ЗДЕСЬ ЖЕ. Сервер обнуляет ссылку, но чужие
-   * реплики уже лежат на экране со старой цитатой — и остались бы с ней
-   * до перезагрузки, показывая текст удалённого сообщения.
-   */
-  const remove = useCallback(async (messageId: string) => {
-    await api.remove(messageId);
-    setMessages((current) =>
-      current
-        .filter((one) => one.id !== messageId)
-        .map((one) => (one.replyTo?.id === messageId ? { ...one, replyTo: null } : one)),
-    );
-    setPinned((current) => current.filter((one) => one.id !== messageId));
-  }, []);
-
-  /** Переслать в другой разговор. Тело копируется, источник — ссылкой. */
-  const forward = useCallback(
-    async (message: Message, toConversationId: string) => {
-      const sent = await api.send(toConversationId, message.body, crypto.randomUUID(), {
-        forwardedFromId: message.id,
-      });
-      // Если переслали в открытый разговор — реплика появляется сразу.
-      if (toConversationId === currentId) setMessages((cur) => merge(cur, [sent]));
-    },
-    [currentId],
-  );
 
   /**
    * Лента сообщает, внизу ли человек. Это единственное, что ей нужно
@@ -668,6 +439,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   const follow = useCallback((yes: boolean) => {
     following.current = yes;
   }, []);
+
+  const actions = useMessageActions({ currentId, me, dispatch, messagesRef });
 
   // Лента открытого разговора — одна на возврат наружу и на подсчёт
   // прочитанного: два разных выражения для одного и того же однажды
@@ -696,15 +469,10 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     conversations: rooms.items,
     current: rooms.items.find((c) => c.id === currentId) ?? null,
     follow,
-    replying,
-    reply,
+    ...actions,
     panel,
     boundary: reading.boundary,
     pinned,
-    pin,
-    edit,
-    remove,
-    forward,
     messages: visible,
     hasOlder,
     loading,
@@ -714,8 +482,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     select,
     openAt,
     loadOlder,
-    send,
-    agentFailure,
     addChannel: rooms.addChannel,
     removeChannel: rooms.removeChannel,
     addThread: rooms.addThread,

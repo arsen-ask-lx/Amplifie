@@ -101,7 +101,18 @@ test("чат без проекта можно отнести в проект", a
 
   await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
   await page.getByRole("menuitem", { name: "В проект" }).click();
+  /**
+   * ⚠️ ЖДЁМ ОТВЕТ НА ПЕРЕНОС, А НЕ СПРАШИВАЕМ СЕРВЕР СРАЗУ ПОСЛЕ ЩЕЛЧКА
+   * (task-098). Вопрос уходил вдогонку за самим переносом и в долгом прогоне
+   * успевал раньше записи: два падения из пяти на исправном коде. Та же
+   * порода, что Д-26 и Д-27: проверяем само действие, а не миг после щелчка.
+   */
+  const moved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PATCH" && response.url().includes("/v1/conversations/"),
+  );
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
+  await moved;
   const belonging = await page.evaluate(async () => {
     const response = await fetch("/v1/conversations", { credentials: "include" }).then((r) =>
       r.json(),
