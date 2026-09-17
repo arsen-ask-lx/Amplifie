@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api, type Conversation, type Message, type Project } from "./api.js";
-import { bumped, type Who } from "./bumped.js";
+import { bumped, readApplied, type Who } from "./bumped.js";
 import { coalesced } from "./coalesced.js";
 import type { Address } from "./useAddress.js";
 
@@ -95,6 +95,12 @@ export interface Rooms {
    * «номер идёт сразу за курсором, иначе разрыв».
    */
   applied: (line: Message, mentioned: string[]) => void;
+  /**
+   * Сервер подтвердил отметку «прочитано» и назвал остаток — поставить его
+   * в строку (task-097). Число после отметки серверное, а не вычтенное
+   * из окна ленты.
+   */
+  readApplied: (conversationId: string, seq: number, unread: number) => void;
   /** Раскрыли папку — привезти её первую порцию (10 чатов). */
   openProject: (projectId: string) => void;
   /** Есть ли в папке ещё чаты: по этому рисуется «Показать ещё». */
@@ -462,39 +468,52 @@ export function useRooms(where: Address, me: string): Rooms {
   );
 
   /**
-   * Поправить строку самим по приехавшей реплике (task-092).
+   * Правило строки — во все три хранилища разом.
    *
    * ⚠️ ТРИ ХРАНИЛИЩА, ОДНО ПРАВИЛО. Строка может лежать в «Недавних»,
    * в раскрытой папке или быть строкой открытого чата — панель грузится
-   * порциями (Р-037). Правило одно на все три: `bumped`. Не найдёт нигде —
-   * не сделает ничего, и это законно: разговор просто не загружен.
+   * порциями (Р-037). Не найдёт нигде — не сделает ничего, и это законно:
+   * разговор просто не загружен.
    *
-   * ⚠️ ССЫЛКА НЕ МЕНЯЕТСЯ, ЕСЛИ НИЧЕГО НЕ ИЗМЕНИЛОСЬ. `bumped` отдаёт тот же
+   * ⚠️ ССЫЛКА НЕ МЕНЯЕТСЯ, ЕСЛИ НИЧЕГО НЕ ИЗМЕНИЛОСЬ. Правило отдаёт тот же
    * массив — тогда `setState` не перерисовывает панель. На тысяче чужих
    * реплик это разница между живым экраном и мигающим.
    */
+  const everywhere = useCallback((apply: (rows: Conversation[]) => Conversation[]) => {
+    setRecent((before) => {
+      const items = apply(before.items);
+      return items === before.items ? before : { ...before, items };
+    });
+    setInProject((before) => {
+      let touched = false;
+      const after = Object.fromEntries(
+        Object.entries(before).map(([projectId, page]) => {
+          const items = apply(page.items);
+          if (items === page.items) return [projectId, page];
+          touched = true;
+          return [projectId, { ...page, items }];
+        }),
+      );
+      return touched ? after : before;
+    });
+    setOpen((before) => (before ? (apply([before])[0] ?? before) : before));
+  }, []);
+
+  /** Поправить строку самим по приехавшей реплике (task-092). */
   const applied = useCallback(
     (line: Message, mentioned: string[]) => {
       const who: Who = { me, openId: currentIdRef.current, mentioned };
-      setRecent((before) => {
-        const items = bumped(before.items, line, who);
-        return items === before.items ? before : { ...before, items };
-      });
-      setInProject((before) => {
-        let touched = false;
-        const after = Object.fromEntries(
-          Object.entries(before).map(([projectId, page]) => {
-            const items = bumped(page.items, line, who);
-            if (items === page.items) return [projectId, page];
-            touched = true;
-            return [projectId, { ...page, items }];
-          }),
-        );
-        return touched ? after : before;
-      });
-      setOpen((before) => (before ? (bumped([before], line, who)[0] ?? before) : before));
+      everywhere((rows) => bumped(rows, line, who));
     },
-    [me, currentIdRef],
+    [me, currentIdRef, everywhere],
+  );
+
+  /** Ответ на отметку «прочитано» — серверный остаток в строку (task-097). */
+  const onRead = useCallback(
+    (conversationId: string, seq: number, unread: number) => {
+      everywhere((rows) => readApplied(rows, conversationId, seq, unread));
+    },
+    [everywhere],
   );
 
   return {
@@ -504,6 +523,7 @@ export function useRooms(where: Address, me: string): Rooms {
     reload,
     refresh,
     applied,
+    readApplied: onRead,
     openProject,
     moreIn,
     loadMoreIn,

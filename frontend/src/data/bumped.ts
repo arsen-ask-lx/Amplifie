@@ -71,3 +71,39 @@ export function bumped(items: Conversation[], line: Message, who: Who): Conversa
   };
   return next;
 }
+
+/**
+ * Строка панели после ответа на отметку «прочитано» (task-097).
+ *
+ * ⚠️ ЧИСЛО — СЕРВЕРНОЕ, А НЕ ВЫЧТЕННОЕ ИЗ ОКНА ЛЕНТЫ. Поправка на свои
+ * отметки считается по репликам открытого чата; у покинутого чата их
+ * в ленте уже нет, у чата длиннее окна — не все. Число оставалось гореть
+ * на прочитанном. Сервер отвечает остатком — как `still_unread_count`
+ * у Telegram, — и он точнее любого нашего счёта.
+ *
+ * ⚠️ УПОМИНАНИЯ ГАСНУТ ТОЛЬКО ВМЕСТЕ С НУЛЁМ. Непрочитанный зов — это
+ * непрочитанная реплика (Р-031): остаток ноль значит и зовов ноль;
+ * остаток больше нуля о зовах не говорит ничего, и их число не трогаем.
+ *
+ * Номер прочтения — только вперёд: ответ на старую отметку не откатывает
+ * строку, которую уже подвинула свежая.
+ */
+export function readApplied(
+  items: Conversation[],
+  conversationId: string,
+  seq: number,
+  unread: number,
+): Conversation[] {
+  const at = items.findIndex((one) => one.id === conversationId);
+  const row = items[at];
+  if (!row || seq < row.readSeq) return items;
+
+  const next = [...items];
+  next[at] = {
+    ...row,
+    readSeq: seq,
+    unread,
+    mentions: unread === 0 ? 0 : row.mentions,
+  };
+  return next;
+}

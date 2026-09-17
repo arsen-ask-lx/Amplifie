@@ -92,9 +92,18 @@ export function useLiveUpdates(options: {
       },
       onSessionEnded,
     });
-    /** Догнать — только если лента уже стоит на курсоре. */
+    /**
+     * Догнать — только если лента уже стоит на курсоре.
+     *
+     * ⚠️ ДВА ВХОДА (task-097). Событие и страховка — `kick`: паузу после
+     * отказа они не снимают. Подключение потока и возврат во вкладку —
+     * `now`: связь доказана, ждать срок незачем.
+     */
     const asked = () => {
       if (feedReady.current) sync.kick();
+    };
+    const askedNow = () => {
+      if (feedReady.current) sync.now();
     };
 
     /**
@@ -149,7 +158,7 @@ export function useLiveUpdates(options: {
         opened += 1;
         streamFailures = 0;
         troubled();
-        asked();
+        askedNow();
         if (opened > 1) rooms.refresh();
       },
       onTrouble: (n) => {
@@ -174,7 +183,7 @@ export function useLiveUpdates(options: {
     /** Вернулись во вкладку — таймеры скрытой вкладки браузер замедлял. */
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
-      asked();
+      askedNow();
       rooms.refresh();
     };
     document.addEventListener("visibilitychange", onVisible);

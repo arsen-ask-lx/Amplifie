@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Conversation, Message } from "./api.js";
-import { bumped } from "./bumped.js";
+import { bumped, readApplied } from "./bumped.js";
 
 /**
  * ТОЧЕЧНЫЕ ПРОВЕРКИ ПРАВИЛА «СТРОКА ПАНЕЛИ ПОСЛЕ ПРИЕХАВШЕЙ РЕПЛИКИ»
@@ -133,5 +133,32 @@ describe("строка панели после приехавшей реплик
     const rooms = [room({ id: "channel-1" })];
     const inThread = line({ conversationId: "thread-1" });
     expect(bumped(rooms, inThread, { me: ME, openId: null, mentioned: [] })).toEqual(rooms);
+  });
+});
+
+describe("строка панели после ответа на отметку «прочитано» (task-097)", () => {
+  it("число берётся из ответа сервера, номер прочтения двигается", () => {
+    const [after] = readApplied([room({ unread: 5, readSeq: 10 })], "room-1", 20, 2);
+    expect(after).toMatchObject({ unread: 2, readSeq: 20 });
+  });
+
+  it("остаток ноль гасит и упоминания", () => {
+    const [after] = readApplied([room({ unread: 3, mentions: 1 })], "room-1", 20, 0);
+    expect(after).toMatchObject({ unread: 0, mentions: 0 });
+  });
+
+  it("остаток больше нуля упоминаний не трогает", () => {
+    const [after] = readApplied([room({ unread: 3, mentions: 1 })], "room-1", 20, 1);
+    expect(after).toMatchObject({ unread: 1, mentions: 1 });
+  });
+
+  it("ответ на старую отметку не откатывает строку назад", () => {
+    const items = [room({ unread: 0, readSeq: 30 })];
+    expect(readApplied(items, "room-1", 20, 4)).toBe(items);
+  });
+
+  it("строки нет среди загруженных — ничего", () => {
+    const items = [room()];
+    expect(readApplied(items, "другой", 20, 0)).toBe(items);
   });
 });

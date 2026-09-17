@@ -144,11 +144,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   // не спрашивает, он про ленту не знает.
   const rooms = useRooms(where, me.participant.id);
 
-  // Перечитывание списка — ссылкой: догон зовёт его из эффекта, который
-  // не имеет права пересоздаваться на каждом обновлении списка.
-  const roomsRef = useRef(rooms.reload);
-  roomsRef.current = rooms.reload;
-
   // Что на экране сейчас — для отправки, которой нужен последний номер,
   // но не нужна перерисовка при каждом его изменении.
   const messagesRef = useRef<Message[]>([]);
@@ -639,16 +634,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   // разошлись бы.
   const visible = messages.filter((m) => m.conversationId === currentId);
 
-  /**
-   * ⚠️ ПЕРЕЧИТЫВАЕМ СПИСОК И ПРИ СМЕНЕ РАЗГОВОРА. Пока человек сидел
-   * в одном канале, его собственная отметка прочтения ушла на сервер,
-   * а список в памяти остался прежним. Без этого число у только что
-   * покинутого канала висело бы до перезагрузки страницы.
-   */
-  useEffect(() => {
-    if (currentId) void roomsRef.current();
-  }, [currentId]);
-
   // Что человек уже видел — отдельным знанием (Р-029). `useChat` про это
   // ничего не решает: он только даёт номер последней реплики и говорит,
   // внизу ли лента.
@@ -658,6 +643,11 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     messages: visible,
     meId: me.participant.id,
     following,
+    // ⚠️ СПИСОК БОЛЬШЕ НЕ ПЕРЕЧИТЫВАЕТСЯ ПРИ СМЕНЕ РАЗГОВОРА (task-097).
+    // Он чинил число покинутого чата — и не чинил: панель успевала
+    // перечитаться раньше, чем уходила отметка. Теперь отметка уходит
+    // при переходе сразу, а её ответ ставит серверное число в строку.
+    onRead: rooms.readApplied,
   });
 
   const panel = usePanel({ rooms, reading, currentId, select });

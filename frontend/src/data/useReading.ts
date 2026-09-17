@@ -1,6 +1,7 @@
 import { mentionedIds } from "@amplifie/contract";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Conversation, type Message } from "./api.js";
+import { type ReadMarks, readMarks } from "./readMarks.js";
 
 /**
  * Прочитанное: докуда человек дочитал и что ему ещё не показывали (Р-029).
@@ -17,9 +18,6 @@ import { api, type Conversation, type Message } from "./api.js";
  * не узнает, что ему писали. Отменить это нечем: номер идёт только
  * вперёд.
  */
-
-/** Сколько ждать, прежде чем сказать серверу. У них — те же 3 секунды. */
-const DELAY_MS = 3000;
 
 export interface Reading {
   /** Сколько непрочитанного у разговора — с поправкой на нашу отметку. */
@@ -45,6 +43,7 @@ export function useReading({
   messages,
   meId,
   following,
+  onRead,
 }: {
   rooms: Conversation[];
   currentId: string | null;
@@ -53,6 +52,8 @@ export function useReading({
   meId: string;
   /** Внизу ли лента. Ссылка: прокрутка не имеет права перерисовывать. */
   following: React.RefObject<boolean>;
+  /** Сервер подтвердил отметку и назвал остаток — число ставится в панель (task-097). */
+  onRead: (conversationId: string, seq: number, unread: number) => void;
 }): Reading {
   /**
    * Что мы уже отметили сами. Держим рядом с серверным числом, потому что
@@ -83,8 +84,48 @@ export function useReading({
   const roomsRef = useRef(byId);
   roomsRef.current = byId;
 
+  /**
+   * Когда и что сказать серверу — отдельный модуль (task-097): на каждый чат
+   * своё окно, в пути не больше одного запроса.
+   *
+   * ⚠️ СОЗДАЁТСЯ В ЭФФЕКТЕ, А НЕ ПРИ ОТРИСОВКЕ. Двойное монтирование
+   * в разработке остановило бы модуль, созданный один раз, навсегда.
+   * Уход со страницы чата (настройки) отправляет отложенное сразу:
+   * иначе последняя отметка терялась бы вместе с экраном.
+   */
+  const onReadRef = useRef(onRead);
+  onReadRef.current = onRead;
+  const marks = useRef<ReadMarks | null>(null);
+  useEffect(() => {
+    const made = readMarks(
+      (conversationId, seq, unread) => {
+        // Число на экране гаснет сразу поправкой; ответ сервера ставит точное.
+        setReadUpTo((prev) => ({
+          ...prev,
+          [conversationId]: Math.max(prev[conversationId] ?? 0, seq),
+        }));
+        onReadRef.current(conversationId, seq, unread);
+      },
+      {
+        send: api.markRead,
+        now: Date.now,
+        setTimeout: (run, ms) => window.setTimeout(run, ms),
+        clearTimeout: (timer) => window.clearTimeout(timer as number),
+      },
+    );
+    marks.current = made;
+    return () => {
+      made.flushAll();
+      made.stop();
+      marks.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     if (openRef.current === currentId) return;
+    // Ушли из чата — его отложенная отметка уходит сейчас, а не через окно:
+    // иначе число у покинутого чата успевало загореться снова.
+    if (openRef.current) marks.current?.flush(openRef.current);
     openRef.current = currentId;
     const room = currentId ? roomsRef.current.get(currentId) : undefined;
     // Ноль значит «не читал ничего»: черта встанет перед самой первой
@@ -92,49 +133,24 @@ export function useReading({
     setBoundary(room && room.unread > 0 ? room.readSeq : null);
   }, [currentId]);
 
-  /** Отложенная отправка: пока человек листает, номера копятся в одну. */
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pendingRef = useRef<{ id: string; seq: number } | null>(null);
-
-  const send = useCallback(async () => {
-    const pending = pendingRef.current;
-    pendingRef.current = null;
-    if (!pending) return;
-    try {
-      const { unread } = await api.markRead(pending.id, pending.seq);
-      // Число с сервера точнее нашего: он видит весь разговор, мы — окно.
-      setReadUpTo((prev) => ({ ...prev, [pending.id]: pending.seq }));
-      if (unread === 0) return;
-    } catch {
-      // Отметка не дошла — число просто останется. Это БЕЗОПАСНЫЙ отказ:
-      // перечитать хуже, чем не заметить, а обратное теряет сообщение
-      // навсегда. Поэтому здесь ни повтора, ни жалобы человеку.
-    }
-  }, []);
-
   /**
-   * Решить, надо ли сказать серверу, и когда.
+   * Решить, надо ли сказать серверу.
    *
    * ⚠️ ТРИ УСЛОВИЯ РАЗОМ, И ТРЕТЬЕ — НЕ ПРИДИРКА. Лента внизу, вкладка
    * на виду, окно в фокусе. Без последнего вкладка, забытая открытой
    * на ночь, к утру пометит прочитанным всё пришедшее — и человек
    * не узнает, что ему писали. Отменить нечем: номер идёт только вперёд.
+   *
+   * Когда именно уйдёт запрос — решает модуль отметок, а не этот хук.
    */
   const schedule = useCallback(
     (id: string, lastSeq: number) => {
       if (!following.current || !isWatching()) return;
-      const room = roomsRef.current.get(id);
-      const already = readUpTo[id] ?? room?.readSeq ?? 0;
+      const already = readUpTo[id] ?? roomsRef.current.get(id)?.readSeq ?? 0;
       if (lastSeq <= already) return;
-
-      pendingRef.current = { id, seq: lastSeq };
-      clearTimeout(timer.current);
-      // Полное обнуление уходит сразу: его видит глаз. Всё остальное
-      // копится — человек листает, а не читает по одной реплике.
-      if ((room?.unread ?? 0) > 0) void send();
-      else timer.current = setTimeout(() => void send(), DELAY_MS);
+      marks.current?.seen(id, lastSeq);
     },
-    [readUpTo, following, send],
+    [readUpTo, following],
   );
 
   const lastSeq = messages.at(-1)?.seq;
