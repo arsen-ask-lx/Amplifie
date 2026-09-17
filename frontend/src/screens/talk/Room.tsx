@@ -122,6 +122,9 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
         onGoToMention={() => void jumpToMention()}
         hasOlder={chat.hasOlder}
         onLoadOlder={() => chat.loadOlder()}
+        hasNewer={chat.hasNewer}
+        onLoadNewer={() => chat.loadNewer()}
+        onToLatest={chat.toLatest}
         title={chat.current?.title}
         meId={meId}
         focus={chat.focus}

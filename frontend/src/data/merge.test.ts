@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Message, SyncLine, Tombstone } from "./api.js";
-import { merge, mergePinned, ofRoom } from "./feed.js";
+import { inside, merge, mergePinned, ofRoom } from "./feed.js";
 
 const ROOM = "комната-1";
 
@@ -198,5 +198,45 @@ describe("слияние догона в полоску закреплённог
   it("без открытой комнаты полоска не трогается", () => {
     const before = [line("a", 1, "важное", "2026-09-08T10:00:00.000Z")];
     expect(mergePinned(before, [grave("a", 1)], null)).toBe(before);
+  });
+});
+
+/**
+ * КРАЯ ЛЕНТЫ (task-099). Лента — непрерывный отрезок: всё, что в неё
+ * вливается, обязано лечь внутрь или на живой конец. Строка за краем,
+ * которой в ленте нет, вставленная туда, делает дыру, которую уже никто
+ * не загрузит: страница с края берёт номер этой строки своим краем.
+ */
+describe("края ленты", () => {
+  const shown = [line("b", 20, "двадцать"), line("c", 30, "тридцать")];
+  const open = { older: false, newer: false };
+
+  it("без краёв проходит всё — лента в конце ведёт себя как раньше", () => {
+    const incoming = [line("новая", 40, "сорок"), line("давняя", 5, "пять")];
+    expect(inside(shown, incoming, open)).toEqual(incoming);
+  });
+
+  it("при крае «есть новее» новая строка за краем не вливается", () => {
+    expect(inside(shown, [line("новая", 40, "сорок")], { older: false, newer: true })).toEqual([]);
+  });
+
+  it("при крае «есть старше» незнакомая строка ниже края не вливается", () => {
+    expect(inside(shown, [line("давняя", 5, "пять")], { older: true, newer: false })).toEqual([]);
+  });
+
+  it("показанная строка проходит при любых краях: правка и надгробие доезжают", () => {
+    const edges = { older: true, newer: true };
+    expect(inside(shown, [line("b", 20, "поправлено"), grave("c", 30)], edges)).toHaveLength(2);
+  });
+
+  it("строка внутри отрезка проходит, даже если её не было", () => {
+    // Между 20 и 30 могла быть реплика, пришедшая позже страницы.
+    expect(
+      inside(shown, [line("между", 25, "двадцать пять")], { older: true, newer: true }),
+    ).toHaveLength(1);
+  });
+
+  it("пустая лента краёв не знает и пропускает всё", () => {
+    expect(inside([], [line("a", 1, "раз")], { older: true, newer: true })).toHaveLength(1);
   });
 });

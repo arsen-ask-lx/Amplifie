@@ -43,8 +43,13 @@ function Empty() {
  * строки делятся ПО НОМЕРУ, и каждая половина группируется сама.
  * У Телеграма черта тоже разрывает склейку.
  */
-function splitAtLine(rows: Row[], boundary: number | null) {
-  if (boundary === null) return { beforeLine: rows, afterLine: [] as Row[] };
+function splitAtLine(rows: Row[], boundary: number | null, hasOlder: boolean) {
+  // ⚠️ ГРАНИЦА СТАРШЕ ЗАГРУЖЕННОГО, А НИЖЕ КРАЯ ЕСТЬ НЕЗАГРУЖЕННОЕ — ЧЕРТЫ
+  // НЕТ (task-099). Над первой загруженной репликой она соврала бы, что
+  // непрочитанное начинается здесь, хотя оно начинается ниже края.
+  const first = rows[0]?.message.seq;
+  const beyond = hasOlder && first !== undefined && boundary !== null && boundary < first - 1;
+  if (boundary === null || beyond) return { beforeLine: rows, afterLine: [] as Row[] };
   return {
     beforeLine: rows.filter((one) => one.message.seq <= boundary),
     afterLine: rows.filter((one) => one.message.seq > boundary),
@@ -148,6 +153,9 @@ export function Feed({
   messages,
   hasOlder,
   onLoadOlder,
+  hasNewer,
+  onLoadNewer,
+  onToLatest,
   title,
   meId,
   focus,
@@ -162,6 +170,11 @@ export function Feed({
   messages: Message[];
   hasOlder: boolean;
   onLoadOlder: () => void | Promise<void>;
+  /** Лента открыта не в конце — за верхним краем есть новее (task-099). */
+  hasNewer: boolean;
+  onLoadNewer: () => void | Promise<void>;
+  /** Вернуться к концу разговора. */
+  onToLatest: () => void;
   title: string | undefined;
   meId: string;
   /** Реплика, из которой пришли по цитате. */
@@ -199,6 +212,9 @@ export function Feed({
     count: messages.length,
     hasOlder,
     onLoadOlder,
+    hasNewer,
+    onLoadNewer,
+    onToLatest,
     focus,
   });
 
@@ -217,7 +233,7 @@ export function Feed({
 
   const rows = rowsOf(messages, meId, wasThereAtFirst.current);
 
-  const { beforeLine, afterLine } = splitAtLine(rows, boundary);
+  const { beforeLine, afterLine } = splitAtLine(rows, boundary, hasOlder);
 
   return (
     // Обёртка нужна кнопке «вниз»: она висит НАД лентой и не должна

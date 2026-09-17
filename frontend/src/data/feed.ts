@@ -74,6 +74,37 @@ export function merge(current: Message[], incoming: SyncLine[], keep?: number): 
   return keep === undefined || all.length <= keep ? all : all.slice(-keep);
 }
 
+/** Есть ли за краями ленты незагруженное: старше нижнего, новее верхнего. */
+export interface Edges {
+  older: boolean;
+  newer: boolean;
+}
+
+/**
+ * Строки, которым место внутри ленты (task-099).
+ *
+ * ⚠️ ЛЕНТА — НЕПРЕРЫВНЫЙ ОТРЕЗОК, И ВЛИВАТЬ ЗА ЕГО КРАЙ НЕЛЬЗЯ. Страница
+ * с края берёт номер крайней строки своим курсором: вставь за край
+ * незнакомую реплику — и всё между ней и отрезком не загрузится никогда.
+ * Такая строка не теряется: её привезёт страница с того края.
+ *
+ * Показанная строка проходит всегда — правка и надгробие обязаны доехать.
+ * Строка внутри отрезка проходит тоже: между двумя показанными могла
+ * появиться реплика, записанная позже страницы. Без краёв проходит всё,
+ * и лента в конце ведёт себя как прежде.
+ */
+export function inside(current: Message[], incoming: SyncLine[], edges: Edges): SyncLine[] {
+  if (current.length === 0 || (!edges.older && !edges.newer)) return incoming;
+  const known = new Set(current.map((one) => one.id));
+  const lowest = current[0]?.seq ?? 0;
+  const highest = maxSeq(current);
+  return incoming.filter(
+    (line) =>
+      known.has(line.id) ||
+      !((edges.newer && line.seq > highest) || (edges.older && line.seq < lowest)),
+  );
+}
+
 /**
  * Только те строки догона, что относятся к открытому разговору.
  *

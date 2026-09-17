@@ -562,6 +562,30 @@ export async function listMessages(
 }
 
 /**
+ * Лента вперёд: первые N строго новее номера, по возрастанию (task-099).
+ * Тот же индекс `(conversation_id, seq)`, что у страницы назад, — прямым ходом.
+ *
+ * Не `async`: отдаётся строитель запроса, и гейт цены меряет его `.toSQL()`.
+ */
+export function listMessagesNewer(
+  tx: Executor,
+  conversationId: string,
+  limit: number,
+  after: number,
+) {
+  return selectMessages(tx)
+    .where(
+      and(
+        eq(message.conversationId, conversationId),
+        isNull(message.deletedAt),
+        gt(message.seq, after),
+      ),
+    )
+    .orderBy(asc(message.seq))
+    .limit(limit);
+}
+
+/**
  * Лента нескольких разговоров одним запросом (Д-31) — для области агента
  * «весь проект» (Р-032). Видимость здесь не проверяется: список уже отобран
  * `scopeFeed` по правам позвавшего; снаружи `talk` функции нет.

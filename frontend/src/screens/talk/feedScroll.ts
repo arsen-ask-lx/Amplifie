@@ -21,6 +21,15 @@ const NEAR_BOTTOM = 80;
 /** Насколько близко к верху начинается догрузка старого. */
 const NEAR_TOP = 200;
 
+/** Догрузить край, если он уже не грузится: одна страница за раз. */
+function loadEdge(busy: { current: boolean }, load: () => void | Promise<void>): void {
+  if (busy.current) return;
+  busy.current = true;
+  void Promise.resolve(load()).finally(() => {
+    busy.current = false;
+  });
+}
+
 export interface FeedScroll {
   box: RefObject<HTMLDivElement | null>;
   /** Лента в конце. Нужно только кнопке «вниз». */
@@ -35,6 +44,9 @@ export function useFeedScroll({
   count,
   hasOlder,
   onLoadOlder,
+  hasNewer,
+  onLoadNewer,
+  onToLatest,
   focus,
 }: {
   /** Номер самой свежей реплики — по его смене лента едет вниз. */
@@ -56,6 +68,14 @@ export function useFeedScroll({
   count: number;
   hasOlder: boolean;
   onLoadOlder: () => void | Promise<void>;
+  /**
+   * Лента открыта не в конце (task-099). Тогда её низ — не низ разговора:
+   * ничто не тянет ленту вниз, подход к низу догружает новее, а «в конец»
+   * возвращает к свежему, а не едет по давнему.
+   */
+  hasNewer: boolean;
+  onLoadNewer: () => void | Promise<void>;
+  onToLatest: () => void;
   focus: Focus | null;
 }): FeedScroll {
   const box = useRef<HTMLDivElement>(null);
@@ -80,6 +100,10 @@ export function useFeedScroll({
   const [atBottom, setAtBottom] = useState(true);
 
   const loading = useRef(false);
+  const loadingNewer = useRef(false);
+  /** Ссылкой: наблюдатель за размером и обработчики живут дольше одной отрисовки. */
+  const detached = useRef(hasNewer);
+  detached.current = hasNewer;
   const keepFromBottom = useRef<number | null>(null);
   const settled = useRef(false);
 
@@ -132,7 +156,7 @@ export function useFeedScroll({
     if (!node || typeof ResizeObserver === "undefined") return;
 
     const watch = new ResizeObserver(() => {
-      if (stuckToBottom.current) node.scrollTop = node.scrollHeight;
+      if (stuckToBottom.current && !detached.current) node.scrollTop = node.scrollHeight;
     });
     watch.observe(node);
     return () => watch.disconnect();
@@ -142,7 +166,10 @@ export function useFeedScroll({
   // и только последующие сообщения приезжают плавно.
   useEffect(() => {
     const node = box.current;
-    if (!node || newest === 0) return;
+    // Не в конце новое не приходит, а своя последняя реплика давнего окна —
+    // не повод ехать вниз: иначе подход к низу звал бы следующую страницу,
+    // и лента сама пролистала бы год (task-099).
+    if (!node || newest === 0 || detached.current) return;
     // Своя реплика возвращает ленту вниз и возвращает туда же взгляд:
     // дальше человек снова «внизу», и следующие чужие реплики его тоже
     // подвинут — ровно как если бы он не листал.
@@ -171,17 +198,24 @@ export function useFeedScroll({
    * Отдельным правилом после того, которое уводит ленту в конец: иначе
    * прокрутка вниз перебила бы переход. Класс ставится напрямую, минуя
    * состояние, — подсветка живёт две секунды и перерисовки не стоит.
+   *
+   * ⚠️ ИЩЕТ ЦЕЛЬ И ПРИ СМЕНЕ ЧИСЛА РЕПЛИК, ПОКА НЕ НАЙДЁТ (task-099). Переход
+   * внутри открытого чата меняет `focus` сразу, а окно вокруг цели приезжает
+   * позже: искавший только при смене `focus` смотрел в старую ленту,
+   * не находил и больше не искал. Один раз на каждый переход — иначе
+   * каждая пришедшая реплика снова уводила бы к цели.
    */
+  const highlighted = useRef<Focus | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: число реплик — сигнал «лента пришла», а не данные
   useEffect(() => {
     const node = box.current;
-    if (!node || !focus) return;
+    if (!node || !focus || highlighted.current === focus) return;
 
     const found = node.querySelector<HTMLElement>(`[data-seq="${focus.seq}"]`);
-    // Не нашли — цитата указывает на реплику, которой в ленте нет: удалена
-    // либо дальше десяти страниц догрузки. Человек всё равно оказывается
-    // в нужном разговоре, но подсветки не увидит. ⚠️ Это известный пробел:
-    // экран не говорит, ПОЧЕМУ не подсветилось.
+    // Не нашли — окно ещё не пришло либо реплика удалена. ⚠️ Во втором
+    // случае экран не говорит, ПОЧЕМУ не подсветилось: известный пробел.
     if (!found) return;
+    highlighted.current = focus;
 
     // Мы уже НЕ внизу ленты: иначе догон утащит человека обратно.
     stuckToBottom.current = false;
@@ -192,12 +226,22 @@ export function useFeedScroll({
     // и не потеря: человек нажал «показать» и должен УВИДЕТЬ, а не ехать.
     found.scrollIntoView({ block: "center", behavior: "auto" });
     found.classList.add("msg-found");
-    const timer = setTimeout(() => found.classList.remove("msg-found"), HIGHLIGHT_MS);
-    return () => {
-      clearTimeout(timer);
-      found.classList.remove("msg-found");
-    };
-  }, [focus]);
+    // Таймер не снимается повторным запуском эффекта: тот перезапускается
+    // от каждой пришедшей реплики, а подсветка обязана дожить свои секунды.
+    setTimeout(() => found.classList.remove("msg-found"), HIGHLIGHT_MS);
+  }, [focus, count]);
+
+  /**
+   * Окно короче экрана — прокрутки нет, и догрузка по прокрутке не случится
+   * никогда (task-099). Догружаем сами, пока есть край и нечем листать.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: проверяется после каждой пришедшей страницы
+  useEffect(() => {
+    const node = box.current;
+    if (!node || node.scrollHeight > node.clientHeight) return;
+    if (hasNewer) loadEdge(loadingNewer, onLoadNewer);
+    else if (hasOlder) loadEdge(loading, onLoadOlder);
+  }, [count, hasOlder, hasNewer]);
 
   /**
    * Догрузка старого — сама, при подходе к верху.
@@ -214,18 +258,25 @@ export function useFeedScroll({
     const node = box.current;
     if (!node) return;
     const near = node.scrollHeight - node.scrollTop - node.clientHeight < NEAR_BOTTOM;
-    stuckToBottom.current = near;
-    setAtBottom((was) => (was === near ? was : near));
+    // Низ давнего отрезка — не низ разговора: кнопка «в конец» остаётся.
+    const atEnd = near && !detached.current;
+    stuckToBottom.current = atEnd;
+    setAtBottom((was) => (was === atEnd ? was : atEnd));
+
+    // Новое дописывается снизу и прокрутку не сдвигает — место беречь не надо.
+    if (near && detached.current) loadEdge(loadingNewer, onLoadNewer);
 
     if (node.scrollTop > NEAR_TOP || !hasOlder || loading.current) return;
-    loading.current = true;
     keepFromBottom.current = node.scrollHeight - node.scrollTop;
-    void Promise.resolve(onLoadOlder()).finally(() => {
-      loading.current = false;
-    });
+    loadEdge(loading, onLoadOlder);
   };
 
   const toBottom = () => {
+    // Из давнего — к свежему загрузкой, а не прокруткой по давнему.
+    if (detached.current) {
+      onToLatest();
+      return;
+    }
     const node = box.current;
     if (!node) return;
     stuckToBottom.current = true;

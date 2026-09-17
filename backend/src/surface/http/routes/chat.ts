@@ -215,12 +215,12 @@ export function registerChatRoutes(scope: FastifyInstance): void {
     { schema: { params: idParams, querystring: pageQuery, response: { 200: messagesPage } } },
     (request) => {
       const before = seqOf(request.query.before);
-      return listMessages(
-        actorOf(request),
-        request.params.id,
-        pageSize(request.query.limit),
-        before > 0 ? before : undefined,
-      );
+      // Вперёд — от любого номера, и от нуля тоже: «после нуля» — вся лента с начала.
+      const after = request.query.after === undefined ? undefined : seqOf(request.query.after);
+      return listMessages(actorOf(request), request.params.id, pageSize(request.query.limit), {
+        ...(before > 0 ? { before } : {}),
+        ...(after === undefined ? {} : { after }),
+      });
     },
   );
 

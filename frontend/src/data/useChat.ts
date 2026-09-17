@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { feedTroubleOf, screenTroubleOf } from "../shared/trouble.js";
-import { api, type Conversation, type Me, type Message, type SyncLine } from "./api.js";
-import { catchUpWith } from "./catchUp.js";
+import { api, type Conversation, type Me, type Message } from "./api.js";
 import type { Local } from "./feed.js";
-import { FEED_PAGE, pageBackTo } from "./feedPages.js";
+import { FEED_PAGE, pageAround, pageLatest } from "./feedPages.js";
 import { emptyFeed, feedState } from "./feedState.js";
 import { type Focus, useAddress } from "./useAddress.js";
-import { useLiveUpdates } from "./useLiveUpdates.js";
+import { useFeedSync } from "./useFeedSync.js";
 import { type MessageActions, useMessageActions } from "./useMessageActions.js";
 import { type Panel, usePanel } from "./usePanel.js";
 import { useReading } from "./useReading.js";
@@ -37,7 +36,7 @@ export type { Focus };
  */
 export interface LoadFailure {
   /** Что не загрузилось: строку ленты гасит новая загрузка ленты, но не панели. */
-  of: "панель" | "лента" | "раннее";
+  of: "панель" | "лента" | "раннее" | "позднее";
   text: string;
   /** Есть, только если повтор имеет смысл — сервер был недоступен. */
   retry?: () => void;
@@ -52,6 +51,8 @@ export interface Chat
   current: Conversation | null;
   messages: Local[];
   hasOlder: boolean;
+  /** Лента открыта не в конце — за верхним краем есть новее (task-099). */
+  hasNewer: boolean;
   loading: boolean;
   failure: LoadFailure | null;
   /** Беда живых обновлений: гаснет сама, повтор идёт без человека. */
@@ -61,6 +62,10 @@ export interface Chat
   /** Открыть разговор на конкретной реплике — переход по цитате. */
   openAt: (conversationId: string, seq: number) => void;
   loadOlder: () => Promise<void>;
+  /** Долистать вперёд, к живому концу. */
+  loadNewer: () => Promise<void>;
+  /** Вернуться к концу разговора из давнего: кнопкой, не листанием. */
+  toLatest: () => void;
   /**
    * Лента говорит, внизу ли человек. От этого зависит, вытесняется ли
    * старое сверху: у листающего назад — не вытесняется (Р-023).
@@ -98,7 +103,10 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
    * или «черновик ушёл», знает `feedState`, а не каждое место отдельно.
    */
   const [feed, dispatch] = useReducer(feedState, emptyFeed);
-  const { messages, pinned, hasOlder } = feed;
+  const { messages, pinned, hasOlder, hasNewer } = feed;
+  /** Не в конце ли лента — ссылкой, для эффекта загрузки и отметки прочтения. */
+  const hasNewerRef = useRef(hasNewer);
+  hasNewerRef.current = hasNewer;
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [trouble, setTrouble] = useState<string | null>(null);
@@ -130,20 +138,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   const messagesRef = useRef<Local[]>([]);
   messagesRef.current = messages;
 
-  // Курсор догона живёт в ref, а не в состоянии: он меняется чаще, чем экран,
-  // и перерисовывать ленту ради него незачем.
-  const cursor = useRef(0);
-
-  /**
-   * Лента уже встала на курсор — значит догонять есть от чего.
-   *
-   * ⚠️ ОТДЕЛЬНЫМ ПРИЗНАКОМ, А НЕ «КУРСОР БОЛЬШЕ НУЛЯ». В новом пространстве
-   * без единой реплики голова равна нулю и ПОСЛЕ загрузки — первая редакция
-   * путала это с «ещё не загрузили» и не догоняла после обрыва вовсе.
-   * Поймано UI-сценарием task-093 на пустом канале.
-   */
-  const feedReady = useRef(false);
-
   /**
    * Сессия кончилась — ссылкой: приложение передаёт новую функцию на каждой
    * перерисовке, а поток не имеет права переоткрываться из-за этого.
@@ -151,16 +145,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   const sessionEnded = useRef(onSessionEnded);
   sessionEnded.current = onSessionEnded;
   const endSession = useCallback(() => sessionEnded.current(), []);
-
-  /**
-   * Какой разговор открыт — ссылкой, ради подписки на поток.
-   *
-   * Подписка не имеет права пересоздаваться при переходе между чатами:
-   * новое соединение на каждый переход — это новый запрос к серверу
-   * и потерянные между ними звонки.
-   */
-  const openRef = useRef<string | null>(null);
-  openRef.current = currentId ?? null;
 
   /**
    * Чья лента сейчас на экране.
@@ -176,15 +160,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   const shown = useRef<string | null>(null);
 
   /**
-   * Сколько реплик разговора живёт в ленте (Р-023).
-   *
-   * ⚠️ ЧИСЛО — ОЦЕНКА, ПОДТВЕРЖДЁННАЯ ЗАМЕРОМ: 360 узлов перерисовываются
-   * за 17 мс при пороге виртуализации в 100. Запас шестикратный, поэтому
-   * библиотека не нужна.
-   */
-  const windowSize = 300;
-
-  /**
    * Человек внизу ленты — значит можно резать сверху.
    *
    * ⚠️ ССЫЛКА, А НЕ СОСТОЯНИЕ: меняется на каждом движении прокрутки,
@@ -193,31 +168,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
    * то самое, что мы бы выбросили.
    */
   const following = useRef(true);
-
-  /**
-   * Разложить приехавшее догоном: в ленту и в закреплённое.
-   *
-   * ⚠️ СЧЁТЧИКИ ЧУЖИХ КОМНАТ ОБНОВЛЯЕТ ЗВОНОК, А НЕ ДОГОН. Догон приносит
-   * реплики всего пространства, но в ленту попадают только реплики
-   * ОТКРЫТОГО разговора (Р-023). Число у соседнего канала растёт потому,
-   * что каждый звонок перечитывает список, — счётчик живёт на сервере
-   * (Р-029). Здесь стояло второе перечитывание на то же событие: замер
-   * 11.09 — пять сообщений давали десять полных списков вместо пяти.
-   */
-  const accept = useCallback(
-    (arrived: SyncLine[]) => {
-      dispatch({
-        type: "arrived",
-        lines: arrived,
-        openId: currentIdRef.current,
-        keep: following.current ? windowSize : undefined,
-      });
-    },
-    [currentIdRef],
-  );
-
-  /** Догон до конца, один за раз (`catchUp.ts`). */
-  const catchUp = useMemo(() => catchUpWith(api.sync, cursor, accept), [accept]);
 
   // Список разговоров — один раз при входе. `navigate` в зависимостях
   // стоит честно, хотя маршрутизатор и обещает его неизменность: обещание
@@ -258,26 +208,26 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
 
   useEffect(() => loadRooms(), [loadRooms]);
 
-  // Поток, посылки, догон при восстановлении и его страховка — отдельным
-  // знанием (task-093). Выше загрузки ленты: лента зовёт догон через него.
-  const catchUpSoon = useLiveUpdates({
-    catchUp,
-    cursor,
-    feedReady,
-    accept,
+  // Курсор догона, поток и стык страницы с живым — отдельным знанием
+  // (task-093, task-099). Выше загрузки ленты: лента зовёт его головой страницы.
+  const { settleCursor } = useFeedSync({
+    dispatch,
+    currentId,
+    currentIdRef,
+    following,
     rooms,
-    openRef,
     onTrouble: setTrouble,
     onSessionEnded: endSession,
   });
 
   // Лента выбранного разговора — с нуля при каждом переключении.
   // `wanted` в зависимостях: переход по цитате в УЖЕ открытый разговор
-  // обязан долистать до реплики, а идентификатор при этом не меняется.
+  // обязан открыть ленту вокруг реплики, а идентификатор при этом не меняется.
   useEffect(() => {
     if (!currentId) return;
-    // Тот же разговор и никуда не ведут по цитате — перезагружать нечего.
-    if (shown.current === currentId && wanted === null) return;
+    // Тот же разговор, никуда не ведут и лента в конце — перезагружать нечего.
+    // Не в конце — «назад» и щелчок по чату в панели обязаны показать конец.
+    if (shown.current === currentId && wanted === null && !hasNewerRef.current) return;
 
     // Попытка — счётчиком: «Повторить» спрашивает заново тем же эффектом.
     void feedAttempt;
@@ -288,11 +238,12 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     setLoading(true);
     setFailure((current) => (current?.of === "панель" ? current : null));
 
-    api
-      .messages(currentId, { limit: FEED_PAGE, signal: stop.signal })
-      .then(async (first) => {
-        if (cancelled) return;
-        const page = wanted === null ? first : await pageBackTo(currentId, first, wanted);
+    const load =
+      wanted === null
+        ? pageLatest(currentId, stop.signal)
+        : pageAround(currentId, wanted, stop.signal);
+    load
+      .then((page) => {
         if (cancelled) return;
 
         shown.current = currentId;
@@ -322,11 +273,13 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
           type: "loaded",
           conversationId: currentId,
           items: page.items,
-          hasMore: page.hasMore,
+          hasMore: page.hasOlder,
+          hasNewer: page.hasNewer,
         });
         /**
          * ⚠️ КУРСОР ДОГОНА — ЭТО ГОЛОВА ПРОСТРАНСТВА, А НЕ НОМЕР ИЗ ЭТОЙ
-         * КОМНАТЫ. И назад он не ходит никогда.
+         * КОМНАТЫ. Назад он ходит только к голове, прочитанной сервером
+         * до строк страницы (`useFeedSync`, task-099), — никогда к нулю.
          *
          * Сперва здесь стояло `maxSeq(page.items)` — номер самой свежей
          * реплики ОДНОЙ комнаты. У пустой комнаты это ноль, и догон
@@ -339,10 +292,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
          * «что изменилось, пока меня не было». История приезжает другим
          * путём, постраничной загрузкой разговора, и он уже написан.
          */
-        cursor.current = Math.max(cursor.current, page.head);
-        feedReady.current = true;
-        // Догон — у своего хозяина повтора: его отказ не отказ ленты (task-096).
-        catchUpSoon();
+        settleCursor(page.head, !page.hasNewer);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -376,7 +326,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
       cancelled = true;
       stop.abort();
     };
-  }, [currentId, catchUpSoon, wanted, navigate, endSession, failed, feedAttempt]);
+  }, [currentId, settleCursor, wanted, navigate, endSession, failed, feedAttempt]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]?.seq;
@@ -390,6 +340,30 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
       failed("раннее", "Не удалось загрузить более раннее", error, () => void loadOlder());
     }
   }, [currentId, messages, failed]);
+
+  const loadNewer = useCallback(async () => {
+    const newest = messages.at(-1)?.seq;
+    if (!currentId || newest === undefined) return;
+    try {
+      const newer = await api.messages(currentId, { limit: FEED_PAGE, after: newest });
+      dispatch({ type: "newer", items: newer.items, hasMore: newer.hasMore });
+      // Дошли до конца — стык с живым тем же правилом, что у первой страницы.
+      if (!newer.hasMore) settleCursor(newer.head, true);
+    } catch (error) {
+      failed("позднее", "Не удалось загрузить более позднее", error, () => void loadNewer());
+    }
+  }, [currentId, messages, failed, settleCursor]);
+
+  /**
+   * К концу разговора из давнего. Адрес без номера — заменой: «назад» не должен
+   * возвращать в давнее, из которого человек только что ушёл.
+   */
+  const toLatest = useCallback(() => {
+    if (!currentId) return;
+    shown.current = null;
+    setFeedAttempt((n) => n + 1);
+    navigate(`/c/${currentId}`, { replace: true });
+  }, [currentId, navigate]);
 
   const select = useCallback(
     (id: string) => {
@@ -442,6 +416,32 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
 
   const actions = useMessageActions({ currentId, me, dispatch, messagesRef });
 
+  /**
+   * Отправка из давнего уводит в конец, как у Телеграма: лента становится
+   * черновиком (`feedState`, `drafted`), конец привозит загрузка.
+   */
+  const send = useCallback<Chat["send"]>(
+    (...args) => {
+      if (hasNewerRef.current) toLatest();
+      return actions.send(...args);
+    },
+    [actions.send, toLatest],
+  );
+
+  /**
+   * «Человек внизу» для отметки прочтения — только когда лента в конце.
+   * Низ давнего отрезка — не низ разговора: отметка оттуда погасила бы
+   * непрочитанное, которого человек не видел, а номер назад не ходит.
+   */
+  const readingFollow = useMemo(
+    () => ({
+      get current() {
+        return following.current && !hasNewerRef.current;
+      },
+    }),
+    [],
+  );
+
   // Лента открытого разговора — одна на возврат наружу и на подсчёт
   // прочитанного: два разных выражения для одного и того же однажды
   // разошлись бы.
@@ -455,7 +455,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     currentId,
     messages: visible,
     meId: me.participant.id,
-    following,
+    following: readingFollow,
     // ⚠️ СПИСОК БОЛЬШЕ НЕ ПЕРЕЧИТЫВАЕТСЯ ПРИ СМЕНЕ РАЗГОВОРА (task-097).
     // Он чинил число покинутого чата — и не чинил: панель успевала
     // перечитаться раньше, чем уходила отметка. Теперь отметка уходит
@@ -470,11 +470,13 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     current: rooms.items.find((c) => c.id === currentId) ?? null,
     follow,
     ...actions,
+    send,
     panel,
     boundary: reading.boundary,
     pinned,
     messages: visible,
     hasOlder,
+    hasNewer,
     loading,
     failure,
     trouble,
@@ -482,6 +484,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     select,
     openAt,
     loadOlder,
+    loadNewer,
+    toLatest,
     addChannel: rooms.addChannel,
     removeChannel: rooms.removeChannel,
     addThread: rooms.addThread,

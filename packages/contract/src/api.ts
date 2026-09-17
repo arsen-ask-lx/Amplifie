@@ -253,10 +253,19 @@ export const askBody = z.object({ scope: z.enum(["conversation", "project"]).opt
  * Страница и курсор — строками, как пришли в адресе. Мусор в них значит
  * «по умолчанию», а не ошибку: сломанная ссылка не должна ронять экран.
  */
-export const pageQuery = z.object({
-  limit: z.string().optional(),
-  before: z.string().optional(),
-});
+/**
+ * Страница ленты: назад от `before` либо вперёд от `after` (task-099).
+ * Оба разом — отказ: выбрать один молча значит отдать не ту страницу.
+ */
+export const pageQuery = z
+  .object({
+    limit: z.string().optional(),
+    before: z.string().optional(),
+    after: z.string().optional(),
+  })
+  .refine((query) => query.before === undefined || query.after === undefined, {
+    message: "страница ленты идёт либо назад (before), либо вперёд (after)",
+  });
 export const cursorQuery = z.object({ cursor: z.string().optional() });
 
 /** Какой чат открыт в этой вкладке: его строка нужна ленте. */

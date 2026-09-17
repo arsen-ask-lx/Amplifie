@@ -71,7 +71,7 @@ const DATABASE_URL = process.env.COST_DATABASE_URL ?? connectionString();
 // ⚠️ ПЕРЕМЕННАЯ СТАВИТСЯ ДО ЗАГРУЗКИ СЛОЯ БАЗЫ. `platform/db.js` читает
 // её на импорте; статический импорт выполнился бы раньше этой строки.
 process.env.DATABASE_URL = DATABASE_URL;
-const { listConversationsFor, projectCountsFor } = await import(
+const { listConversationsFor, listMessagesNewer, projectCountsFor } = await import(
   "../../backend/dist/kernel/talk/repo.js"
 );
 /**
@@ -171,6 +171,12 @@ async function main() {
     const hot = [
       { name: "список панели", ...listConversationsFor(db, pid, wid).toSQL() },
       { name: "счётчики проектов", ...projectCountsFor(db, pid, wid).toSQL() },
+      /**
+       * Лента вперёд от давнего номера (task-099): переход к сообщению годичной
+       * давности обязан читать страницу, а не всё, что новее него. Номер —
+       * из начала истории, чтобы на большом объёме «новее» было десятками тысяч.
+       */
+      { name: "лента вперёд", ...listMessagesNewer(db, cid, 50, 100).toSQL() },
     ];
 
     /** Досеять переписку до нужного объёма и померить панель. */

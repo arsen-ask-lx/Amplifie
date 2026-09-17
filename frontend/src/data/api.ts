@@ -198,20 +198,31 @@ export const api = {
       body: JSON.stringify({ projectId }),
     }),
 
-  /** Лента разговора. `before` — номер, старше которого нужна страница. */
+  /**
+   * Лента разговора. `before` — страница старше номера, `after` — новее
+   * (task-099). `patient` — терпеть короткий сбой сервера: так грузится
+   * то, без чего экрана нет; листание краёв не терпит.
+   */
   messages: (
     id: string,
-    options: { limit?: number; before?: number; signal?: AbortSignal } = {},
+    options: {
+      limit?: number;
+      before?: number;
+      after?: number;
+      patient?: boolean;
+      signal?: AbortSignal;
+    } = {},
   ) => {
     const query = new URLSearchParams();
     if (options.limit) query.set("limit", String(options.limit));
     if (options.before) query.set("before", String(options.before));
+    if (options.after !== undefined) query.set("after", String(options.after));
     const path = `/v1/conversations/${id}/messages${query.size > 0 ? `?${query}` : ""}`;
     type FeedPage = { items: Message[]; hasMore: boolean; head: number };
-    // Терпит только первая страница: листание назад — десяток страниц подряд.
-    return options.before
-      ? request<FeedPage>(path, options.signal ? { signal: options.signal } : undefined)
-      : patiently<FeedPage>(path, options.signal);
+    const patientByDefault = !options.before && options.after === undefined;
+    return (options.patient ?? patientByDefault)
+      ? patiently<FeedPage>(path, options.signal)
+      : request<FeedPage>(path, options.signal ? { signal: options.signal } : undefined);
   },
 
   /**

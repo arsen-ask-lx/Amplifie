@@ -139,3 +139,73 @@ describe("команды ленты", () => {
     expect(got.pinned.map((one) => one.id)).toEqual(["новое"]);
   });
 });
+
+/**
+ * ЛЕНТА НЕ В КОНЦЕ (task-099). Переход к давнему сообщению открывает отрезок
+ * вокруг него; живое к этому отрезку прилипать не должно.
+ */
+describe("лента не в конце", () => {
+  const around = () =>
+    withMessages([msg("десятая", 10), msg("одиннадцатая", 11)], { hasOlder: true, hasNewer: true });
+
+  it("loaded: страница не в конце заменяет ленту в конце целиком — дыры нет", () => {
+    const got = feedState(withMessages([msg("свежая", 600)]), {
+      type: "loaded",
+      conversationId: ROOM,
+      items: [msg("десятая", 10)],
+      hasMore: true,
+      hasNewer: true,
+    });
+    expect([ids(got), got.hasNewer]).toEqual([["десятая"], true]);
+  });
+
+  it("loaded: страница в конце поверх ленты не в конце — замена, а не склейка", () => {
+    const got = feedState(around(), {
+      type: "loaded",
+      conversationId: ROOM,
+      items: [msg("свежая", 600)],
+      hasMore: true,
+    });
+    expect([ids(got), got.hasNewer]).toEqual([["свежая"], false]);
+  });
+
+  it("arrived: новая реплика за краем не прилипает, правка показанной доезжает", () => {
+    const got = feedState(around(), {
+      type: "arrived",
+      lines: [msg("свежая", 601), msg("десятая", 10, { body: "поправлено" })],
+      openId: ROOM,
+      keep: 1,
+    });
+    expect([ids(got), got.messages[0]?.body]).toEqual([["десятая", "одиннадцатая"], "поправлено"]);
+  });
+
+  it("newer: долистали до конца — край снят, дальше живое вливается", () => {
+    const reached = feedState(around(), {
+      type: "newer",
+      items: [msg("двенадцатая", 12)],
+      hasMore: false,
+    });
+    const live = feedState(reached, { type: "arrived", lines: [msg("свежая", 13)], openId: ROOM });
+    expect([reached.hasNewer, ids(live)]).toEqual([
+      false,
+      ["десятая", "одиннадцатая", "двенадцатая", "свежая"],
+    ]);
+  });
+
+  it("drafted: своя отправка из старого — лента из черновика, край снят", () => {
+    const got = feedState(around(), {
+      type: "drafted",
+      draft: { ...msg("черновик", 11.5), state: "идёт" },
+    });
+    expect([ids(got), got.hasNewer, got.hasOlder]).toEqual([["черновик"], false, true]);
+  });
+
+  it("sent: записанная реплика не в конце ленты не вклеивается за край", () => {
+    const got = feedState(around(), {
+      type: "sent",
+      clientMsgId: "черновик",
+      message: msg("настоящая", 700, { clientMsgId: "черновик" }),
+    });
+    expect(ids(got)).toEqual(["десятая", "одиннадцатая"]);
+  });
+});

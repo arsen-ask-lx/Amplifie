@@ -229,7 +229,8 @@ export async function markRead(viewer: Viewer, conversationId: string, seq: numb
 }
 
 /**
- * Лента разговора страницами назад.
+ * Лента разговора страницами: назад от `before` либо вперёд от `after`
+ * (task-099). `hasMore` — есть ли ещё в ту же сторону.
  *
  * `hasMore` считается по признаку «страница набралась целиком»: просить
  * у базы отдельный COUNT ради этого — лишний запрос на каждое листание.
@@ -240,13 +241,24 @@ export async function listMessages(
   viewer: Viewer,
   conversationId: string,
   limit: number,
-  before?: number,
+  from: { before?: number; after?: number } = {},
 ) {
   await requireVisible(db, viewer, conversationId);
-  const rows = await repo.listMessages(db, conversationId, limit, before);
-  // Голова пространства — начальный курсор догона для свежей вкладки;
-  // без неё клиент переигрывал историю страницами (Д-19).
+  /**
+   * Голова пространства — курсор догона для этой ленты (Д-19).
+   *
+   * ⚠️ ГОЛОВА ЧИТАЕТСЯ ДО СТРОК, как граница в `sync` (task-099). Прочитанная
+   * после, она бывала новее строк: реплика, записанная между двумя чтениями,
+   * в странице отсутствовала, а курсор уже стоял за ней — клиент называл её
+   * «уже видели» и не показывал до перезагрузки. Голова до строк бывает
+   * только старше их: догон привезёт лишнее, и слияние по идентификатору
+   * его поглотит.
+   */
   const head = await repo.currentSeq(db, viewer.workspaceId);
+  const rows =
+    from.after === undefined
+      ? await repo.listMessages(db, conversationId, limit, from.before)
+      : await repo.listMessagesNewer(db, conversationId, limit, from.after);
   return { items: rows.map(presentMessage), hasMore: rows.length === limit, head };
 }
 
