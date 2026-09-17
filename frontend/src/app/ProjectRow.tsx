@@ -3,8 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import type { Conversation } from "../data/api.js";
 import type { PanelProject } from "../data/useRooms.js";
 import { ProjectGlyph } from "../shared/projectLook.js";
-import { DropdownMenuItem, DropdownMenuSeparator } from "../shared/ui/dropdown-menu.js";
-import { RowMenu } from "./RowMenu.js";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "../shared/ui/context-menu.js";
 
 /**
  * Проект в боковой панели: заголовок и его чаты (Р-032).
@@ -50,9 +55,9 @@ function Summary({ unread, mentions }: { unread: number; mentions: number }) {
 /**
  * Меню проекта: только действия, которые уже существуют в продукте.
  *
- * ⚠️ ТРИ ТОЧКИ, КАК У КАНАЛА, И НЕ СЛУЧАЙНО. Действия над строкой панели
- * живут в одном и том же месте — иначе человеку приходится помнить,
- * у чего они справа, а у чего по правой кнопке.
+ * ⚠️ ПРАВОЙ КНОПКОЙ, КАК У ЧАТА (владелец 17.09, task-102). Действия над
+ * строкой панели живут в одном и том же месте — иначе человеку приходится
+ * помнить, у чего они на точках, а у чего по правой кнопке.
  */
 function ProjectMenu({
   project,
@@ -66,24 +71,21 @@ function ProjectMenu({
   onRemove: () => void;
 }) {
   return (
-    <RowMenu
-      label={`Что сделать с проектом «${project.title}»`}
-      reveal="group-hover/project:opacity-100"
-    >
-      <DropdownMenuItem onSelect={() => void onPin(!project.pinned)}>
+    <ContextMenuContent className="w-52">
+      <ContextMenuItem onSelect={() => void onPin(!project.pinned)}>
         {project.pinned ? <PushPinSlash /> : <PushPin />}
         {project.pinned ? "Открепить" : "Закрепить"}
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={onRename}>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={onRename}>
         <Gear />
         Редактировать проект
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem variant="destructive" onSelect={onRemove}>
         Убрать проект
-      </DropdownMenuItem>
-    </RowMenu>
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 
@@ -144,30 +146,36 @@ export function ProjectRow({
           исчез только значок. Признак «свёрнута» остался и он честнее
           стрелки: у свёрнутой видны числа непрочитанного, у развёрнутой —
           сами чаты. */}
-      <div className="group/project flex items-center rounded pr-1 transition-colors hover:bg-raised">
-        <button
-          type="button"
-          aria-expanded={!collapsed}
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors hover:text-ink"
-        >
-          <ProjectGlyph icon={project.icon} color={project.color} className="size-4" />
-          <span className="truncate font-medium">{project.title}</span>
-          {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
-            на самих чатах, и повторять их сверху значит сказать дважды. */}
-          {collapsed ? <Summary unread={project.unread} mentions={project.mentions} /> : null}
-        </button>
+      {/* ⚠️ ОБЛАСТЬ МЕНЮ — ТОЛЬКО ЗАГОЛОВОК ПАПКИ. Чаты внутри — снаружи неё:
+          иначе правая кнопка по чату открыла бы меню проекта. */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="group/project flex items-center rounded pr-1 transition-colors hover:bg-raised">
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              onClick={onToggle}
+              className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors hover:text-ink"
+            >
+              <ProjectGlyph icon={project.icon} color={project.color} className="size-4" />
+              <span className="truncate font-medium">{project.title}</span>
+              {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
+                на самих чатах, и повторять их сверху значит сказать дважды. */}
+              {collapsed ? <Summary unread={project.unread} mentions={project.mentions} /> : null}
+            </button>
 
+            <button
+              type="button"
+              aria-label={`Новый чат в проекте «${project.title}»`}
+              onClick={onAddChannel}
+              className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100"
+            >
+              <Plus className="size-3.5" weight="bold" />
+            </button>
+          </div>
+        </ContextMenuTrigger>
         <ProjectMenu project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
-        <button
-          type="button"
-          aria-label={`Новый чат в проекте «${project.title}»`}
-          onClick={onAddChannel}
-          className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100"
-        >
-          <Plus className="size-3.5" weight="bold" />
-        </button>
-      </div>
+      </ContextMenu>
 
       {/* ⚠️ У ПУСТОЙ ПАПКИ ТЕЛА НЕТ ВОВСЕ, А НЕ «ПУСТОЕ ТЕЛО». Пустой
           столбец всё равно занимает просвет между собой и заголовком —

@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createChannel, invited, openChannel, register, say } from "./fixtures.js";
+import { createChannel, invited, openChannel, register, rowMenu, say } from "./fixtures.js";
 
 /**
  * СЦЕНАРИИ ПРОЕКТОВ (Р-032, task-035).
@@ -32,9 +32,9 @@ async function createProject(page: Page, title: string): Promise<void> {
   await expect(folderRow(page, title)).toBeVisible();
 }
 
-/** Действие из меню проекта. */
+/** Действие из меню проекта — правой кнопкой по строке (task-102). */
 async function inProjectMenu(page: Page, project: string, item: string): Promise<void> {
-  await page.getByRole("button", { name: `Что сделать с проектом «${project}»` }).click();
+  await rowMenu(page, project);
   await page.getByRole("menuitem", { name: item }).click();
 }
 
@@ -99,7 +99,7 @@ test("чат без проекта можно отнести в проект", a
   // нет фальшивого плюса — это закреплено соседним сценарием ниже.
   await createChannel(page, "Смета");
 
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   /**
    * ⚠️ ЖДЁМ ОТВЕТ НА ПЕРЕНОС, А НЕ СПРАШИВАЕМ СЕРВЕР СРАЗУ ПОСЛЕ ЩЕЛЧКА
@@ -145,7 +145,7 @@ test("закреплённый чат стоит выше и переживае�
     await firstTitle("Редкий"),
   );
 
-  await page.getByRole("button", { name: "Что сделать с каналом «Редкий»" }).click();
+  await rowMenu(page, "Редкий");
   await page.getByRole("menuitem", { name: "Закрепить" }).click();
 
   await expect
@@ -211,18 +211,12 @@ test("наведение на чат не показывает действия 
   await page.getByLabel("Название нового чата").press("Enter");
 
   const project = folderRow(page, "Объект");
-  const actions = project.locator("..");
-  const projectMenu = actions.getByRole("button", {
-    name: "Что сделать с проектом «Объект»",
-  });
-  const addToProject = actions.getByRole("button", { name: "Новый чат в проекте «Объект»" });
+  const addToProject = page.getByRole("button", { name: "Новый чат в проекте «Объект»" });
 
   await channelRow(page, "Смета").hover();
-  await expect(projectMenu, "у чата не должно быть меню проекта").toHaveCSS("opacity", "0");
   await expect(addToProject, "у чата не должно быть плюса проекта").toHaveCSS("opacity", "0");
 
   await project.hover();
-  await expect(projectMenu).toHaveCSS("opacity", "1");
   await expect(addToProject).toHaveCSS("opacity", "1");
 });
 
@@ -271,7 +265,7 @@ test("чат можно отнести в проект из рабочего м�
   // Чат заводится общим рабочим входом, затем относится в проект действием
   // «В проект»; отдельного плюса в строке проекта нет.
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
@@ -302,7 +296,7 @@ test("проект переименовывается, и это видно во
   const otherPage = await browser.newPage();
   await invited(otherPage, page, "Коллега");
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await expect(folderRow(otherPage, "Объект")).toBeVisible();
@@ -315,14 +309,14 @@ test("проект переименовывается, и это видно во
   await expect(folderRow(otherPage, "Второй объект"), "переименование не доехало").toBeVisible();
 });
 
-test("у проекта меню стоит перед настоящим плюсом нового чата", async ({ page }) => {
+test("у проекта меню правой кнопкой и настоящий плюс нового чата", async ({ page }) => {
   await register(page, "Хозяин");
   await createProject(page, "Объект");
 
   await expect(page.getByRole("button", { name: "Редактировать проект «Объект»" })).toHaveCount(0);
   const add = page.getByRole("button", { name: "Новый чат в проекте «Объект»" });
   await expect(add).toBeVisible();
-  await page.getByRole("button", { name: "Что сделать с проектом «Объект»" }).click();
+  await rowMenu(page, "Объект");
   await expect(page.getByRole("menuitem", { name: "Закрепить" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Редактировать проект" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Убрать проект" })).toBeVisible();
@@ -357,18 +351,6 @@ test("плюс проекта создаёт и открывает чат сра
   expect(belonging.channel, "плюс завёл чат вне проекта").toBe(belonging.project);
 });
 
-test("чат внутри проекта даёт pin и delete вместо трёх точек", async ({ page }) => {
-  await register(page, "Хозяин");
-  await createProject(page, "Объект");
-  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового чата").fill("Смета");
-  await page.getByLabel("Название нового чата").press("Enter");
-
-  await expect(page.getByRole("button", { name: "Что сделать с каналом «Смета»" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Закрепить канал «Смета»" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Удалить канал «Смета»" })).toBeVisible();
-});
-
 test("новый проект спрашивает имя до необязательной настройки вида", async ({ page }) => {
   await register(page, "Хозяин");
   await page.getByRole("button", { name: "Новый проект" }).click();
@@ -383,7 +365,7 @@ test("убрать проект — переписка цела и лежит с
   await register(page, "Хозяин");
   await createProject(page, "Объект");
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await openChannel(page, "Смета");
@@ -405,7 +387,7 @@ test("проект закрывается и заново входит чере�
   await register(page, "Хозяин");
   await createProject(page, "Объект");
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
@@ -488,7 +470,7 @@ test("проект раскрывается без движения при си�
   await register(page, "Хозяин");
   await createProject(page, "Объект");
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
@@ -511,7 +493,7 @@ test("свёрнутый проект показывает, что внутри 
   await openChannel(otherPage, "Общий");
 
   await createProject(page, "Объект");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 

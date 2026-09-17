@@ -1,13 +1,15 @@
 import { FolderSimple, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
 import type { Conversation, Project } from "../data/api.js";
 import {
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-} from "../shared/ui/dropdown-menu.js";
-import { RowMenu } from "./RowMenu.js";
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "../shared/ui/context-menu.js";
 
 /**
  * Строка канала в боковой панели.
@@ -101,19 +103,19 @@ function ToProject({
   onMove: (conversationId: string, projectId: string | null) => Promise<void>;
 }) {
   return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
         <FolderSimple />В проект
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="w-56">
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-56">
         {projects.map((project) => (
-          <DropdownMenuItem
+          <ContextMenuItem
             key={project.id}
             disabled={project.id === channel.projectId}
             onSelect={() => void onMove(channel.id, project.id)}
           >
             {project.title}
-          </DropdownMenuItem>
+          </ContextMenuItem>
         ))}
         {/* ⚠️ «НОВЫЙ ПРОЕКТ…» ОТСЮДА УБРАН (task-035). Он открывал
             браузерное окно `window.prompt` — чужое по виду и не знающее
@@ -121,53 +123,29 @@ function ToProject({
             проекты заводятся плюсом в своём разделе, а здесь осталось
             только перекладывание. */}
         {projects.length === 0 ? (
-          <DropdownMenuItem disabled>Проектов пока нет</DropdownMenuItem>
+          <ContextMenuItem disabled>Проектов пока нет</ContextMenuItem>
         ) : null}
         {channel.projectId ? (
           <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void onMove(channel.id, null)}>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => void onMove(channel.id, null)}>
               Убрать из проекта
-            </DropdownMenuItem>
+            </ContextMenuItem>
           </>
         ) : null}
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
   );
 }
 
-function ProjectChannelActions({
-  channel,
-  onPin,
-  onRemove,
-}: {
-  channel: Conversation;
-  onPin: (pinned: boolean) => Promise<void>;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="flex shrink-0 items-center gap-0.5">
-      <button
-        type="button"
-        aria-label={`${channel.pinned ? "Открепить" : "Закрепить"} канал «${channel.title}»`}
-        onClick={() => void onPin(!channel.pinned)}
-        className="grid size-6 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/room:opacity-100"
-      >
-        <PushPin className="size-4" weight={channel.pinned ? "fill" : "regular"} />
-      </button>
-      <button
-        type="button"
-        aria-label={`Удалить канал «${channel.title}»`}
-        onClick={onRemove}
-        className="grid size-6 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-danger focus-visible:opacity-100 group-hover/room:opacity-100"
-      >
-        <Trash className="size-4" />
-      </button>
-    </div>
-  );
-}
-
-function LooseChannelMenu({
+/**
+ * Меню чата — одно на любой чат, в проекте и вне его (task-102).
+ *
+ * ⚠️ ОДИН НАБОР, А НЕ ДВА ПО ПРИНАДЛЕЖНОСТИ. Прежде у чата в проекте были
+ * булавка и корзина при наведении, у чата вне — три точки с переносом:
+ * развилка жила только из-за места под кнопки. Кнопок больше нет — и развилки тоже.
+ */
+function ChannelMenu({
   channel,
   projects,
   onPin,
@@ -181,38 +159,33 @@ function LooseChannelMenu({
   onRemove: () => void;
 }) {
   return (
-    <RowMenu
-      label={`Что сделать с каналом «${channel.title}»`}
-      reveal="group-hover/room:opacity-100"
-    >
-      <DropdownMenuItem onSelect={() => void onPin(!channel.pinned)}>
+    <ContextMenuContent className="w-52">
+      <ContextMenuItem onSelect={() => void onPin(!channel.pinned)}>
         {channel.pinned ? <PushPinSlash /> : <PushPin />}
         {channel.pinned ? "Открепить" : "Закрепить"}
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       <ToProject channel={channel} projects={projects} onMove={onMove} />
-      <DropdownMenuSeparator />
-      <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+      <ContextMenuSeparator />
+      <ContextMenuItem variant="destructive" onSelect={onRemove}>
         <Trash />
         Удалить канал
-      </DropdownMenuItem>
-    </RowMenu>
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 
 /**
- * Строка канала: название и три точки справа.
+ * Строка канала: название и число у правого края; действия — правой кнопкой.
  *
- * ⚠️ ТРИ ТОЧКИ, А НЕ ПРАВАЯ КНОПКА. Сначала действия висели на правой
- * кнопке — как у реплики в ленте. Владелец сказал прямо: неудобно, и он
- * прав. Правая кнопка не видна: о ней надо ЗНАТЬ. В ленте это терпимо —
- * там так у Телеграма, и человек приходит с этой привычкой; в боковой
- * панели привычка другая, её задали ChatGPT и Claude, и там действия
- * живут на трёх точках.
+ * ⚠️ ПРАВАЯ КНОПКА, А НЕ ТРИ ТОЧКИ (владелец 17.09, отмена task-059). Прежде
+ * решили наоборот: правую кнопку надо знать. Владелец пересмотрел: точки
+ * и кнопки при наведении отнимали у строки край, и число стояло не там,
+ * где его ищут, — как в Telegram, действия чата живут в меню по правой
+ * кнопке. С клавиатуры меню открывают `Shift+F10` и клавиша меню.
  *
- * ⚠️ ДВЕ КНОПКИ РЯДОМ, А НЕ КНОПКА В КНОПКЕ. Вложенная кнопка — неверная
- * разметка: браузер её распрямляет, и нажатие на точки выбирало бы канал
- * заодно.
+ * ⚠️ ОБЛАСТЬ МЕНЮ — ВСЯ СТРОКА, А КНОПКА ВНУТРИ ОДНА. Вложенная кнопка —
+ * неверная разметка, а меню на одной кнопке не открывалось бы по краю строки.
  */
 export function ChannelRow({
   channel,
@@ -240,49 +213,48 @@ export function ChannelRow({
   onRemove: () => void;
 }) {
   return (
-    <div
-      className={[
-        "group/room flex items-center rounded pr-1 transition-colors",
-        current ? "bg-selected" : "bg-transparent hover:bg-raised",
-      ].join(" ")}
-    >
-      <button
-        type="button"
-        aria-current={current ? "page" : undefined}
-        onClick={() => onSelect(channel.id)}
-        className={[
-          "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors",
-          current ? "font-medium text-ink" : "text-muted group-hover/room:text-ink",
-          // Название канала с непрочитанным набрано плотнее: у Телеграма
-          // так же, и это второй признак помимо числа — тот, кто читает
-          // панель по диагонали, замечает вес раньше цифры.
-          unread > 0 && !current ? "font-medium text-ink" : "",
-        ].join(" ")}
-      >
-        {/* ⚠️ БУЛАВКА ОСТАЁТСЯ ТОЛЬКО У ЗАКРЕПЛЁННОГО ЧАТА: это состояние,
-            а не декоративный знак. У обычного чата значок не нужен. */}
-        {channel.pinned ? (
-          <PushPin className="size-4 shrink-0 opacity-60" weight="fill" aria-hidden="true" />
-        ) : null}
-        <span className="truncate">{channel.title}</span>
-        {/* ⚠️ ЧИСЛО ВНУТРИ КНОПКИ КАНАЛА, А НЕ РЯДОМ С НЕЙ. Оно про этот
-            канал, и нажатие по нему обязано открывать его же — как
-            и нажатие по названию. Отдельный узел снаружи означал бы
-            мёртвую зону в строке. */}
-        <Badges unread={unread} mentions={mentions} />
-      </button>
-
-      {channel.projectId ? (
-        <ProjectChannelActions channel={channel} onPin={onPin} onRemove={onRemove} />
-      ) : (
-        <LooseChannelMenu
-          channel={channel}
-          projects={projects}
-          onPin={onPin}
-          onMove={onMove}
-          onRemove={onRemove}
-        />
-      )}
-    </div>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          className={[
+            "group/room flex items-center rounded transition-colors",
+            current ? "bg-selected" : "bg-transparent hover:bg-raised",
+          ].join(" ")}
+        >
+          <button
+            type="button"
+            aria-current={current ? "page" : undefined}
+            onClick={() => onSelect(channel.id)}
+            className={[
+              "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors",
+              current ? "font-medium text-ink" : "text-muted group-hover/room:text-ink",
+              // Название канала с непрочитанным набрано плотнее: у Телеграма
+              // так же, и это второй признак помимо числа — тот, кто читает
+              // панель по диагонали, замечает вес раньше цифры.
+              unread > 0 && !current ? "font-medium text-ink" : "",
+            ].join(" ")}
+          >
+            {/* ⚠️ БУЛАВКА ОСТАЁТСЯ ТОЛЬКО У ЗАКРЕПЛЁННОГО ЧАТА: это состояние,
+                а не декоративный знак. У обычного чата значок не нужен. */}
+            {channel.pinned ? (
+              <PushPin className="size-4 shrink-0 opacity-60" weight="fill" aria-hidden="true" />
+            ) : null}
+            <span className="truncate">{channel.title}</span>
+            {/* ⚠️ ЧИСЛО ВНУТРИ КНОПКИ КАНАЛА, А НЕ РЯДОМ С НЕЙ. Оно про этот
+                канал, и нажатие по нему обязано открывать его же — как
+                и нажатие по названию. Отдельный узел снаружи означал бы
+                мёртвую зону в строке. */}
+            <Badges unread={unread} mentions={mentions} />
+          </button>
+        </div>
+      </ContextMenuTrigger>
+      <ChannelMenu
+        channel={channel}
+        projects={projects}
+        onPin={onPin}
+        onMove={onMove}
+        onRemove={onRemove}
+      />
+    </ContextMenu>
   );
 }

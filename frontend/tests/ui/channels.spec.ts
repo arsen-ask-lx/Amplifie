@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { bubble, bubbles, createChannel, openChannel, register, say } from "./fixtures.js";
+import { bubble, bubbles, createChannel, openChannel, register, rowMenu, say } from "./fixtures.js";
 
 /**
  * П-5: переключение каналов не смешивает ленты.
@@ -39,7 +39,7 @@ test("удалённый канал уходит из панели вместе 
   await createChannel(page, "Черновик");
   await say(page, "это временный канал");
 
-  await page.getByLabel("Что сделать с каналом «Черновик»").click();
+  await rowMenu(page, "Черновик");
   await page.getByRole("menuitem", { name: "Удалить канал" }).click();
   // Спрашиваем перед необратимым — и подтверждение обязано быть отдельным
   // шагом, а не тем же нажатием.

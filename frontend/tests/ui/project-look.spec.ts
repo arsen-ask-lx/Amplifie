@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { register } from "./fixtures.js";
+import { register, rowMenu } from "./fixtures.js";
 
 /**
  * ОКНА С ЧИСТОГО ЛИСТА И ВИД ПРОЕКТА (task-103). Написан ДО правки и обязан
@@ -42,7 +42,7 @@ test("второе открытие «Нового проекта» — пуст
   await page.keyboard.press("Escape");
 
   // Правка открывает СВОЙ проект, а следующий «+» — снова пустое окно.
-  await page.getByRole("button", { name: "Что сделать с проектом «Объект»" }).click();
+  await rowMenu(page, "Объект");
   await page.getByRole("menuitem", { name: "Редактировать проект" }).click();
   await expect(page.getByLabel("Название проекта")).toHaveValue("Объект");
   await page.keyboard.press("Escape");

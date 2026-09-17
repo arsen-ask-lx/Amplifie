@@ -173,6 +173,18 @@ export async function openChannel(page: Page, title: string): Promise<void> {
   await expect(field(page)).toBeVisible();
 }
 
+/**
+ * Открыть меню строки панели правой кнопкой (task-102).
+ *
+ * ⚠️ ТРЁХ ТОЧЕК У СТРОК БОЛЬШЕ НЕТ: действия чата и проекта живут в меню
+ * по правой кнопке. Строка ищется по началу имени — у канала с непрочитанным
+ * доступное имя длиннее названия (см. `openChannel`).
+ */
+export async function rowMenu(page: Page, title: string): Promise<void> {
+  await page.getByRole("button", { name: new RegExp(`^${title}`, "u") }).click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+}
+
 /** Поле ввода реплики. */
 export function field(page: Page) {
   return page.getByLabel("Текст сообщения");
