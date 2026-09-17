@@ -10,6 +10,7 @@ import type {
   Tombstone,
 } from "@amplifie/contract/api";
 import { ApiError, type FieldErrors } from "../shared/failure.js";
+import { patient } from "./patient.js";
 
 /**
  * Формы ответов чата — из общего контракта (Р-034), а не своими копиями:
@@ -74,6 +75,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/**
+ * Загрузка, без которой нет экрана, — терпит короткий сбой сервера (task-096).
+ *
+ * ⚠️ ЯВНЫЙ СПИСОК, А НЕ ВСЕ ЧТЕНИЯ. Терпят четыре двери ниже: кто я,
+ * панель, первая страница ленты, закреплённое. У догона и потока свой
+ * хозяин повтора, у опросов — свой таймер, порции панели перечитываются
+ * по звонку: повтор внутри них умножил бы запросы.
+ */
+function patiently<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return patient((attempt) => request<T>(path, { signal: attempt }), signal);
+}
+
 export interface AgentsView {
   items: Array<{ id: string; name: string; kind: string; answersOn: string }>;
   /** Мост СПРАШИВАЮЩЕГО: агент отвечает через его подписку, не через чужую. */
@@ -109,7 +122,7 @@ export interface Bridge {
 }
 
 export const api = {
-  me: () => request<Me>("/v1/me"),
+  me: (signal?: AbortSignal) => patiently<Me>("/v1/me", signal),
   /**
    * Все видимые разговоры одним ответом, без предела и страниц.
    *
@@ -136,7 +149,7 @@ export const api = {
    * (замер 11.09 на 5 241 чате). Сводный — 20 КБ.
    */
   panel: (open?: string | null) =>
-    request<PanelSnapshot>(`/v1/panel${open ? `?open=${encodeURIComponent(open)}` : ""}`),
+    patiently<PanelSnapshot>(`/v1/panel${open ? `?open=${encodeURIComponent(open)}` : ""}`),
 
   /** Следующая порция «Недавних» — чатов без папки. */
   recent: (cursor: string) =>
@@ -186,14 +199,19 @@ export const api = {
     }),
 
   /** Лента разговора. `before` — номер, старше которого нужна страница. */
-  messages: (id: string, options: { limit?: number; before?: number } = {}) => {
+  messages: (
+    id: string,
+    options: { limit?: number; before?: number; signal?: AbortSignal } = {},
+  ) => {
     const query = new URLSearchParams();
     if (options.limit) query.set("limit", String(options.limit));
     if (options.before) query.set("before", String(options.before));
-    const tail = query.size > 0 ? `?${query}` : "";
-    return request<{ items: Message[]; hasMore: boolean; head: number }>(
-      `/v1/conversations/${id}/messages${tail}`,
-    );
+    const path = `/v1/conversations/${id}/messages${query.size > 0 ? `?${query}` : ""}`;
+    type FeedPage = { items: Message[]; hasMore: boolean; head: number };
+    // Терпит только первая страница: листание назад — десяток страниц подряд.
+    return options.before
+      ? request<FeedPage>(path, options.signal ? { signal: options.signal } : undefined)
+      : patiently<FeedPage>(path, options.signal);
   },
 
   /**
@@ -212,7 +230,8 @@ export const api = {
     }),
 
   /** Закреплённое разговора. Отдельной дверью: полоска нужна с первого кадра. */
-  pinned: (id: string) => request<{ items: Message[] }>(`/v1/conversations/${id}/pinned`),
+  pinned: (id: string, signal?: AbortSignal) =>
+    patiently<{ items: Message[] }>(`/v1/conversations/${id}/pinned`, signal),
 
   edit: (messageId: string, body: string) =>
     request<Message>(`/v1/messages/${messageId}`, {

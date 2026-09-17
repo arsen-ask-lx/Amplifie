@@ -65,6 +65,23 @@ export function liveTroubleOf(error: unknown): LiveTrouble {
   return liveTroubleOfStatus(statusOf(error));
 }
 
+/**
+ * Отказ загрузки, без которой нет экрана: кто я, панель, лента (task-096).
+ *
+ * ⚠️ «СЕРВЕР НЕДОСТУПЕН» — ЕДИНСТВЕННОЕ, ЧТО СТОИТ ПОВТОРЯТЬ. Ответа нет
+ * вовсе (сеть, истёк предел ожидания) или сервер ответил 5xx — это выкладка
+ * или короткий сбой, и через секунды пройдёт. 4xx повтор не лечит, а 429 —
+ * прямая просьба сервера не торопиться.
+ */
+export type ScreenTrouble = "сессии-нет" | "сервер-недоступен" | "иное";
+
+export function screenTroubleOf(error: unknown): ScreenTrouble {
+  if (liveTroubleOf(error) === "сессии-нет") return "сессии-нет";
+  const status = statusOf(error);
+  if (status === null) return error instanceof Error ? "сервер-недоступен" : "иное";
+  return status >= 500 ? "сервер-недоступен" : "иное";
+}
+
 /** Отказ при загрузке ленты разговора. */
 export type FeedTrouble =
   /**

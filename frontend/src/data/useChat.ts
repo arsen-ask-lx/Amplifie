@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { feedTroubleOf, troubleOf } from "../shared/trouble.js";
+import { feedTroubleOf, screenTroubleOf, troubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message, type Quote, type SyncLine } from "./api.js";
 import { catchUpWith } from "./catchUp.js";
 import { type Local, maxSeq, merge, mergePinned, ofRoom } from "./feed.js";
 import { type Focus, useAddress } from "./useAddress.js";
-import { TROUBLE, useLiveUpdates } from "./useLiveUpdates.js";
+import { useLiveUpdates } from "./useLiveUpdates.js";
 import { type Panel, usePanel } from "./usePanel.js";
 import { useReading } from "./useReading.js";
 import { useRooms } from "./useRooms.js";
@@ -55,13 +55,30 @@ async function pageBackTo(
 
 export type { Focus };
 
+/**
+ * Отказ загрузки — отдельно от беды живых обновлений (task-096).
+ *
+ * ⚠️ СВОЯ СТРОКА, А НЕ ОБЩАЯ ЯЧЕЙКА. В одной ячейке беда потока затирала
+ * отказ ленты, а погаснув, стирала и его: пустой чат без объяснения
+ * и без «Повторить».
+ */
+export interface LoadFailure {
+  /** Что не загрузилось: строку ленты гасит новая загрузка ленты, но не панели. */
+  of: "панель" | "лента" | "раннее";
+  text: string;
+  /** Есть, только если повтор имеет смысл — сервер был недоступен. */
+  retry?: () => void;
+}
+
 export interface Chat {
   conversations: Conversation[];
   current: Conversation | null;
   messages: Local[];
   hasOlder: boolean;
   loading: boolean;
-  failure: string | null;
+  failure: LoadFailure | null;
+  /** Беда живых обновлений: гаснет сама, повтор идёт без человека. */
+  trouble: string | null;
   focus: Focus | null;
   select: (id: string) => void;
   /** Открыть разговор на конкретной реплике — переход по цитате. */
@@ -132,7 +149,20 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasOlder, setHasOlder] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<LoadFailure | null>(null);
+  const [trouble, setTrouble] = useState<string | null>(null);
+  /** Попытка загрузки ленты — «Повторить» двигает её, и эффект спрашивает заново. */
+  const [feedAttempt, setFeedAttempt] = useState(0);
+
+  /** Кнопка «Повторить» — только когда сервер был недоступен: 4xx повтор не лечит. */
+  const failed = useCallback(
+    (of: LoadFailure["of"], text: string, error: unknown, retry: () => void) => {
+      setFailure(
+        screenTroubleOf(error) === "сервер-недоступен" ? { of, text, retry } : { of, text },
+      );
+    },
+    [],
+  );
 
   // Где человек находится — отдельным знанием (Д-10, task-020).
   // Здесь про адрес больше ничего нет: он выводится из самого адреса,
@@ -246,7 +276,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   // стоит честно, хотя маршрутизатор и обещает его неизменность: обещание
   // чужой библиотеки — не то, на чём стоит держать единственную загрузку.
   // biome-ignore lint/correctness/useExhaustiveDependencies: ссылки на адрес неизменны, их содержимое читается на момент ответа
-  useEffect(() => {
+  const loadRooms = useCallback(() => {
+    setFailure((current) => (current?.of === "панель" ? null : current));
     rooms
       .reload()
       .then((items) => {
@@ -272,11 +303,26 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
         // ждал выбранного разговора, которого нет. Найдено живым прогоном.
         if (items.length === 0) setLoading(false);
       })
-      .catch(() => {
-        setFailure("Не удалось загрузить список каналов");
+      .catch((error: unknown) => {
+        failed("панель", "Не удалось загрузить список каналов", error, loadRooms);
         setLoading(false);
       });
-  }, [navigate]);
+  }, [navigate, failed]);
+
+  useEffect(() => loadRooms(), [loadRooms]);
+
+  // Поток, посылки, догон при восстановлении и его страховка — отдельным
+  // знанием (task-093). Выше загрузки ленты: лента зовёт догон через него.
+  const catchUpSoon = useLiveUpdates({
+    catchUp,
+    cursor,
+    feedReady,
+    accept,
+    rooms,
+    openRef,
+    onTrouble: setTrouble,
+    onSessionEnded: endSession,
+  });
 
   // Лента выбранного разговора — с нуля при каждом переключении.
   // `wanted` в зависимостях: переход по цитате в УЖЕ открытый разговор
@@ -286,11 +332,17 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     // Тот же разговор и никуда не ведут по цитате — перезагружать нечего.
     if (shown.current === currentId && wanted === null) return;
 
+    // Попытка — счётчиком: «Повторить» спрашивает заново тем же эффектом.
+    void feedAttempt;
     let cancelled = false;
+    // Переход отменяет повторы прежнего чата: терпеливая загрузка иначе
+    // ждала бы сервер за разговор, которого на экране уже нет.
+    const stop = new AbortController();
     setLoading(true);
+    setFailure((current) => (current?.of === "панель" ? current : null));
 
     api
-      .messages(currentId, { limit: PAGE })
+      .messages(currentId, { limit: PAGE, signal: stop.signal })
       .then(async (first) => {
         if (cancelled) return;
         const page = wanted === null ? first : await pageBackTo(currentId, first, wanted);
@@ -341,7 +393,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
          */
         cursor.current = Math.max(cursor.current, page.head);
         feedReady.current = true;
-        await catchUp();
+        // Догон — у своего хозяина повтора: его отказ не отказ ленты (task-096).
+        catchUpSoon();
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -363,7 +416,9 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
           navigate("/", { replace: true });
           return;
         }
-        setFailure("Не удалось загрузить сообщения");
+        failed("лента", "Не удалось загрузить сообщения", error, () =>
+          setFeedAttempt((n) => n + 1),
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -371,26 +426,9 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
 
     return () => {
       cancelled = true;
+      stop.abort();
     };
-  }, [currentId, catchUp, wanted, navigate, endSession]);
-
-  /** Строка беды живых обновлений гасит только саму себя, не чужую. */
-  const onTrouble = useCallback((message: string | null) => {
-    setFailure((current) => message ?? (current === TROUBLE ? null : current));
-  }, []);
-
-  // Поток, посылки, догон при восстановлении и его страховка — отдельным
-  // знанием (task-093).
-  useLiveUpdates({
-    catchUp,
-    cursor,
-    feedReady,
-    accept,
-    rooms,
-    openRef,
-    onTrouble,
-    onSessionEnded: endSession,
-  });
+  }, [currentId, catchUpSoon, wanted, navigate, endSession, failed, feedAttempt]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]?.seq;
@@ -399,12 +437,12 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
       const older = await api.messages(currentId, { limit: PAGE, before: oldest });
       setMessages((current) => merge(current, older.items));
       setHasOlder(older.hasMore);
-    } catch {
+    } catch (error) {
       // Неудача подгрузки старого не должна ронять экран: человек читает
       // текущее. Но и молчать нельзя — иначе кнопка выглядит сломанной.
-      setFailure("Не удалось загрузить более раннее");
+      failed("раннее", "Не удалось загрузить более раннее", error, () => void loadOlder());
     }
-  }, [currentId, messages]);
+  }, [currentId, messages, failed]);
 
   const send = useCallback(
     async (
@@ -554,8 +592,9 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
       return;
     }
     let cancelled = false;
+    const stop = new AbortController();
     api
-      .pinned(currentId)
+      .pinned(currentId, stop.signal)
       .then(({ items }) => {
         if (!cancelled) setPinned(items);
       })
@@ -566,6 +605,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
       });
     return () => {
       cancelled = true;
+      stop.abort();
     };
   }, [currentId]);
 
@@ -669,6 +709,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     hasOlder,
     loading,
     failure,
+    trouble,
     focus,
     select,
     openAt,

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Me } from "../data/api.js";
 import { useChat } from "../data/useChat.js";
 import { Room } from "../screens/talk/Room.js";
+import { Button } from "../shared/ui/button.js";
 import { Rail } from "./Rail.js";
 import { ThemePicker } from "./ThemePicker.js";
 
@@ -109,10 +110,22 @@ export function ChatScreen({
           </div>
         </header>
 
-        {chat.failure ? (
+        {/* Две строки, а не одна (task-096): беда живых обновлений гаснет
+            сама и не должна стирать отказ загрузки вместе с «Повторить». */}
+        {chat.trouble ? (
           <p className="border-b border-line bg-panel px-5 py-2 text-aside text-danger">
-            {chat.failure}
+            {chat.trouble}
           </p>
+        ) : null}
+        {chat.failure ? (
+          <div className="flex items-center gap-3 border-b border-line bg-panel px-5 py-2 text-aside text-danger">
+            <p>{chat.failure.text}</p>
+            {chat.failure.retry ? (
+              <Button variant="outline" size="xs" onClick={chat.failure.retry}>
+                Повторить
+              </Button>
+            ) : null}
+          </div>
         ) : null}
 
         <Room chat={chat} meId={me.participant.id} />

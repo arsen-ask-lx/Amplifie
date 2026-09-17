@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ChangeEvent, Message, SyncLine } from "./api.js";
 import { type Carried, carried } from "./carried.js";
 import { openLiveStream } from "./liveStream.js";
@@ -72,8 +72,11 @@ export function useLiveUpdates(options: {
   /** Строка беды: текст — показать, `null` — погасить свою. */
   onTrouble: (message: string | null) => void;
   onSessionEnded: () => void;
-}): void {
+}): () => void {
   const { catchUp, cursor, feedReady, accept, rooms, openRef, onTrouble, onSessionEnded } = options;
+
+  /** Хозяин повтора догона — ссылкой: лента зовёт его из своего эффекта. */
+  const syncRef = useRef<{ kick: () => void } | null>(null);
 
   useEffect(() => {
     let streamFailures = 0;
@@ -92,6 +95,7 @@ export function useLiveUpdates(options: {
       },
       onSessionEnded,
     });
+    syncRef.current = sync;
     /**
      * Догнать — только если лента уже стоит на курсоре.
      *
@@ -189,6 +193,7 @@ export function useLiveUpdates(options: {
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
+      syncRef.current = null;
       close();
       sync.stop();
       window.clearTimeout(safety);
@@ -205,4 +210,14 @@ export function useLiveUpdates(options: {
     onTrouble,
     onSessionEnded,
   ]);
+
+  /**
+   * Лента встала на курсор — догнать через хозяина повтора (task-096).
+   *
+   * ⚠️ `kick`, А НЕ ОЖИДАНИЕ ВНУТРИ ЗАГРУЗКИ. Отказ догона выдавался
+   * за отказ ленты: «Не удалось загрузить сообщения» при уже загруженной
+   * ленте. И не `now`: переход между чатами во время сбоя не должен
+   * снимать паузу повтора.
+   */
+  return useCallback(() => syncRef.current?.kick(), []);
 }

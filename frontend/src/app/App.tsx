@@ -3,12 +3,20 @@ import { Navigate, useMatch, useNavigate } from "react-router";
 import { api, type Me } from "../data/api.js";
 import { AuthScreen } from "../screens/AuthScreen.js";
 import { JoinScreen } from "../screens/JoinScreen.js";
+import { screenTroubleOf } from "../shared/trouble.js";
+import { Button } from "../shared/ui/button.js";
 import { ChatScreen } from "./ChatScreen.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 import { Setup } from "./Setup.js";
 
 type State =
   | { status: "loading" }
+  /**
+   * Сервер не отвечает дольше, чем терпит загрузка (task-096). Это не «не
+   * вошёл»: сеанс, скорее всего, жив, и экран входа заставил бы человека
+   * вводить пароль ради сбоя, который пройдёт сам.
+   */
+  | { status: "unreachable" }
   /** notice — то, что человек обязан узнать при возврате на экран входа. */
   | { status: "anon"; notice?: string }
   /**
@@ -50,14 +58,42 @@ export function App() {
 
   // Кто пришёл — спрашиваем у сервера, а не у localStorage: печенька
   // HttpOnly, и это единственный честный источник ответа.
+  const [asked, setAsked] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: счётчик попытки — сам повод спросить заново («Повторить»)
   useEffect(() => {
+    const stop = new AbortController();
     api
-      .me()
+      .me(stop.signal)
       .then((me) => setState({ status: "entered", me }))
-      .catch(() => setState({ status: "anon" }));
-  }, []);
+      .catch((error: unknown) => {
+        if (stop.signal.aborted) return;
+        // Недоступен — не повод выгонять на вход; всё остальное (нет сессии,
+        // 429 за общим адресом) ведёт на вход, как и раньше.
+        setState({
+          status: screenTroubleOf(error) === "сервер-недоступен" ? "unreachable" : "anon",
+        });
+      });
+    return () => stop.abort();
+  }, [asked]);
 
   if (state.status === "loading") return null;
+
+  if (state.status === "unreachable") {
+    return (
+      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-bg text-ink">
+        <p className="text-body">Не удаётся связаться с сервером.</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setState({ status: "loading" });
+            setAsked((n) => n + 1);
+          }}
+        >
+          Повторить
+        </Button>
+      </div>
+    );
+  }
 
   const token = invited?.params.token;
   if (token && state.status !== "entered") {

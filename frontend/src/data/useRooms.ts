@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { feedTroubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Message, type Project } from "./api.js";
 import { bumped, readApplied, type Who } from "./bumped.js";
 import { coalesced } from "./coalesced.js";
@@ -200,11 +201,25 @@ export function useRooms(where: Address, me: string): Rooms {
   );
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  // Порции папок — ссылкой: при сбое одной порции перечитывание берёт
+  // прежние чаты этой папки, а не пустоту (task-096).
+  const inProjectRef = useRef(inProject);
+  inProjectRef.current = inProject;
 
   // Раскрытые папки — ссылкой: перечитывание зовётся из эффектов, которые
   // не должны пересоздаваться от каждой догруженной порции.
   const loadedProjects = useRef<Record<string, (string | null)[]>>({});
   const recentCursors = useRef<(string | null)[]>([null]);
+
+  /** Порция папки не приехала: «нет такой» — папка выпадает; сбой — прежние чаты. */
+  const folderAfterFailure = useCallback((projectId: string, error: unknown) => {
+    if (feedTroubleOf(error) === "нет-такого") {
+      delete loadedProjects.current[projectId];
+      return null;
+    }
+    const previous = inProjectRef.current[projectId];
+    return previous ? ([projectId, previous] as const) : null;
+  }, []);
 
   const fetchNow = useCallback(async () => {
     const snapshot = await api.panel(currentIdRef.current);
@@ -219,15 +234,18 @@ export function useRooms(where: Address, me: string): Rooms {
        * закрыли доступ — сервер честно отвечает «нет такой», и прежде этот
        * отказ ронял весь сводный запрос: панель замирала с папкой, которой
        * уже нет. Теперь папка просто выпадает из загруженных.
+       *
+       * ⚠️ НО ТОЛЬКО КОГДА ЕЁ НЕТ (task-096). Сбой сервера — не «нет такой»:
+       * прежде от любого отказа чаты папки пропадали с экрана. Теперь при
+       * сбое у папки остаются прежние чаты, а остальная панель применяется.
        */
       Promise.all(
         Object.entries(loadedProjects.current).map(async ([projectId, cursors]) => {
           try {
             const page = await pagesOf((cursor) => api.projectChats(projectId, cursor), cursors);
             return [projectId, page] as const;
-          } catch {
-            delete loadedProjects.current[projectId];
-            return null;
+          } catch (error) {
+            return folderAfterFailure(projectId, error);
           }
         }),
       ),
@@ -252,7 +270,7 @@ export function useRooms(where: Address, me: string): Rooms {
     ]);
     itemsRef.current = fresh;
     return fresh;
-  }, [currentIdRef]);
+  }, [currentIdRef, folderAfterFailure]);
 
   /**
    * Перечитать — один запрос в пути и не больше одного в очереди (task-064).
@@ -331,7 +349,9 @@ export function useRooms(where: Address, me: string): Rooms {
     async (projectId: string) => {
       const have = inProject[projectId];
       if (!have?.next) return;
-      const page = await api.projectChats(projectId, have.next);
+      // Не приехало — кнопка «Показать ещё» остаётся, человек нажмёт снова.
+      const page = await api.projectChats(projectId, have.next).catch(unshown);
+      if (!page) return;
       loadedProjects.current[projectId] = [...have.cursors, have.next];
       setInProject((before) => ({
         ...before,
@@ -347,7 +367,9 @@ export function useRooms(where: Address, me: string): Rooms {
 
   const loadMoreRecent = useCallback(async () => {
     if (!recent.next) return;
-    const page = await api.recent(recent.next);
+    // Не приехало — край списка покажется снова, и попытка повторится.
+    const page = await api.recent(recent.next).catch(unshown);
+    if (!page) return;
     recentCursors.current = [...recent.cursors, recent.next];
     setRecent((before) => ({
       cursors: recentCursors.current,
@@ -357,19 +379,32 @@ export function useRooms(where: Address, me: string): Rooms {
   }, [recent]);
 
   /**
+   * Перечитать после удачной записи — не дожидаясь (task-096).
+   *
+   * ⚠️ ЗАПИСЬ ЖДЁТ ТОЛЬКО САМУ ЗАПИСЬ. Прежде правка ждала и перечитывания:
+   * сервер записал, а перечитывание упало — и форма писала ошибку, хотя
+   * проект уже заведён; второе нажатие заводило второй. Отказ перечитывания
+   * здесь осознанный: следующее придёт по звонку, переходу или возврату
+   * во вкладку.
+   */
+  const settle = useCallback(() => {
+    void reload().catch(unshown);
+  }, [reload]);
+
+  /**
    * Завести разговор и открыть его.
    *
    * ⚠️ ПОСЛЕ ЗАВЕДЕНИЯ СПИСОК ПЕРЕЧИТЫВАЕТСЯ ЦЕЛИКОМ, а не дополняется
    * ответом: пока мы набирали название, в пространстве мог появиться
-   * и чужой канал.
+   * и чужой канал. Строку открытого чата привезёт то же перечитывание.
    */
   const openNew = useCallback(
     async (make: () => Promise<Conversation>) => {
       const created = await make();
-      await reload();
+      settle();
       navigate(`/c/${created.id}`);
     },
-    [reload, navigate],
+    [settle, navigate],
   );
 
   const addChannel = useCallback(
@@ -389,12 +424,12 @@ export function useRooms(where: Address, me: string): Rooms {
   const removeChannel = useCallback(
     async (id: string) => {
       await api.removeChannel(id);
-      const fresh = await reload();
+      settle();
       if (currentIdRef.current !== id) return;
-      const next = fresh.find((room) => room.parentId === null);
+      const next = itemsRef.current.find((room) => room.parentId === null && room.id !== id);
       navigate(next ? `/c/${next.id}` : "/", { replace: true });
     },
-    [reload, navigate, currentIdRef],
+    [settle, navigate, currentIdRef],
   );
 
   const addThread = useCallback(
@@ -419,17 +454,17 @@ export function useRooms(where: Address, me: string): Rooms {
   const addProject = useCallback(
     async (title: string, look?: Look) => {
       await api.addProject(title, look);
-      await reload();
+      settle();
     },
-    [reload],
+    [settle],
   );
 
   const renameProject = useCallback(
     async (id: string, edit: { title?: string } & Look) => {
       await api.renameProject(id, edit);
-      await reload();
+      settle();
     },
-    [reload],
+    [settle],
   );
 
   /**
@@ -442,9 +477,9 @@ export function useRooms(where: Address, me: string): Rooms {
   const removeProject = useCallback(
     async (id: string) => {
       await api.removeProject(id);
-      await reload();
+      settle();
     },
-    [reload],
+    [settle],
   );
 
   const pin = useCallback(
@@ -454,17 +489,17 @@ export function useRooms(where: Address, me: string): Rooms {
         : api.pinProject(target.projectId, pinned));
       // Порядок пересчитывает сервер — перечитываем панель целиком,
       // а не переставляем строки здесь (иначе про порядок знают двое).
-      await reload();
+      settle();
     },
-    [reload],
+    [settle],
   );
 
   const moveToProject = useCallback(
     async (conversationId: string, projectId: string | null) => {
       await api.moveConversation(conversationId, projectId);
-      await reload();
+      settle();
     },
-    [reload],
+    [settle],
   );
 
   /**
