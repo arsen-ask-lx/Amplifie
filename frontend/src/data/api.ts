@@ -6,6 +6,8 @@ import type {
   Person,
   Project,
   Quote,
+  SearchHit,
+  SearchPage,
   SyncLine,
   Tombstone,
 } from "@amplifie/contract/api";
@@ -25,6 +27,8 @@ export type {
   Person,
   Project,
   Quote,
+  SearchHit,
+  SearchPage,
   SyncLine,
   Tombstone,
 };
@@ -297,6 +301,18 @@ export const api = {
    * Возвращает остаток, пересчитанный сервером: клиент видит только окно
    * ленты и посчитать сам не может (Р-029).
    */
+  /**
+   * Поиск по сообщениям всех видимых разговоров (task-100). Текст — в теле:
+   * в адресе он попал бы в журналы. `before` — курсор следующей страницы.
+   * Не терпит сбой: человек набирает дальше, и новый запрос отменит этот.
+   */
+  search: (q: string, options: { before?: number; signal?: AbortSignal } = {}) =>
+    request<SearchPage>("/v1/search/messages", {
+      method: "POST",
+      body: JSON.stringify({ q, ...(options.before ? { before: options.before } : {}) }),
+      ...(options.signal ? { signal: options.signal } : {}),
+    }),
+
   markRead: (id: string, seq: number) =>
     request<{ unread: number }>(`/v1/conversations/${id}/read`, {
       method: "POST",

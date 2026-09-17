@@ -1,8 +1,9 @@
-import { Sidebar } from "@phosphor-icons/react";
+import { MagnifyingGlass, Sidebar } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import type { Me } from "../data/api.js";
 import { useChat } from "../data/useChat.js";
 import { Room } from "../screens/talk/Room.js";
+import { SearchDialog } from "../screens/talk/SearchDialog.js";
 import { Button } from "../shared/ui/button.js";
 import { Rail } from "./Rail.js";
 import { ThemePicker } from "./ThemePicker.js";
@@ -41,6 +42,9 @@ export function ChatScreen({
   const chat = useChat(me, onSessionEnded);
 
   const [railOpen, setRailOpen] = useState(railWasOpen);
+  /** Открыто ли окно поиска по сообщениям (task-100). */
+  const [searching, setSearching] = useState(false);
+  const closeSearch = useCallback(() => setSearching(false), []);
 
   const toggleRail = useCallback(() => {
     setRailOpen((was) => {
@@ -79,6 +83,24 @@ export function ChatScreen({
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleRail]);
 
+  /**
+   * Ctrl+K — поиск, как в Слаке, Дискорде и VS Code (task-100).
+   *
+   * ⚠️ И ИЗ ПОЛЯ ВВОДА ТОЖЕ, в отличие от Ctrl+B. У редактора это сочетание
+   * не занято (`fieldKeys.ts`), а искать хочется ровно тогда, когда пишешь.
+   * `preventDefault` обязателен: иначе браузер уводит фокус в свою строку
+   * поиска.
+   */
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.code !== "KeyK") return;
+      event.preventDefault();
+      setSearching(true);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="flex h-dvh overflow-hidden bg-bg text-ink">
       <Rail me={me} chat={chat} open={railOpen} onLeave={onLeave} />
@@ -105,7 +127,16 @@ export function ChatScreen({
             {chat.current?.title ?? "Канал"}
           </h2>
 
-          <div className="ml-auto flex shrink-0 items-center">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setSearching(true)}
+              aria-label="Поиск по сообщениям"
+              title="Поиск по сообщениям (Ctrl+K)"
+              className="grid size-9 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
+            >
+              <MagnifyingGlass className="size-[18px]" />
+            </button>
             <ThemePicker />
           </div>
         </header>
@@ -130,6 +161,8 @@ export function ChatScreen({
 
         <Room chat={chat} meId={me.participant.id} />
       </main>
+
+      {searching ? <SearchDialog onOpen={chat.openAt} onClose={closeSearch} /> : null}
     </div>
   );
 }

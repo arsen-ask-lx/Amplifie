@@ -13,11 +13,18 @@ import {
   type SQLWrapper,
   sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { alias, type SelectedFields } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
-import { conversation, conversationMember, conversationRead, message, pin } from "./schema.js";
+import {
+  conversation,
+  conversationMember,
+  conversationRead,
+  message,
+  messageSearch,
+  pin,
+} from "./schema.js";
 import { mentionsOf, unreadOf } from "./unread.js";
 
 /** Хранилище модуля talk: только запросы. Непрочитанное — в `unread.ts`, отдаётся отсюда. */
@@ -445,10 +452,15 @@ const MESSAGE_VIEW = {
 /**
  * Начало любого запроса за видом сообщения: поля и все связки — одно знание
  * «из чего собрана реплика». Условия и порядок дописывает вызывающий.
+ *
+ * `extra` — поля сверх вида, которые нужны одному вызывающему (поиску —
+ * название чата). Вид при этом остаётся одним: второй сборки реплики
+ * рядом с этой не заводится (task-100).
  */
-function selectMessages(tx: Executor) {
+// biome-ignore lint/complexity/noBannedTypes: пустой набор полей — законное «без добавок»
+function selectMessages<Extra extends SelectedFields = {}>(tx: Executor, extra?: Extra) {
   return tx
-    .select({ ...MESSAGE_VIEW, updatedSeq: message.updatedSeq })
+    .select({ ...MESSAGE_VIEW, updatedSeq: message.updatedSeq, ...(extra ?? ({} as Extra)) })
     .from(message)
     .innerJoin(participant, eq(participant.id, message.authorParticipantId))
     .leftJoin(quoted, eq(quoted.id, message.replyToId))
@@ -583,6 +595,46 @@ export function listMessagesNewer(
     )
     .orderBy(asc(message.seq))
     .limit(limit);
+}
+
+/**
+ * Страница поиска по сообщениям (task-100): новые сверху, одна строка сверх
+ * предела — «есть ли ещё». Слова уже собраны в `query` (`search.ts`).
+ *
+ * Не `async`: отдаётся строитель запроса, и гейт цены меряет его `.toSQL()`.
+ *
+ * ⚠️ ПОРЯДОК И КУРСОР — ПО НОМЕРУ ТАБЛИЦЫ ПОИСКА, А НЕ РЕПЛИКИ. Значение то же,
+ * но индекс `(workspace_id, seq)` лежит на ней: сортировка по номеру реплики
+ * лишила бы планировщик обхода «новые сверху» для частого слова. Какой путь
+ * выбрать — обход или выборку из индекса слов — решает планировщик по
+ * статистике слов (точность 1000, миграция 0027; замер шага 0 — 22 мс худший
+ * случай на миллионе реплик).
+ *
+ * ⚠️ ПРАВА — ТЕ ЖЕ, ЧТО У ЛЕНТЫ (`visibleTo`), и в момент поиска: в таблице
+ * поиска прав нет.
+ */
+export function searchMessagesPage(
+  tx: Executor,
+  viewer: { participantId: string; workspaceId: string },
+  query: SQL,
+  limit: number,
+  before?: number,
+) {
+  return selectMessages(tx, { conversationTitle: conversation.title })
+    .innerJoin(messageSearch, eq(messageSearch.messageId, message.id))
+    .innerJoin(conversation, eq(conversation.id, message.conversationId))
+    .where(
+      and(
+        eq(messageSearch.workspaceId, viewer.workspaceId),
+        sql`${messageSearch.doc} @@ (${query})`,
+        isNull(message.deletedAt),
+        isNull(conversation.deletedAt),
+        visibleTo(viewer.participantId),
+        before === undefined ? undefined : lt(messageSearch.seq, before),
+      ),
+    )
+    .orderBy(desc(messageSearch.seq))
+    .limit(limit + 1);
 }
 
 /**

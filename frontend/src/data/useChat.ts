@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { feedTroubleOf, screenTroubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message } from "./api.js";
-import type { Local } from "./feed.js";
+import { type Local, writtenEdge } from "./feed.js";
 import { FEED_PAGE, pageAround, pageLatest } from "./feedPages.js";
 import { emptyFeed, feedState } from "./feedState.js";
 import { type Focus, useAddress } from "./useAddress.js";
@@ -329,7 +329,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   }, [currentId, settleCursor, wanted, navigate, endSession, failed, feedAttempt]);
 
   const loadOlder = useCallback(async () => {
-    const oldest = messages[0]?.seq;
+    // Пока идёт полная загрузка, края не догружаются: она их заменит (task-099).
+    const oldest = loading ? undefined : writtenEdge(messages, "first");
     if (!currentId || oldest === undefined) return;
     try {
       const older = await api.messages(currentId, { limit: FEED_PAGE, before: oldest });
@@ -339,10 +340,10 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
       // текущее. Но и молчать нельзя — иначе кнопка выглядит сломанной.
       failed("раннее", "Не удалось загрузить более раннее", error, () => void loadOlder());
     }
-  }, [currentId, messages, failed]);
+  }, [currentId, messages, loading, failed]);
 
   const loadNewer = useCallback(async () => {
-    const newest = messages.at(-1)?.seq;
+    const newest = loading ? undefined : writtenEdge(messages, "last");
     if (!currentId || newest === undefined) return;
     try {
       const newer = await api.messages(currentId, { limit: FEED_PAGE, after: newest });
@@ -352,18 +353,23 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     } catch (error) {
       failed("позднее", "Не удалось загрузить более позднее", error, () => void loadNewer());
     }
-  }, [currentId, messages, failed, settleCursor]);
+  }, [currentId, messages, loading, failed, settleCursor]);
 
   /**
    * К концу разговора из давнего. Адрес без номера — заменой: «назад» не должен
    * возвращать в давнее, из которого человек только что ушёл.
+   *
+   * ⚠️ ОДНА ПРИЧИНА ПЕРЕЗАГРУЗКИ, А НЕ ДВЕ. Попытка применялась сразу, адрес —
+   * позже: эффект успевал сработать со СТАРЫМ номером и заново грузил давнее
+   * окно (журнал запросов `jump.spec.ts` П-4.6). Номер в адресе есть — меняется
+   * только адрес; нет — только попытка.
    */
   const toLatest = useCallback(() => {
     if (!currentId) return;
     shown.current = null;
-    setFeedAttempt((n) => n + 1);
-    navigate(`/c/${currentId}`, { replace: true });
-  }, [currentId, navigate]);
+    if (wanted === null) setFeedAttempt((n) => n + 1);
+    else navigate(`/c/${currentId}`, { replace: true });
+  }, [currentId, wanted, navigate]);
 
   const select = useCallback(
     (id: string) => {

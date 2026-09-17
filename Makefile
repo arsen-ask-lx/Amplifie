@@ -365,6 +365,25 @@ panel-cost: ## цена потока сообщений: что стоит па�
 write-ceiling: ## потолок записи в одно пространство, Д-2 (сначала: make up)
 > node tools/load/write-ceiling.mjs
 
+# ⚠️ ОТДЕЛЬНАЯ БАЗА `amplifie_search`, А НЕ СТЕНД (task-100). Миллионы реплик
+# в рабочей базе сломали бы стенд и все прочие замеры. Засев возобновляется
+# с места остановки; удалить базу — решение владельца.
+# Объём: MESSAGES=1000000 make search-seed
+.PHONY: search-seed search-measure
+search-seed: ## засеять отдельную базу для замера поиска (сначала: make up)
+> npx tsc --build backend && node tools/load/search-seed.mjs
+
+search-measure: ## замер поиска и цены триггера на засеянной базе (после: make search-seed)
+> node tools/load/search-measure.mjs
+
+# Второй сервер и прокси на базе засева, порт 8479; стенд не трогается.
+.PHONY: search-demo search-demo-stop
+search-demo: ## потыкать поиск руками на засеве (сначала: make up и make search-seed)
+> npx tsc --build backend && node tools/load/search-demo.mjs
+
+search-demo-stop: ## остановить показ поиска на засеве
+> node tools/load/search-demo.mjs --stop
+
 # ⚠️ УСТАНОВКА БРАУЗЕРА СТОИТ ЗДЕСЬ, А НЕ В ЧЬЕЙ-ТО ПАМЯТИ. Самая частая
 # поломка Playwright у других — версия пакета уехала, браузеры остались
 # старые, и прогон падает «нет браузера» на исправном коде. Команда

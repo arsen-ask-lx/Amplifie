@@ -23,6 +23,8 @@ import {
   projectPatchBody,
   readBody,
   readResult,
+  searchBody,
+  searchPage,
   sendBody,
   syncQuery,
   syncView,
@@ -49,6 +51,7 @@ import {
   pinMessage,
   removeProject,
   renameProject,
+  searchMessages,
   sendMessage,
   setConversationPin,
   setProject,
@@ -57,7 +60,7 @@ import {
   type Viewer,
   whereMentioned,
 } from "../../../kernel/talk/index.js";
-import { READ, SEND, SYNC } from "../limits.js";
+import { READ, SEARCH, SEND, SYNC } from "../limits.js";
 import { actorOf } from "./viewer.js";
 
 /**
@@ -68,6 +71,8 @@ import { actorOf } from "./viewer.js";
 
 const MAX_PAGE = 200;
 const DEFAULT_PAGE = 50;
+/** Страница поиска: столько строк помещается в окне поиска без прокрутки. */
+const DEFAULT_SEARCH_PAGE = 20;
 
 /** Размер страницы из адреса: мусор — значение по умолчанию, не ошибка. */
 function pageSize(raw: string | undefined): number {
@@ -330,6 +335,25 @@ export function registerChatRoutes(scope: FastifyInstance): void {
     await removeProject(actorOf(request), request.params.id);
     return reply.code(204).send();
   });
+
+  /**
+   * Поиск по сообщениям всех видимых разговоров (task-100). `POST`, а не `GET`:
+   * текст поиска — переписка людей, и в адресе он попал бы в журналы.
+   */
+  app.post(
+    "/v1/search/messages",
+    {
+      config: { rateLimit: SEARCH },
+      schema: { body: searchBody, response: { 200: searchPage } },
+    },
+    (request) =>
+      searchMessages(
+        actorOf(request),
+        request.body.q,
+        request.body.limit ?? DEFAULT_SEARCH_PAGE,
+        request.body.before,
+      ),
+  );
 
   /**
    * Единственная дверь догона: и живое обновление, и восстановление после

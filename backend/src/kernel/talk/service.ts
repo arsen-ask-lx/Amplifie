@@ -49,7 +49,10 @@ function presentLine(row: Awaited<ReturnType<typeof repo.listMessagesAfter>>[num
   return presentMessage(row);
 }
 
-function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[number]): MessageView {
+/** Вид реплики из строки хранилища — один на ленту, догон, закреплённое и поиск. */
+export function presentMessage(
+  row: Awaited<ReturnType<typeof repo.listMessages>>[number],
+): MessageView {
   return {
     id: row.id,
     clientMsgId: row.clientMsgId,

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   bigint,
+  customType,
   index,
   pgTable,
   primaryKey,
@@ -258,5 +259,37 @@ export const messageMention = pgTable(
     primaryKey({ columns: [t.messageId, t.participantId] }),
     // Счёт идёт всегда от человека: «сколько раз позвали МЕНЯ».
     index("message_mention_participant_idx").on(t.participantId, t.messageId),
+  ],
+);
+
+/** Вектор полнотекстового поиска Postgres: у drizzle своего типа нет. */
+const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
+
+/**
+ * Поиск по сообщениям (task-100) — таблица-ПРОИЗВОДНАЯ от `message`.
+ *
+ * ⚠️ ПИШЕТ ЕЁ ТОЛЬКО ТРИГГЕР В БАЗЕ, а не код (миграция 0027). Так ни один
+ * путь записи — служба, засев гейта, выкладка, будущий импорт — не оставит
+ * реплику ненайденной. Испортилась — сносится и собирается заново той же
+ * выборкой, что в миграции: переписка при этом цела.
+ *
+ * Копии полей реплики законны: пространство, разговор и номер у реплики
+ * не меняются никогда. Прав здесь нет — они проверяются в момент поиска.
+ */
+export const messageSearch = pgTable(
+  "message_search",
+  {
+    messageId: uuid("message_id")
+      .primaryKey()
+      .references(() => message.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
+    seq: bigint("seq", { mode: "number" }).notNull(),
+    doc: tsvector("doc").notNull(),
+  },
+  (t) => [
+    index("message_search_doc_idx").using("gin", t.doc),
+    // Обход «новые сверху» для частого слова (замер шага 0).
+    index("message_search_workspace_seq_idx").on(t.workspaceId, t.seq),
   ],
 );

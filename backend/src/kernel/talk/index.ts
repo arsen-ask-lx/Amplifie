@@ -9,6 +9,7 @@ export {
   scopeFeed,
   setProject,
 } from "./projects.js";
+export { searchMessages } from "./search.js";
 export {
   createChannel,
   createDefaultChannel,

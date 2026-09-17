@@ -1,6 +1,7 @@
 import { Hash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { api, type Conversation, type Message } from "../../data/api.js";
+import { useDismiss } from "../../shared/useDismiss.js";
 
 /**
  * Куда переслать: список каналов поверх ленты.
@@ -48,28 +49,8 @@ export function ForwardPicker({
     };
   }, []);
 
-  /**
-   * Два способа закрыть: Escape и щелчок мимо.
-   *
-   * ⚠️ ЩЕЛЧОК МИМО СЛУШАЕТ ДОКУМЕНТ, А НЕ ПОДЛОЖКА. Обработчик на самой
-   * подложке делает её интерактивной, не будучи кнопкой: программа чтения
-   * экрана объявит её обычным блоком, а нажать с клавиатуры будет нечем.
-   * Документ решает ту же задачу и никого не обманывает.
-   */
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    function outside(event: MouseEvent) {
-      if (!box.current?.contains(event.target as Node)) onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", outside, true);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", outside, true);
-    };
-  }, [onClose]);
+  // Escape и щелчок мимо — общим правилом слоёв (`useDismiss`).
+  useDismiss(box, onClose);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/20 p-4">

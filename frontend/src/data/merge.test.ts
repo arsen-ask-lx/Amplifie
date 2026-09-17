@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Message, SyncLine, Tombstone } from "./api.js";
-import { inside, merge, mergePinned, ofRoom } from "./feed.js";
+import { inside, merge, mergePinned, ofRoom, writtenEdge } from "./feed.js";
 
 const ROOM = "комната-1";
 
@@ -238,5 +238,20 @@ describe("края ленты", () => {
 
   it("пустая лента краёв не знает и пропускает всё", () => {
     expect(inside([], [line("a", 1, "раз")], { older: true, newer: true })).toHaveLength(1);
+  });
+});
+
+describe("край ленты для догрузки", () => {
+  it("черновик с дробным номером краем не считается", () => {
+    const shown = [
+      line("a", 10, "десятая"),
+      { ...line("черновик", 10.5, "моё"), clientMsgId: "ч" },
+    ];
+    expect(writtenEdge(shown, "first")).toBe(10);
+    expect(writtenEdge(shown, "last")).toBe(10);
+  });
+
+  it("лента из одного черновика краёв не имеет", () => {
+    expect(writtenEdge([line("черновик", 60.5, "моё")], "first")).toBeUndefined();
   });
 });

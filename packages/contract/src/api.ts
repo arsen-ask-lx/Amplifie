@@ -170,6 +170,20 @@ export const messagesPage = z.object({
 
 export const pinnedList = z.object({ items: z.array(messageView) });
 
+/**
+ * Найденное поиском (task-100): тот же вид реплики, что в ленте, плюс
+ * название чата — выдача идёт по всем разговорам сразу. Своей формы
+ * реплики у поиска нет: разойдись она с лентой — найденное выглядело бы
+ * не так, как то же сообщение в чате.
+ */
+export const searchHit = messageView.extend({ conversationTitle: z.string() });
+
+/** Страница поиска. `next` — курсор следующей страницы; `null` — дальше нет. */
+export const searchPage = z.object({
+  items: z.array(searchHit),
+  next: z.number().nullable(),
+});
+
 /** Кого можно позвать (Р-031). */
 export const personView = z.object({ id, name: z.string(), kind: z.string() });
 export const peopleList = z.object({ items: z.array(personView) });
@@ -218,6 +232,16 @@ export const sendBody = z.object({
 });
 
 export const editBody = z.object({ body });
+
+/**
+ * Поиск по сообщениям (task-100). Текст — в теле, а не в адресе: адрес пишется
+ * в журналы сервера и прокси, а текст поиска — это переписка людей.
+ */
+export const searchBody = z.object({
+  q: z.string().max(200, "запрос длиннее 200 символов"),
+  before: z.int().positive().optional(),
+  limit: z.int().min(1).max(50).optional(),
+});
 
 export const readBody = z.object({ seq: z.int().min(0, "номер не бывает отрицательным") });
 
@@ -286,3 +310,5 @@ export type Tombstone = z.infer<typeof tombstoneView>;
 export type SyncLine = Message | Tombstone;
 export type ChangeEvent = z.infer<typeof changeEvent>;
 export type Person = z.infer<typeof personView>;
+export type SearchHit = z.infer<typeof searchHit>;
+export type SearchPage = z.infer<typeof searchPage>;

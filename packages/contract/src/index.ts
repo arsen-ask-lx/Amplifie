@@ -18,6 +18,7 @@ export {
   type ProjectColor,
   type ProjectIcon,
 } from "./projectLook.js";
+export { searchFold, searchWords } from "./search.js";
 export {
   eventOf,
   framed,

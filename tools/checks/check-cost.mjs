@@ -41,39 +41,18 @@
  * в `make check`: быстрые проверки обязаны оставаться быстрыми.
  */
 import { readFileSync } from "node:fs";
+import { hostDatabaseUrl } from "../load/host-database.mjs";
+import { planRows } from "../load/plan-rows.mjs";
 
-/**
- * Строка подключения СНАРУЖИ контейнера.
- *
- * ⚠️ ТА, ЧТО В `.env`, СЮДА НЕ ГОДИТСЯ. Там адрес внутри сети docker
- * (`postgres:5432`) — им ходят api и мигратор, живущие в контейнерах.
- * Гейт запускается с машины, как приёмочные тесты, и ему нужен
- * опубликованный порт. Собираем строку из тех же кусков `.env`,
- * а не заводим вторую переменную: два ответа на «где база» однажды
- * разойдутся.
- */
-function connectionString() {
-  const env = Object.fromEntries(
-    readFileSync(".env", "utf8")
-      .split(/\r?\n/u)
-      .filter((line) => line && !line.startsWith("#") && line.includes("="))
-      .map((line) => {
-        const at = line.indexOf("=");
-        return [line.slice(0, at).trim(), line.slice(at + 1).trim()];
-      }),
-  );
-  const port = env.POSTGRES_HOST_PORT ?? "5432";
-  return `postgres://${env.POSTGRES_USER}:${env.POSTGRES_PASSWORD}@127.0.0.1:${port}/${env.POSTGRES_DB}`;
-}
-
-const DATABASE_URL = process.env.COST_DATABASE_URL ?? connectionString();
+// Строка подключения снаружи контейнера — одна на все замеры (`host-database.mjs`).
+const DATABASE_URL = process.env.COST_DATABASE_URL ?? hostDatabaseUrl();
 
 // ⚠️ ПЕРЕМЕННАЯ СТАВИТСЯ ДО ЗАГРУЗКИ СЛОЯ БАЗЫ. `platform/db.js` читает
 // её на импорте; статический импорт выполнился бы раньше этой строки.
 process.env.DATABASE_URL = DATABASE_URL;
-const { listConversationsFor, listMessagesNewer, projectCountsFor } = await import(
-  "../../backend/dist/kernel/talk/repo.js"
-);
+const { listConversationsFor, listMessagesNewer, projectCountsFor, searchMessagesPage } =
+  await import("../../backend/dist/kernel/talk/repo.js");
+const { tsqueryOf } = await import("../../backend/dist/kernel/talk/tsquery.js");
 /**
  * ⚠️ ПУЛ БЕРЁТСЯ У САМОГО СЛОЯ БАЗЫ, А НЕ ЗАВОДИТСЯ СВОЙ. Свой означал бы
  * вторую зависимость от драйвера и второй ответ на вопрос «как мы ходим
@@ -96,36 +75,6 @@ const LARGE = 50_000;
  * никакой запас. Храповик крутится только вниз.
  */
 const RATCHET = "tools/ratchets/panel-rows.txt";
-
-/**
- * Сумма прочитанных строк по всему плану.
- *
- * Складываем по каждому узлу выданные строки И ОТБРОШЕННЫЕ фильтром:
- * столько Postgres действительно потрогал, чтобы ответить. Верхнее число
- * одного узла обмануло бы — обход прячется внутри.
- *
- * ⚠️ ОТБРОШЕННЫЕ СЧИТАЮТСЯ, И ЭТО ИСПРАВЛЕНИЕ СЛЕПОТЫ. Первая редакция
- * брала только `Actual Rows`, а это строки ПОСЛЕ фильтра. Обход индекса,
- * который читал пятьдесят тысяч своих реплик и выбрасывал их условием
- * «не свои», выглядел нулём — гейт был зелёным на стенде и покраснел
- * только в чистой базе конвейера, где планировщик выбрал обход таблицы.
- * Числа — на узел за один проход, как и `Actual Rows`; проходов — `Loops`.
- */
-const DISCARDED = [
-  "Rows Removed by Filter",
-  "Rows Removed by Index Recheck",
-  "Rows Removed by Join Filter",
-];
-
-function planRows(node) {
-  const touched = DISCARDED.reduce(
-    (total, key) => total + (node[key] ?? 0),
-    node["Actual Rows"] ?? 0,
-  );
-  const own = touched * (node["Actual Loops"] ?? 1);
-  const children = [...(node.Plans ?? []), ...(node.Subplans ?? [])];
-  return children.reduce((total, one) => total + planRows(one), own);
-}
 
 async function main() {
   const client = await pool.connect();
@@ -177,6 +126,29 @@ async function main() {
        * из начала истории, чтобы на большом объёме «новее» было десятками тысяч.
        */
       { name: "лента вперёд", ...listMessagesNewer(db, cid, 50, 100).toSQL() },
+      /**
+       * Поиск (task-100) — частое и редкое слово: у них разные дешёвые пути
+       * (обход по номеру и выборка из индекса слов), и обход всей переписки
+       * прячется ровно в неверном выборе пути для одного из них.
+       */
+      {
+        name: "поиск частого слова",
+        ...searchMessagesPage(
+          db,
+          { participantId: pid, workspaceId: wid },
+          tsqueryOf(["замер"]),
+          20,
+        ).toSQL(),
+      },
+      {
+        name: "поиск редкого слова",
+        ...searchMessagesPage(
+          db,
+          { participantId: pid, workspaceId: wid },
+          tsqueryOf(["лиственница"]),
+          20,
+        ).toSQL(),
+      },
     ];
 
     /** Досеять переписку до нужного объёма и померить панель. */
@@ -184,7 +156,12 @@ async function main() {
       await client.query(
         `INSERT INTO message (workspace_id, conversation_id, author_participant_id, body,
                               client_msg_id, seq, updated_seq, created_at)
-         SELECT $1, $2, $3, 'замер ' || g, gen_random_uuid(), g, g,
+         SELECT $1, $2, $3,
+                -- Редкое слово — ровно в одной реплике на любом объёме (task-100):
+                -- выборка из индекса слов законно стоит по числу совпадений, и гейт
+                -- стережёт рост от объёма переписки, а не от числа найденного.
+                'замер ' || g || CASE WHEN g = 7 THEN ' лиственница' ELSE '' END,
+                gen_random_uuid(), g, g,
                 now() - (g || ' seconds')::interval
          FROM generate_series($4::int, $5::int) g`,
         [wid, cid, pid, from, to],
@@ -199,6 +176,8 @@ async function main() {
         [cid, pid, to],
       );
       await client.query("ANALYZE message");
+      // Таблицу поиска наполняет триггер; путь поиска выбирается по её статистике.
+      await client.query("ANALYZE message_search");
       const measured = [];
       for (const one of hot) {
         const { rows: plan } = await client.query(
