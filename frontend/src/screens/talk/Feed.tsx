@@ -258,8 +258,10 @@ export function Feed({
       >
         <div className="mt-auto">
           {hasOlder ? (
-            <p className="mb-3 text-center text-aside text-muted" aria-live="polite">
-              Загружаем более раннее…
+            // Пустая строка той же высоты, без слов (task-101): надпись мелькала
+            // над каждым давним окном, а высота нужна, чтобы догрузка не дёргала ленту.
+            <p className="mb-3 text-center text-aside" aria-hidden="true">
+              {" "}
             </p>
           ) : (
             <p className="mb-4 text-center text-aside text-muted">

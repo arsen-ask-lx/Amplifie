@@ -155,9 +155,12 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
    * видел «идентификатор изменился», обнулял ленту и заново её грузил:
    * человек между двумя кадрами видел «Загружаем…» в уже открытом
    * разговоре. Отметка отвечает на вопрос «а это точно другой разговор?»
-   * — и в девяти случаях из десяти отвечает «нет».
+   * — и в девяти случаях из десяти отвечает «нет». ⚠️ Состоянием (task-101):
+   * по нему экран знает «лента чата ещё не пришла» в кадре смены адреса.
    */
-  const shown = useRef<string | null>(null);
+  const [shownId, setShownId] = useState<string | null>(null);
+  const shown = useRef(shownId);
+  shown.current = shownId;
 
   /**
    * Человек внизу ленты — значит можно резать сверху.
@@ -246,7 +249,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
       .then((page) => {
         if (cancelled) return;
 
-        shown.current = currentId;
+        setShownId(currentId);
         /**
          * ⚠️ ОТВЕТ НА ЗАГРУЗКУ ВЛИВАЕТСЯ В ЛЕНТУ, А НЕ ПОДМЕНЯЕТ ЕЁ.
          *
@@ -310,7 +313,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
           return;
         }
         if (feedTroubleOf(error) === "нет-такого") {
-          shown.current = null;
+          setShownId(null);
           navigate("/", { replace: true });
           return;
         }
@@ -358,15 +361,13 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   /**
    * К концу разговора из давнего. Адрес без номера — заменой: «назад» не должен
    * возвращать в давнее, из которого человек только что ушёл.
-   *
    * ⚠️ ОДНА ПРИЧИНА ПЕРЕЗАГРУЗКИ, А НЕ ДВЕ. Попытка применялась сразу, адрес —
    * позже: эффект успевал сработать со СТАРЫМ номером и заново грузил давнее
-   * окно (журнал запросов `jump.spec.ts` П-4.6). Номер в адресе есть — меняется
-   * только адрес; нет — только попытка.
+   * окно (`jump.spec.ts` П-4.6). Номер в адресе — меняется адрес; нет — попытка.
    */
   const toLatest = useCallback(() => {
     if (!currentId) return;
-    shown.current = null;
+    setShownId(null);
     if (wanted === null) setFeedAttempt((n) => n + 1);
     else navigate(`/c/${currentId}`, { replace: true });
   }, [currentId, wanted, navigate]);
@@ -483,7 +484,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     messages: visible,
     hasOlder,
     hasNewer,
-    loading,
+    loading: loading || shownId !== currentId,
     failure,
     trouble,
     focus,

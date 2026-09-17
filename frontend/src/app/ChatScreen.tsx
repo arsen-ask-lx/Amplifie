@@ -102,7 +102,13 @@ export function ChatScreen({
   }, []);
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-bg text-ink">
+    // ⚠️ ОБОЛОЧКА НЕ ПРОКРУЧИВАЕТСЯ НИЧЕМ (task-101), и нужны оба слова.
+    // `relative`: подписи для чтения с экрана (`sr-only`) стоят абсолютно и без
+    // опоры отсчитывались от корня — документ вырастал выше окна (замер на засеве:
+    // 1087 px при 800), страницу крутило колесом. `overflow-clip`, а не `hidden`:
+    // скрытое переполнение прокручивается из кода, и `scrollIntoView` перехода
+    // уводил всю оболочку вместе с шапкой на 253 px (замер в `jump-calm.spec.ts`).
+    <div className="relative flex h-dvh overflow-clip bg-bg text-ink">
       <Rail me={me} chat={chat} open={railOpen} onLeave={onLeave} />
 
       {/* ⚠️ `min-h-0` ЗДЕСЬ И НА ЛЕНТЕ — НЕ УКРАШЕНИЕ. У flex-ребёнка
