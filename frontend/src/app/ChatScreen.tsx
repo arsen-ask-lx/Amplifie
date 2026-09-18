@@ -1,7 +1,8 @@
 import { MagnifyingGlass, Sidebar } from "@phosphor-icons/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Me } from "../data/api.js";
 import { useChat } from "../data/useChat.js";
+import { ChatSearchBar } from "../screens/talk/ChatSearchBar.js";
 import { Room } from "../screens/talk/Room.js";
 import { SearchDialog } from "../screens/talk/SearchDialog.js";
 import { Button } from "../shared/ui/button.js";
@@ -40,11 +41,26 @@ export function ChatScreen({
   onSessionEnded: () => void;
 }) {
   const chat = useChat(me, onSessionEnded);
+  /**
+   * Куда вести взгляд из полосы поиска. Ссылкой: `openAt` меняется
+   * с каждым адресом, а следствие в полосе не должно из-за этого
+   * перезапускаться и прыгать к тому же попаданию второй раз.
+   */
+  const openAtRef = useRef<((seq: number) => void) | null>(null);
+  openAtRef.current = (seq) => chat.openAt(chat.panel.currentId ?? "", seq);
 
   const [railOpen, setRailOpen] = useState(railWasOpen);
-  /** Открыто ли окно поиска по сообщениям (task-100). */
+  /** Открыто ли окно общего поиска по всем чатам (task-100, Ctrl+K). */
   const [searching, setSearching] = useState(false);
   const closeSearch = useCallback(() => setSearching(false), []);
+  /** Открыта ли полоса поиска в этом чате (task-106, лупа и Ctrl+F). */
+  const [findingHere, setFindingHere] = useState(false);
+  const closeHere = useCallback(() => setFindingHere(false), []);
+  const openHere = useCallback((seq: number) => {
+    // Переход к попаданию — тем же адресом, что цитата: второго способа
+    // доехать до реплики не заводим.
+    openAtRef.current?.(seq);
+  }, []);
 
   const toggleRail = useCallback(() => {
     setRailOpen((was) => {
@@ -82,6 +98,23 @@ export function ChatScreen({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleRail]);
+
+  /**
+   * Ctrl+F — поиск в ОТКРЫТОМ чате (task-106), как в Telegram и в браузере.
+   *
+   * ⚠️ ОТБИРАЕМ У БРАУЗЕРА, И ЭТО ОСОЗНАННО. Родной поиск браузера ищет
+   * по видимому куску ленты — а лента держит окно в 300 реплик, то есть
+   * находит он «сколько повезло». Наш ищет по всему чату на сервере.
+   */
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.code !== "KeyF") return;
+      event.preventDefault();
+      setFindingHere(true);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   /**
    * Ctrl+K — поиск, как в Слаке, Дискорде и VS Code (task-100).
@@ -136,9 +169,9 @@ export function ChatScreen({
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <button
               type="button"
-              onClick={() => setSearching(true)}
-              aria-label="Поиск по сообщениям"
-              title="Поиск по сообщениям (Ctrl+K)"
+              onClick={() => setFindingHere(true)}
+              aria-label="Поиск в этом чате"
+              title="Поиск в этом чате (Ctrl+F) · по всем чатам — Ctrl+K"
               className="grid size-9 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
             >
               <MagnifyingGlass className="size-[18px]" />
@@ -146,6 +179,10 @@ export function ChatScreen({
             <ThemePicker />
           </div>
         </header>
+
+        {findingHere && chat.panel.currentId ? (
+          <ChatSearchBar room={chat.panel.currentId} onOpen={openHere} onClose={closeHere} />
+        ) : null}
 
         {/* Две строки, а не одна (task-096): беда живых обновлений гаснет
             сама и не должна стирать отказ загрузки вместе с «Повторить». */}

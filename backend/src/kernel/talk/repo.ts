@@ -619,6 +619,7 @@ export function searchMessagesPage(
   query: SQL,
   limit: number,
   before?: number,
+  conversationId?: string,
 ) {
   return selectMessages(tx, { conversationTitle: conversation.title })
     .innerJoin(messageSearch, eq(messageSearch.messageId, message.id))
@@ -631,10 +632,51 @@ export function searchMessagesPage(
         isNull(conversation.deletedAt),
         visibleTo(viewer.participantId),
         before === undefined ? undefined : lt(messageSearch.seq, before),
+        /**
+         * Поиск в одном чате (task-106). Фильтр стоит по таблице ПОИСКА,
+         * а не по сообщению: индекс `(conversation_id, seq)` лежит на ней,
+         * и без него частое слово в маленьком чате читало 11 704 буфера
+         * вместо 24 (замер 18.09 на 200 тыс. реплик).
+         */
+        conversationId === undefined ? undefined : eq(messageSearch.conversationId, conversationId),
       ),
     )
     .orderBy(desc(messageSearch.seq))
     .limit(limit + 1);
+}
+
+/**
+ * Сколько всего попаданий в одном чате — для счётчика «3 из 17» (task-106).
+ *
+ * ⚠️ С ПОТОЛКОМ, А НЕ ЦЕЛИКОМ. Считать все попадания частого слова — это
+ * прочитать их все: на замере подсчёт с потолком 1000 стоил 447 буферов,
+ * без потолка он растёт вместе с чатом. Выше потолка счётчик говорит «1000+».
+ */
+export async function countMatchesIn(
+  tx: Executor,
+  viewer: { participantId: string; workspaceId: string },
+  query: SQL,
+  conversationId: string,
+  cap: number,
+): Promise<number> {
+  const capped = tx
+    .select({ one: sql`1` })
+    .from(messageSearch)
+    .innerJoin(message, eq(message.id, messageSearch.messageId))
+    .innerJoin(conversation, eq(conversation.id, message.conversationId))
+    .where(
+      and(
+        eq(messageSearch.workspaceId, viewer.workspaceId),
+        eq(messageSearch.conversationId, conversationId),
+        sql`${messageSearch.doc} @@ (${query})`,
+        isNull(message.deletedAt),
+        isNull(conversation.deletedAt),
+        visibleTo(viewer.participantId),
+      ),
+    )
+    .limit(cap);
+  const rows = await tx.select({ total: sql<number>`count(*)::int` }).from(capped.as("found"));
+  return rows[0]?.total ?? 0;
 }
 
 /**

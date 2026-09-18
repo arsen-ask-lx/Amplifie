@@ -31,10 +31,18 @@ import { hostDatabaseUrl } from "./host-database.mjs";
 /** Имя базы замера: разные словари — разные базы, прежний засев не трогаем. */
 const DATABASE = process.env.SEARCH_DATABASE ?? "amplifie_search";
 const MESSAGES = Number(process.env.MESSAGES ?? 1_000_000);
-const PEOPLE = 5_000;
-const OPEN = 3_000;
-const CLOSED = 500;
-const THREADS = 300;
+/**
+ * Сколько людей и чатов. Числа задаются снаружи ради второго замера —
+ * поиска ВНУТРИ одного чата (task-106): там нужна база, где реплики
+ * лежат не поровну по трём тысячам чатов, а горой в одном.
+ *
+ * ⚠️ ЗАКРЫТЫХ ЧАТОВ ВСЕГДА ХОТЯ БЫ ОДИН: три реплики из десяти уходят
+ * в закрытый по номеру, и на пустом списке засев упал бы на `NULL`.
+ */
+const PEOPLE = Number(process.env.PEOPLE ?? 5_000);
+const OPEN = Number(process.env.OPEN ?? 3_000);
+const CLOSED = Math.max(1, Number(process.env.CLOSED ?? 500));
+const THREADS = Number(process.env.THREADS ?? 300);
 /** Участников закрытого чата. */
 const CLOSED_MEMBERS = 20;
 /** Разных тел реплик: пул, из которого реплики берут текст. */
@@ -308,12 +316,14 @@ async function people(client) {
      select w.id, 'channel', 'Закрытый ' || g, 'private' from workspace w, generate_series(1, $1) g`,
     [CLOSED],
   );
-  await client.query(
-    `insert into conversation (workspace_id, kind, title, parent_id)
-     select c.workspace_id, 'thread', 'Ветка ' || c.title, c.id
-     from (select * from conversation where visibility = 'workspace' order by title limit $1) c`,
-    [THREADS],
-  );
+  if (THREADS > 0) {
+    await client.query(
+      `insert into conversation (workspace_id, kind, title, parent_id)
+       select c.workspace_id, 'thread', 'Ветка ' || c.title, c.id
+       from (select * from conversation where visibility = 'workspace' order by title limit $1) c`,
+      [THREADS],
+    );
+  }
   /**
    * Членство закрытых. Человек 1 — в 200 закрытых, человек 2 — ни в одном:
    * это два крайних зрителя замера. Остальные места — по кругу.

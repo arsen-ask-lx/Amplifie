@@ -112,6 +112,32 @@ async function main() {
       [cid, pid, wid],
     );
     /**
+     * Маленький чат рядом с большим (task-106): поиск ВНУТРИ него — тот
+     * случай, где обход по номеру пространства читает чужую переписку
+     * целиком. Замер 18.09 на 200 тыс. реплик: 11 704 буфера без индекса
+     * `(conversation_id, seq)` против 24 с ним.
+     */
+    const { rows: small } = await client.query(
+      `INSERT INTO conversation (workspace_id, kind, title) VALUES ($1, 'channel', 'Маленький')
+       RETURNING id`,
+      [wid],
+    );
+    const smallCid = small[0].id;
+    await client.query(
+      `INSERT INTO conversation_member (conversation_id, participant_id, workspace_id, role)
+       VALUES ($1, $2, $3, 'owner')`,
+      [smallCid, pid, wid],
+    );
+    await client.query(
+      `INSERT INTO message (workspace_id, conversation_id, author_participant_id, body,
+                            client_msg_id, seq, updated_seq, created_at)
+       SELECT $1, $2, $3, 'замер в маленьком чате ' || g, gen_random_uuid(),
+              900000 + g, 900000 + g, now()
+       FROM generate_series(1, 3) g`,
+      [wid, smallCid, pid],
+    );
+
+    /**
      * Горячих запросов панели два, и мерить надо оба (task-064): старый
      * полный список ещё кормит ленту и догон, а сводный ответ считает
      * непрочитанное по каждому проекту. Обход переписки в любом из них
@@ -138,6 +164,22 @@ async function main() {
           { participantId: pid, workspaceId: wid },
           tsqueryOf(["замер"]),
           20,
+        ).toSQL(),
+      },
+      {
+        /**
+         * Поиск частого слова В МАЛЕНЬКОМ ЧАТЕ (task-106). Без индекса
+         * по чату план идёт по номеру пространства назад и отбрасывает
+         * чужие чаты — то есть читает всю переписку, чтобы найти три строки.
+         */
+        name: "поиск в маленьком чате",
+        ...searchMessagesPage(
+          db,
+          { participantId: pid, workspaceId: wid },
+          tsqueryOf(["замер"]),
+          20,
+          undefined,
+          smallCid,
         ).toSQL(),
       },
       {

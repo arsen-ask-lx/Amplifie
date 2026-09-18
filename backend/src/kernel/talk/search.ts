@@ -1,4 +1,4 @@
-import { searchWords } from "@amplifie/contract";
+import { SEARCH_TOTAL_CAP, searchWords } from "@amplifie/contract";
 import { db } from "../../platform/db.js";
 import type { Viewer } from "./access.js";
 import * as repo from "./repo.js";
@@ -19,17 +19,41 @@ import { tsqueryOf } from "./tsquery.js";
  * Слов нет (пусто, одни однобуквенные) — пустая выдача без запроса к базе:
  * искать нечего, а запрос по всему словарю дорог.
  */
-export async function searchMessages(viewer: Viewer, q: string, limit: number, before?: number) {
+export async function searchMessages(
+  viewer: Viewer,
+  q: string,
+  limit: number,
+  before?: number,
+  conversationId?: string,
+) {
   const words = searchWords(q);
-  if (words.length === 0) return { items: [], next: null };
-  const rows = await repo.searchMessagesPage(db, viewer, tsqueryOf(words), limit, before);
+  const inRoom = conversationId !== undefined;
+  // Искать нечего: пустая выдача без запроса к базе. Число всего при этом
+  // ноль, а не «неизвестно»: попаданий и правда ноль.
+  if (words.length === 0)
+    return inRoom ? { items: [], next: null, total: 0 } : { items: [], next: null };
+
+  const query = tsqueryOf(words);
+  const rows = await repo.searchMessagesPage(db, viewer, query, limit, before, conversationId);
   const page = rows.slice(0, limit);
   const last = page.at(-1);
-  return {
+  const found = {
     items: page.map((row) => ({
       ...presentMessage(row),
       conversationTitle: row.conversationTitle,
     })),
     next: rows.length > limit && last ? Number(last.seq) : null,
   };
+  if (!inRoom) return found;
+
+  /**
+   * ⚠️ ЧИСЛО ВСЕГО СЧИТАЕТСЯ ТОЛЬКО ДЛЯ ЧАТА, И ТОЛЬКО ПЕРВОЙ СТРАНИЦЫ.
+   * Счётчик «3 из 17» не меняется, пока человек ходит стрелками; повторный
+   * подсчёт на каждой странице стоил бы того же, что сама страница.
+   */
+  const total =
+    before === undefined
+      ? await repo.countMatchesIn(db, viewer, query, conversationId, SEARCH_TOTAL_CAP)
+      : undefined;
+  return total === undefined ? found : { ...found, total };
 }

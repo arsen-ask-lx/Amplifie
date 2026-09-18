@@ -20,7 +20,7 @@ export {
   PROJECT_PRESETS,
   type ProjectIcon,
 } from "./projectLook.js";
-export { searchFold, searchWords } from "./search.js";
+export { SEARCH_TOTAL_CAP, searchFold, searchWords } from "./search.js";
 export {
   eventOf,
   framed,

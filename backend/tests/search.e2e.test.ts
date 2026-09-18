@@ -29,6 +29,8 @@ interface Found {
 interface Page {
   items: Found[];
   next: number | null;
+  /** Сколько всего попаданий — только для поиска в одном чате (task-106). */
+  total?: number;
 }
 
 async function firstChannel(person: Person): Promise<string> {
@@ -185,6 +187,39 @@ describe("поиск по сообщениям", () => {
     expect(((await empty.json()) as Page).items).toEqual([]);
     // Только проверка сессии: к таблице поиска запрос не ходил.
     expect(Number(empty.headers.get("x-db-queries"))).toBeLessThanOrEqual(1);
+  });
+
+  it("task-106 П-1: поиск в одном чате отдаёт только его реплики и число всего", async () => {
+    const owner = await newPerson("Хозяин");
+    const here = await firstChannel(owner);
+    const there = await channel(owner, "Соседний");
+    await say(owner, here, "смета на кровлю");
+    await say(owner, here, "смета на фундамент");
+    await say(owner, there, "смета соседнего чата");
+
+    const inRoom = await search(owner, "смета", { conversationId: here });
+    expect(bodies(inRoom).sort()).toEqual(["смета на кровлю", "смета на фундамент"]);
+    // ⚠️ ЧИСЛО ВСЕГО НУЖНО СЧЁТЧИКУ «3 из 17»: без него полоса поиска
+    // не может сказать, сколько попаданий, не выкачав их все.
+    expect(inRoom.total, "число всего не пришло").toBe(2);
+
+    // Общий поиск не изменился: и число всего он не считает — его никто
+    // не показывает, а лишний запрос стоит буферов.
+    const everywhere = await search(owner, "смета");
+    expect(bodies(everywhere)).toHaveLength(3);
+    expect(everywhere.total).toBeUndefined();
+  });
+
+  it("task-106 П-1: чужой чат по номеру не открывается поиском", async () => {
+    const owner = await newPerson("Хозяин");
+    const guest = await colleague(owner, "Сосед");
+    const closed = await channel(owner, "Закрытый", "private");
+    await say(owner, closed, "смета закрытого чата");
+
+    // Номер чата известен, доступа нет: выдача пуста, а не «не ваш чат».
+    const page = await search(guest, "смета", { conversationId: closed });
+    expect(page.items).toEqual([]);
+    expect(page.total).toBe(0);
   });
 
   it("П-8: найденное — это вид сообщения ленты плюс название чата", async () => {

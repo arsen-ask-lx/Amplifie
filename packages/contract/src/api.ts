@@ -178,10 +178,18 @@ export const pinnedList = z.object({ items: z.array(messageView) });
  */
 export const searchHit = messageView.extend({ conversationTitle: z.string() });
 
-/** Страница поиска. `next` — курсор следующей страницы; `null` — дальше нет. */
+/**
+ * Страница поиска. `next` — курсор следующей страницы; `null` — дальше нет.
+ *
+ * ⚠️ `total` ТОЛЬКО ДЛЯ ПОИСКА В ОДНОМ ЧАТЕ (task-106): его показывает
+ * счётчик «3 из 17» в полосе поиска. У общего окна счётчика нет, и лишний
+ * запрос к базе там не делается. Потолок — `SEARCH_TOTAL_CAP`: считать все
+ * попадания частого слова значит прочитать их все.
+ */
 export const searchPage = z.object({
   items: z.array(searchHit),
   next: z.number().nullable(),
+  total: z.number().optional(),
 });
 
 /** Кого можно позвать (Р-031). */
@@ -241,6 +249,11 @@ export const searchBody = z.object({
   q: z.string().max(200, "запрос длиннее 200 символов"),
   before: z.int().positive().optional(),
   limit: z.int().min(1).max(50).optional(),
+  /**
+   * Искать только в этом чате (task-106). Нет поля — поиск по всем видимым,
+   * как у окна Ctrl+K. Права те же: номер чата без доступа даёт пустую выдачу.
+   */
+  conversationId: id.optional(),
 });
 
 export const readBody = z.object({ seq: z.int().min(0, "номер не бывает отрицательным") });

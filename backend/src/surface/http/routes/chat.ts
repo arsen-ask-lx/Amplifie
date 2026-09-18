@@ -337,8 +337,12 @@ export function registerChatRoutes(scope: FastifyInstance): void {
   });
 
   /**
-   * Поиск по сообщениям всех видимых разговоров (task-100). `POST`, а не `GET`:
-   * текст поиска — переписка людей, и в адресе он попал бы в журналы.
+   * Поиск по сообщениям (task-100). `POST`, а не `GET`: текст поиска —
+   * переписка людей, и в адресе он попал бы в журналы.
+   *
+   * ⚠️ ОДНА ДВЕРЬ НА ОБА ПОИСКА (task-106). `conversationId` в теле — поиск
+   * внутри чата со счётчиком «3 из 17»; без него — по всем видимым чатам,
+   * как окно Ctrl+K. Второй дверью права и слова пришлось бы проверять дважды.
    */
   app.post(
     "/v1/search/messages",
@@ -352,6 +356,7 @@ export function registerChatRoutes(scope: FastifyInstance): void {
         request.body.q,
         request.body.limit ?? DEFAULT_SEARCH_PAGE,
         request.body.before,
+        request.body.conversationId,
       ),
   );
 

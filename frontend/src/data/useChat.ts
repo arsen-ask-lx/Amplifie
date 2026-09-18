@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { feedTroubleOf, screenTroubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message } from "./api.js";
 import { type Local, writtenEdge } from "./feed.js";
-import { FEED_PAGE, pageAround, pageLatest } from "./feedPages.js";
+import { FEED_PAGE, needsPage, pageAround, pageLatest } from "./feedPages.js";
 import { emptyFeed, feedState } from "./feedState.js";
 import { type Focus, useAddress } from "./useAddress.js";
 import { useFeedSync } from "./useFeedSync.js";
@@ -154,8 +154,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
    * `currentId` успевает сходить в пустоту и вернуться. Эффект ниже
    * видел «идентификатор изменился», обнулял ленту и заново её грузил:
    * человек между двумя кадрами видел «Загружаем…» в уже открытом
-   * разговоре. Отметка отвечает на вопрос «а это точно другой разговор?»
-   * — и в девяти случаях из десяти отвечает «нет». ⚠️ Состоянием (task-101):
+   * разговоре. ⚠️ Состоянием (task-101):
    * по нему экран знает «лента чата ещё не пришла» в кадре смены адреса.
    */
   const [shownId, setShownId] = useState<string | null>(null);
@@ -228,9 +227,9 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   // обязан открыть ленту вокруг реплики, а идентификатор при этом не меняется.
   useEffect(() => {
     if (!currentId) return;
-    // Тот же разговор, никуда не ведут и лента в конце — перезагружать нечего.
-    // Не в конце — «назад» и щелчок по чату в панели обязаны показать конец.
-    if (shown.current === currentId && wanted === null && !hasNewerRef.current) return;
+    // Грузить или только вести взгляд — решает одно правило (`needsPage`).
+    const need = { shown: shown.current, currentId, wanted, hasNewer: hasNewerRef.current };
+    if (!needsPage({ ...need, messages: messagesRef.current })) return;
 
     // Попытка — счётчиком: «Повторить» спрашивает заново тем же эффектом.
     void feedAttempt;

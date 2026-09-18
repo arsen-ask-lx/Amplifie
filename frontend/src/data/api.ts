@@ -306,10 +306,22 @@ export const api = {
    * в адресе он попал бы в журналы. `before` — курсор следующей страницы.
    * Не терпит сбой: человек набирает дальше, и новый запрос отменит этот.
    */
-  search: (q: string, options: { before?: number; signal?: AbortSignal } = {}) =>
+  /**
+   * Поиск по сообщениям. `conversationId` — искать только в этом чате
+   * (task-106): тогда ответ несёт ещё и число всех попаданий для счётчика
+   * «3 из 17». Без него — поиск по всем видимым чатам, как окно Ctrl+K.
+   */
+  search: (
+    q: string,
+    options: { before?: number; conversationId?: string; signal?: AbortSignal } = {},
+  ) =>
     request<SearchPage>("/v1/search/messages", {
       method: "POST",
-      body: JSON.stringify({ q, ...(options.before ? { before: options.before } : {}) }),
+      body: JSON.stringify({
+        q,
+        ...(options.before ? { before: options.before } : {}),
+        ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+      }),
       ...(options.signal ? { signal: options.signal } : {}),
     }),
 

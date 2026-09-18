@@ -84,6 +84,12 @@ test("у любого чата одно меню по правой кнопке,
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await expect(row(page, "Объект")).toHaveAttribute("aria-expanded", "true");
 
+  // ⚠️ ЖДЁМ, ПОКА ПАНЕЛЬ ВСТАНЕТ НА МЕСТО. Перенос двигает строку в папку,
+  // а панель следом перечитывается: меню, открытое над едущей строкой,
+  // Radix переставляет, и Playwright не дожидается «устойчивого» пункта.
+  // Поймано миганием в пачке прогонов (task-106, 18.09).
+  await page.waitForLoadState("networkidle");
+
   // В проекте — то же меню, с «Убрать из проекта».
   await row(page, "Смета").click({ button: "right" });
   await expect(page.getByRole("menuitem", { name: "Закрепить" })).toBeVisible();
