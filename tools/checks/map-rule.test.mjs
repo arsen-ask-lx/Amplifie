@@ -16,8 +16,12 @@ const added = (path) => ({ status: "A", path });
 const commit = (changes, message = "feat(что-то): и так далее") => verdict({ changes, message });
 
 describe("что заставляет карту устареть", () => {
+  it("единые англоязычные пути решений и долга", () => {
+    assert.equal(needsMap([changed("dock/decisions.md")]).length, 1);
+    assert.equal(needsMap([changed("dock/debt.md")]).length, 1);
+  });
   it("новое решение", () => {
-    assert.equal(needsMap([added("dock/decisions/026-что-нибудь.md")]).length, 1);
+    assert.equal(needsMap([added("dock/decisions.md")]).length, 1);
   });
 
   it("правка плана задачи — статус задачи живёт в карте", () => {
@@ -25,7 +29,7 @@ describe("что заставляет карту устареть", () => {
   });
 
   it("реестр долга", () => {
-    assert.equal(needsMap([changed("dock/долг.md")]).length, 1);
+    assert.equal(needsMap([changed("dock/debt.md")]).length, 1);
   });
 
   it("миграция", () => {
@@ -57,19 +61,19 @@ describe("что карту не трогает", () => {
   });
 
   it("удаление триггерного файла — карта о нём уже не утверждает", () => {
-    assert.deepEqual(needsMap([{ status: "D", path: "dock/decisions/007-вид.md" }]), []);
+    assert.deepEqual(needsMap([{ status: "D", path: "dock/decisions.md" }]), []);
   });
 });
 
 describe("вердикт", () => {
   it("повод есть, карты нет — красный", () => {
-    const got = commit([added("dock/decisions/026-что-нибудь.md")]);
+    const got = commit([added("dock/decisions.md")]);
     assert.equal(got.ok, false);
     assert.equal(got.triggers.length, 1);
   });
 
   it("повод есть, карта в том же коммите — зелёный", () => {
-    const got = commit([added("dock/decisions/026-что-нибудь.md"), changed(MAP)]);
+    const got = commit([added("dock/decisions.md"), changed(MAP)]);
     assert.equal(got.ok, true);
   });
 
@@ -85,7 +89,7 @@ describe("вердикт", () => {
   });
 
   it("слияние не спрашивают", () => {
-    const got = commit([changed("dock/долг.md")], "Merge branch 'main' into работа");
+    const got = commit([changed("dock/debt.md")], "Merge branch 'main' into работа");
     assert.equal(got.ok, true);
   });
 });
@@ -93,7 +97,7 @@ describe("вердикт", () => {
 describe("отказ с причиной", () => {
   it("названная причина проходит", () => {
     const got = commit(
-      [changed("dock/decisions/007-вид.md")],
+      [changed("dock/decisions.md")],
       "docs(решения): опечатка\n\nкарта: не требуется — поправлена опечатка в тексте",
     );
     assert.equal(got.ok, true);
@@ -104,7 +108,7 @@ describe("отказ с причиной", () => {
   });
 
   it("отказ без причины не проходит", () => {
-    const got = commit([changed("dock/долг.md")], "chore: правка\n\nкарта: не требуется");
+    const got = commit([changed("dock/debt.md")], "chore: правка\n\nкарта: не требуется");
     assert.equal(got.ok, false);
   });
 });

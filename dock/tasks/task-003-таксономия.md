@@ -150,7 +150,7 @@
 ## 7. Границы
 
 - читать: `dock/ai/!AI_main_inst.md`,
-  `dock/решения.md
+  `dock/decisions.md
 - менять: `compose.yml`, `package.json`, `Makefile`, `biome.json`, `.aqk.yml`,
   `dock/README.md`, переносимые файлы (пути внутри них)
 - создать: `tools/` с четырьмя подкаталогами, `apps/api/Dockerfile`,

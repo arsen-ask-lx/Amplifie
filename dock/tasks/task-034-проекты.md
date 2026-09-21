@@ -21,8 +21,8 @@
 
 Почему проект владеет чатами, а не отбирает их правилом, почему он
 не несёт прав и почему область агента пересекается с правами —
-[Р-032](../решения.md). Внешне наблюдаемое поведение —
-[openspec/changes/chat-projects](../../openspec/changes/chat-projects/proposal.md).
+[Р-032](../decisions.md#r-032). Внешне наблюдаемое поведение —
+[openspec/changes/chat-projects](../../openspec/changes/archive/2026-09-10-chat-projects/proposal.md).
 
 ## 2. Что уже есть
 

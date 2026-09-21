@@ -18,8 +18,8 @@
 ровно к тому сообщению, где его позвали. Как в Телеграме.
 
 Почему именно так, а не поиском имени по тексту —
-[Р-031](../решения.md). Внешне наблюдаемое поведение —
-[openspec/changes/chat-mentions](../../openspec/changes/chat-mentions/proposal.md).
+[Р-031](../decisions.md#r-031). Внешне наблюдаемое поведение —
+[openspec/changes/chat-mentions](../../openspec/changes/archive/2026-09-10-chat-mentions/proposal.md).
 
 ## 2. Что уже есть
 

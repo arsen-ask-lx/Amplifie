@@ -212,6 +212,12 @@ format: ## формат + линтер (с исправлением)
 arch: ## архитектурные границы (запреты импортов)
 > npm run arch
 
+docs: ## локальные ссылки документации ведут на файлы и разделы
+> node tools/checks/check-docs.mjs
+
+decisions-check: ## гейт решений читает единый реестр и ловит отсутствие источников
+> node --test tools/checks/decisions.test.mjs
+
 proof: ## критерии успеха в планах названы числами, а не словами
 > node tools/checks/check-proof.mjs
 
@@ -270,7 +276,7 @@ duplicates: ## повторы в прод-коде под храповиком
 # `AQK_PROBE=0` — быстрая проверка остаётся быстрой: подсадку дефектов
 # (минуты) AQK запускает раз в сто коммитов, это делает конвейер.
 gates: ## все проверки из .aqk.yml одним прогоном AQK (без стенда)
-> AQK_PROBE=0 npx --yes agent-quality-kit@0.14.0 doctor --run
+> AQK_PROBE=0 npx --yes agent-quality-kit@0.16.0 doctor --run
 
 arbiter-check: ## проверки самого счётчика согласия (числа посчитаны руками)
 > npm run arbiter:check
@@ -282,35 +288,35 @@ label: ## выпустить лист второй разметки К2 (пра�
 > npm run label
 
 aqk: ## ступень соответствия AQK и что до следующей
-> npx --yes agent-quality-kit@0.14.0 doctor
+> npx --yes agent-quality-kit@0.16.0 doctor
 
 aqk-baseline: ## обязательный минимум проекта по AQK (диагностика)
-> npx --yes agent-quality-kit@0.14.0 doctor --baseline
+> npx --yes agent-quality-kit@0.16.0 doctor --baseline
 
 aqk-vitals: ## подключённость инструментов, хуков и свежесть AQK
-> npx --yes agent-quality-kit@0.14.0 vitals
+> npx --yes agent-quality-kit@0.16.0 vitals
 
 aqk-context: ## компактное состояние репозитория для агента
-> npx --yes agent-quality-kit@0.14.0 context
+> npx --yes agent-quality-kit@0.16.0 context
 
 aqk-report: ## отчёт AQK о последнем диагностическом прогоне
-> npx --yes agent-quality-kit@0.14.0 report
+> npx --yes agent-quality-kit@0.16.0 report
 
 aqk-prompt: ## готовое задание агенту по актуальным находкам AQK
-> npx --yes agent-quality-kit@0.14.0 prompt
+> npx --yes agent-quality-kit@0.16.0 prompt
 
 aqk-learn: ## кандидаты в правила из локальной истории (ничего не пишет)
-> npx --yes agent-quality-kit@0.14.0 learn
+> npx --yes agent-quality-kit@0.16.0 learn
 
 aqk-prove: ## доказать гейты красными и зелёными образцами
-> npx --yes agent-quality-kit@0.14.0 prove
+> npx --yes agent-quality-kit@0.16.0 prove
 
 aqk-probe: ## найти классы брака, которые не ловят текущие гейты
-> npx --yes agent-quality-kit@0.14.0 probe
+> npx --yes agent-quality-kit@0.16.0 probe
 
 aqk-why: ## объяснить одну рекомендацию AQK (AQK_RULE=<имя>)
 > @test -n "$(AQK_RULE)" || (echo "нужен AQK_RULE, например: make aqk-why AQK_RULE=ci-not-hijackable" && exit 2)
-> npx --yes agent-quality-kit@0.14.0 why "$(AQK_RULE)"
+> npx --yes agent-quality-kit@0.16.0 why "$(AQK_RULE)"
 
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
@@ -413,4 +419,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch decisions contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
+.PHONY: help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check

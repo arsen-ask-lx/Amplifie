@@ -18,7 +18,7 @@ export interface Viewer {
  * Проверка доступа. Единственная точка, где решается «видно или нет».
  *
  * Право читается у КОРНЯ дерева разговоров: у ветки своих участников нет
- * (dock/06-разбор-мессенджеров.md). Не найдено и не видно — одна и та же
+ * (dock/reference/messaging-research.md). Не найдено и не видно — одна и та же
  * ошибка, чтобы по ответу нельзя было перебрать существующие разговоры.
  */
 export async function requireVisible(tx: Executor, viewer: Viewer, conversationId: string) {

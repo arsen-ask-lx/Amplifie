@@ -139,7 +139,7 @@
 
 ## 7. Границы
 
-- читать: снимки Codex (в чате), `dock/решения.md `033`
+- читать: снимки Codex (в чате), `dock/decisions.md `033`
 - менять: панель и её строки, слой данных панели, `talk`-ядро
 - создать: `backend/migrations/0023_pin.sql`, `backend/src/kernel/talk/pins.ts`
 - **не трогать:** `tmp/field-lab.html`, `frontend/src/shared/theme.ts`,

@@ -125,7 +125,7 @@ const conversationParticipantPair = () => ({
 
 /**
  * Кто в разговоре — только у корня: у ветки своих участников нет, право
- * читается у корня (dock/06-разбор-мессенджеров.md). Стережёт CHECK в миграции.
+ * читается у корня (dock/reference/messaging-research.md). Стережёт CHECK в миграции.
  */
 export const conversationMember = pgTable(
   "conversation_member",

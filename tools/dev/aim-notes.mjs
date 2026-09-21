@@ -21,7 +21,11 @@ const ROUTE = "/__aim";
  * Путь считается от этого файла, а не от рабочего каталога: дев-сервер
  * запускается из `frontend/`, и относительный путь увёл бы замечания туда.
  */
-const NOTES = resolve(fileURLToPath(new URL(".", import.meta.url)), "../..", "dock/замечания.md");
+const NOTES = resolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "../..",
+  "dock/reference/ui-notes.md",
+);
 
 async function readBody(request) {
   const chunks = [];

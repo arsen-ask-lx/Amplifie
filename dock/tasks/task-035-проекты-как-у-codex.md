@@ -23,8 +23,8 @@
 переименовать, закрепить наверх и убрать. Каналы вне проектов остаются
 своим разделом ниже.
 
-Почему проект владеет чатами и не несёт прав — [Р-032](../решения.md).
-Внешне наблюдаемое поведение — [openspec/changes/projects-are-homes](../../openspec/changes/projects-are-homes/proposal.md).
+Почему проект владеет чатами и не несёт прав — [Р-032](../decisions.md#r-032).
+Внешне наблюдаемое поведение — [openspec/changes/projects-are-homes](../../openspec/changes/archive/2026-09-10-projects-are-homes/proposal.md).
 
 ## 2. Что уже есть — и что из этого сносим
 

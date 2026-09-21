@@ -89,7 +89,7 @@ CHECK `task_stage_known` из миграций и сверяет набор со
 ответ того же сервера — ровно так уже работает `useChat.send`. Участники
 читаются один раз: при ходе карты они не меняются.
 
-**⑥ Адреса — React Router 8, объявительный вид** ([Р-019](../решения.md)).
+**⑥ Адреса — React Router 8, объявительный вид** ([Р-019](../decisions.md#r-019)).
 Без загрузчиков: доставка уже идёт звонком и догоном (Р-006), а загрузчик
 был бы вторым путём к тем же данным.
 
@@ -195,11 +195,11 @@ src/shared/    мелкое общее: failure, when, usePolling, Icon, Field, 
 
 ## 7. Границы
 
-- читать: [Р-006](../решения.md),
-  [Р-011](../решения.md),
-  [Р-016](../решения.md),
-  [Р-018](../решения.md),
-  [Р-019](../решения.md)
+- читать: [Р-006](../decisions.md#r-006),
+  [Р-011](../decisions.md#r-011),
+  [Р-016](../decisions.md#r-016),
+  [Р-018](../decisions.md#r-018),
+  [Р-019](../decisions.md#r-019)
 - менять: `frontend/**`, `tools/checks/check-arch.mjs`,
   `tools/dependency-cruiser.cjs`, `kernel/work/service.ts`, `app/working.ts`
 - создать: `packages/contract/*`, `frontend/src/shared/*`,

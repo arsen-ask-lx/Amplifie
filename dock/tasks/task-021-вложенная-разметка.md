@@ -90,7 +90,7 @@ HTML), плашка у Radix есть, но тянуть `@radix-ui/react-toast`
      `Room.tsx`, `RichText.tsx`, `InviteDialog.tsx`, `ModelScreen.tsx`
    - проверка: сценарий интерфейса «скопировал — увидел»
 6. Карта, реестр, статус.
-   - файлы: `dock/README.md`, `dock/долг.md`
+   - файлы: `dock/README.md`, `dock/debt.md`
    - проверка: `make check`
 
 ## 5. Признаки приёмки

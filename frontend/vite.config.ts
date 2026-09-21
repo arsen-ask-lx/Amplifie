@@ -22,10 +22,10 @@ export default defineConfig({
     react(),
     tailwind(),
     // Путь к заметкам — от каталога запуска: дев поднимается из frontend/
-    // (`npm run dev --workspace=@amplifie/frontend`), а копятся они там же,
-    // где копились всегда.
+    // (`npm run dev --workspace=@amplifie/frontend`); журнал локальный,
+    // его новое место — dock/reference/ui-notes.md.
     agentUiKit({
-      file: "../dock/замечания.md",
+      file: "../dock/reference/ui-notes.md",
       // Подсказка по-русски: остальной интерфейс тоже, и английская
       // строка в нём читается как чужая деталь.
       placeholder: "что не так? Enter — записать, Esc — отмена",

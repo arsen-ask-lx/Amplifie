@@ -62,7 +62,7 @@
    - файлы: `frontend/src/data/useRooms.ts`, `useChat.ts`
    - проверка: то же
 3. Карта и реестр.
-   - файлы: `dock/README.md`, `dock/долг.md`
+   - файлы: `dock/README.md`, `dock/debt.md`
    - проверка: `make check`
 
 ## 5. Признаки приёмки
