@@ -1,5 +1,5 @@
-import { expect, type Page, type PlaywrightWorkerArgs, test } from "@playwright/test";
-import { bubbles, createChannel, inviteToken, joinVoice, register } from "./fixtures.js";
+import { expect, test } from "@playwright/test";
+import { chatWithUnread, panelRow, unreadIn } from "./fixtures.js";
 
 /**
  * НЕПРОЧИТАННОЕ КАК В TELEGRAM (task-107). Написан ДО кода и обязан быть
@@ -17,53 +17,10 @@ test.describe.configure({ timeout: 180_000 });
 
 const SENT = 40;
 
-/** Строка чата в панели: у неё же живёт число непрочитанного. */
-function row(page: Page, title: string) {
-  return page.getByRole("button", { name: new RegExp(`^${title}`, "u") });
-}
-
-/** Число непрочитанного в строке панели; `null` — числа нет. */
-async function unread(page: Page, title: string): Promise<number | null> {
-  const text = (await row(page, title).textContent()) ?? "";
-  const found = /непрочитанных:\s*(\d+)/u.exec(text);
-  return found?.[1] === undefined ? null : Number(found[1]);
-}
-
-/** Завести чат, набить его чужими репликами и вернуться в другой чат. */
-async function chatWithUnread(page: Page, playwright: PlaywrightWorkerArgs["playwright"]) {
-  await register(page);
-  await createChannel(page, "Смета");
-  const room = new URL(page.url()).pathname.split("/")[2] ?? "";
-  // Открыт другой чат: в открытом реплики стали бы прочитанными сразу.
-  await createChannel(page, "Другой");
-
-  /**
-   * ⚠️ ДВА ГОЛОСА, А НЕ ОДИН. Порог отправки — тридцать реплик в минуту
-   * на человека (Р-025): сорок от одного упираются в него, и половина
-   * не доходит. Оживлённый чат оживлён числом людей, а не скоростью одного.
-   */
-  const token = await inviteToken(page);
-  for (const [voice, from] of [
-    [1, 1],
-    [2, 1 + SENT / 2],
-  ] as const) {
-    const guest = await joinVoice(playwright.request, token, `Сосед ${voice}`);
-    for (let n = from; n < from + SENT / 2; n += 1) {
-      const said = await guest.post(`/v1/conversations/${room}/messages`, {
-        data: { body: `чужая реплика ${n}`, clientMsgId: crypto.randomUUID() },
-      });
-      expect(said.ok(), `реплика ${n} не ушла`).toBe(true);
-    }
-    await guest.dispose();
-  }
-  await expect.poll(async () => await unread(page, "Смета")).toBe(SENT);
-  return room;
-}
-
 test("чат открывается на первом непрочитанном, а не в конце", async ({ page, playwright }) => {
-  await chatWithUnread(page, playwright);
+  await chatWithUnread(page, playwright.request, "Смета", SENT);
 
-  await row(page, "Смета").click();
+  await panelRow(page, "Смета").click();
 
   // ⚠️ ЧЕРТА НА ЭКРАНЕ, А КОНЕЦ ЧАТА — НЕТ. Иначе человек открывает чат
   // внизу и «читает» то, чего не видел.
@@ -71,11 +28,14 @@ test("чат открывается на первом непрочитанном
   // По номеру, а не по тексту: «реплика 1» — начало и «реплики 10…19».
   await expect(page.locator('article[data-seq="1"]')).toContainText("чужая реплика 1");
   await expect(page.locator('article[data-seq="1"]')).toBeInViewport();
-  await expect(bubbles(page).filter({ hasText: `чужая реплика ${SENT}` })).not.toBeInViewport();
+  // ⚠️ ТОЧНЫЙ ТЕКСТ, А НЕ ПОДСТРОКА. Текст пузыря склеен со временем:
+  // ночью «чужая реплика 4» + «02:51» даёт «…реплика 402:51», и поиск
+  // «реплика 40» находил четвёртую (поймано прогоном в 02:50, 22.09).
+  await expect(page.getByText(`чужая реплика ${SENT}`, { exact: true })).not.toBeInViewport();
 });
 
 test("число убывает по мере чтения, а не гаснет разом", async ({ page, playwright }) => {
-  await chatWithUnread(page, playwright);
+  await chatWithUnread(page, playwright.request, "Смета", SENT);
 
   // Следим за строкой панели: «0» до того, как человек долистал, — это и есть
   // то самое моргание.
@@ -91,14 +51,14 @@ test("число убывает по мере чтения, а не гаснет
     }).observe(document.body, { subtree: true, childList: true, characterData: true });
   });
 
-  await row(page, "Смета").click();
+  await panelRow(page, "Смета").click();
   await expect(page.getByText("Непрочитанные сообщения")).toBeVisible();
 
   // Часть увидена — число меньше исходного, но не ноль.
   await expect
-    .poll(async () => await unread(page, "Смета"), { message: "число не убавилось" })
+    .poll(async () => await unreadIn(page, "Смета"), { message: "число не убавилось" })
     .toBeLessThan(SENT);
-  const afterOpen = await unread(page, "Смета");
+  const afterOpen = await unreadIn(page, "Смета");
   expect(afterOpen, "число погасло целиком при открытии").toBeGreaterThan(0);
 
   /**
@@ -114,7 +74,7 @@ test("число убывает по мере чтения, а не гаснет
         await page.getByRole("log").evaluate((node) => {
           node.scrollTop = node.scrollHeight;
         });
-        return await unread(page, "Смета");
+        return await unreadIn(page, "Смета");
       },
       { timeout: 40_000, message: "число не догасло до конца" },
     )

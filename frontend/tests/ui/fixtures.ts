@@ -475,3 +475,58 @@ export async function seedHistory(page: Page, requests: Requests, count: number)
   await page.reload();
   await expect(bubbles(page).first()).toBeVisible();
 }
+
+/* ── чат с чужим непрочитанным (task-107, общий с task-108) ─────────── */
+
+/** Строка чата в панели: у неё же живёт число непрочитанного. */
+export function panelRow(page: Page, title: string) {
+  return page.getByRole("button", { name: new RegExp(`^${title}`, "u") });
+}
+
+/** Число непрочитанного в строке панели; `null` — числа нет. */
+export async function unreadIn(page: Page, title: string): Promise<number | null> {
+  const text = (await panelRow(page, title).textContent()) ?? "";
+  const found = /непрочитанных:\s*(\d+)/u.exec(text);
+  return found?.[1] === undefined ? null : Number(found[1]);
+}
+
+/**
+ * Завести чат, набить его чужими репликами и вернуться в другой чат.
+ *
+ * ⚠️ НЕПРОЧИТАННОЕ БЫВАЕТ ТОЛЬКО ЧУЖОЕ (Р-029), поэтому пишет второй человек
+ * через свою корзинку печенек, а не вторая вкладка.
+ *
+ * ⚠️ ДВА ГОЛОСА, А НЕ ОДИН. Порог отправки — тридцать реплик в минуту
+ * на человека (Р-025): сорок от одного упираются в него, и половина
+ * не доходит. Оживлённый чат оживлён числом людей, а не скоростью одного.
+ */
+export async function chatWithUnread(
+  page: Page,
+  requests: Requests,
+  title: string,
+  count: number,
+): Promise<string> {
+  await register(page);
+  await createChannel(page, title);
+  const room = new URL(page.url()).pathname.split("/")[2] ?? "";
+  // Открыт другой чат: в открытом реплики стали бы прочитанными сразу.
+  await createChannel(page, "Другой");
+
+  const token = await inviteToken(page);
+  const half = Math.ceil(count / 2);
+  for (const [voice, from] of [
+    [1, 1],
+    [2, 1 + half],
+  ] as const) {
+    const guest = await joinVoice(requests, token, `Сосед ${voice}`);
+    for (let n = from; n < Math.min(from + half, count + 1); n += 1) {
+      const said = await guest.post(`/v1/conversations/${room}/messages`, {
+        data: { body: `чужая реплика ${n}`, clientMsgId: crypto.randomUUID() },
+      });
+      expect(said.ok(), `реплика ${n} не ушла`).toBe(true);
+    }
+    await guest.dispose();
+  }
+  await expect.poll(async () => await unreadIn(page, title)).toBe(count);
+  return room;
+}

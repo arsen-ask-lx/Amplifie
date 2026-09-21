@@ -37,6 +37,27 @@ function isWatching(): boolean {
   return document.visibilityState === "visible" && document.hasFocus();
 }
 
+/**
+ * Ушли из чата — отметка уходит сейчас, а не через окно, иначе число
+ * успевало загореться снова. Экранную отметку ставим в очередь заново:
+ * оборванная сетью иначе не ушла бы никогда (разбор критика 21.09).
+ */
+function leaveChat(marks: ReadMarks, left: string, shown: number | undefined): void {
+  if (shown) marks.seen(left, shown);
+  marks.flush(left);
+}
+
+/** Реплики чатов, чью отметку сервер уже подтвердил, держать больше незачем. */
+function forgetConfirmed(
+  kept: Record<string, Message[]>,
+  rooms: Map<string, Conversation>,
+  shown: Record<string, number>,
+): void {
+  for (const id of Object.keys(kept)) {
+    if ((rooms.get(id)?.readSeq ?? 0) >= (shown[id] ?? 0)) delete kept[id];
+  }
+}
+
 export function useReading({
   rooms,
   currentId,
@@ -53,11 +74,20 @@ export function useReading({
   onRead: (conversationId: string, seq: number, unread: number) => void;
 }): Reading {
   /**
-   * Что мы уже отметили сами. Держим рядом с серверным числом, потому что
-   * счётчик на экране обязан гаснуть СРАЗУ, не дожидаясь ответа: ждать
-   * сервер, чтобы убрать своё же число, — это подвисающий интерфейс.
-   * Так же поступает их клиент.
+   * Докуда человек увидел — для ЭКРАНА. Ставится в момент показа, а не ответом
+   * сервера (task-108): ждать сервер, чтобы убрать своё же число, — это
+   * подвисающий интерфейс. Так же у Telegram (`readInboxTill` ставит число
+   * до запроса).
+   *
+   * ⚠️ ЭКРАН И СЕРВЕР — ДВА РАЗНЫХ ВОПРОСА. Здесь — «что показать»; «что
+   * отправить и когда» решает только `readMarks`, и повтор после отказа сети
+   * живёт там. Решай хук «уже отправлено» по этой отметке — оборванная
+   * отметка терялась бы навсегда (разбор критика 21.09).
+   *
+   * ⚠️ В REF, А КОПИЯ — В STATE. `seen` читает ref, поэтому его ссылка
+   * постоянна, и наблюдатель ленты не пересобирается на каждом шаге прокрутки.
    */
+  const shownRef = useRef<Record<string, number>>({});
   const [readUpTo, setReadUpTo] = useState<Record<string, number>>({});
 
   /** Какой чат открыт сейчас: по смене уходит отложенная отметка прежнего. */
@@ -87,14 +117,8 @@ export function useReading({
   const marks = useRef<ReadMarks | null>(null);
   useEffect(() => {
     const made = readMarks(
-      (conversationId, seq, unread) => {
-        // Число на экране гаснет сразу поправкой; ответ сервера ставит точное.
-        setReadUpTo((prev) => ({
-          ...prev,
-          [conversationId]: Math.max(prev[conversationId] ?? 0, seq),
-        }));
-        onReadRef.current(conversationId, seq, unread);
-      },
+      // Ответ сервера ставит в строку точное число; экран уже сдвинут в `seen`.
+      (conversationId, seq, unread) => onReadRef.current(conversationId, seq, unread),
       {
         send: api.markRead,
         now: Date.now,
@@ -110,11 +134,27 @@ export function useReading({
     };
   }, []);
 
+  /**
+   * Последние реплики каждого чата, где мы были (task-108, разбор критика).
+   *
+   * ⚠️ БЕЗ НИХ ЧИСЛО ПОКИНУТОГО ЧАТА ЗАГОРАЛОСЬ СНОВА. Хук видит ленту только
+   * открытого чата; ушли — поправке не на чем считаться, и строка прыгала
+   * к серверному числу, ещё не знающему отложенной отметки. Правило подсчёта
+   * то же (`readLocally`) — меняется только, по каким репликам оно считает.
+   * Когда сервер подтвердит отметку, `readSeq` строки сдвинется, и эти реплики
+   * сами выпадут из подсчёта: двойного вычитания нет.
+   */
+  const keptRef = useRef<Record<string, Message[]>>({});
   useEffect(() => {
-    if (openRef.current === currentId) return;
-    // Ушли из чата — его отложенная отметка уходит сейчас, а не через окно:
-    // иначе число у покинутого чата успевало загореться снова.
-    if (openRef.current) marks.current?.flush(openRef.current);
+    const id = messages[0]?.conversationId;
+    if (id) keptRef.current[id] = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    const left = openRef.current;
+    if (left === currentId) return;
+    if (left && marks.current) leaveChat(marks.current, left, shownRef.current[left]);
+    forgetConfirmed(keptRef.current, roomsRef.current, shownRef.current);
     openRef.current = currentId;
   }, [currentId]);
 
@@ -130,16 +170,16 @@ export function useReading({
    * Когда именно уйдёт запрос — решает модуль отметок (не чаще раза
    * в три секунды на чат), а не этот хук.
    */
-  const seen = useCallback(
-    (seq: number) => {
-      const id = openRef.current;
-      if (!id || !isWatching()) return;
-      const already = readUpTo[id] ?? roomsRef.current.get(id)?.readSeq ?? 0;
-      if (seq <= already) return;
-      marks.current?.seen(id, seq);
-    },
-    [readUpTo],
-  );
+  const seen = useCallback((seq: number) => {
+    const id = openRef.current;
+    if (!id || !isWatching()) return;
+    if (seq <= (roomsRef.current.get(id)?.readSeq ?? 0)) return;
+    if (seq > (shownRef.current[id] ?? 0)) {
+      shownRef.current = { ...shownRef.current, [id]: seq };
+      setReadUpTo(shownRef.current);
+    }
+    marks.current?.seen(id, seq);
+  }, []);
 
   /**
    * Сколько из посчитанного сервером мы успели прочесть сами.
@@ -155,7 +195,7 @@ export function useReading({
    */
   const readLocally = useCallback(
     (room: Conversation, ourSeq: number, counts: (one: Message) => boolean) =>
-      messages.filter(
+      (room.id === currentId ? messages : (keptRef.current[room.id] ?? [])).filter(
         (one) =>
           one.conversationId === room.id &&
           one.seq > room.readSeq &&
@@ -163,7 +203,7 @@ export function useReading({
           one.author.id !== meId &&
           counts(one),
       ).length,
-    [messages, meId],
+    [messages, meId, currentId],
   );
 
   /**
