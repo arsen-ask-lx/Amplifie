@@ -127,6 +127,7 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
           picking={picked ? { chosen: picked, toggle } : null}
           boundary={chat.boundary}
           onFollow={chat.follow}
+          onSeen={chat.seen}
         />
       )}
       <AgentFailure failure={chat.agentFailure} />

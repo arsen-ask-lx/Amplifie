@@ -166,6 +166,7 @@ export function Feed({
   mentions,
   onGoToMention,
   onFollow,
+  onSeen,
 }: {
   messages: Message[];
   hasOlder: boolean;
@@ -186,20 +187,18 @@ export function Feed({
   /** Идёт выделение. `null` — обычный режим. */
   picking: Picking | null;
   /**
-   * Перед какой репликой стоит черта «Непрочитанные сообщения».
-   * `null` — черты нет. Замирает при открытии разговора (Р-029).
+   * После какого номера черта «Непрочитанные сообщения»; на неё лента
+   * встаёт при открытии (task-107). `null` — черты нет.
    */
   boundary: number | null;
   /** Сколько раз тут позвали тебя и ты этого не видел (Р-031). */
   mentions: number;
   /** Увести к самому раннему неувиденному зову. */
   onGoToMention: () => void;
-  /**
-   * Сказать наружу, внизу ли человек. По этому ответу лента решает,
-   * можно ли вытеснять старое сверху (Р-023): у листающего назад —
-   * нельзя, он читает ровно то, что мы бы выбросили.
-   */
+  /** Внизу ли человек: у листающего назад старое не вытесняется (Р-023). */
   onFollow: (yes: boolean) => void;
+  /** Наибольший номер, увиденный человеком целиком (task-107). */
+  onSeen: (seq: number) => void;
 }) {
   const newest = messages.at(-1)?.seq ?? 0;
   const newestMine = messages.at(-1)?.author.id === meId;
@@ -216,6 +215,8 @@ export function Feed({
     onLoadNewer,
     onToLatest,
     focus,
+    boundary,
+    onSeen,
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: важен сам факт смены
@@ -275,7 +276,7 @@ export function Feed({
               Сколько именно, человек уже прочёл у канала в панели;
               повторять число здесь значит сказать одно и то же дважды. */}
           {afterLine.length > 0 ? (
-            <p className="my-3 flex items-center gap-3 text-mark text-muted">
+            <p data-unread-line className="my-3 flex items-center gap-3 text-mark text-muted">
               <span className="h-px flex-1 bg-line" />
               Непрочитанные сообщения
               <span className="h-px flex-1 bg-line" />

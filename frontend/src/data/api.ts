@@ -213,6 +213,8 @@ export const api = {
       limit?: number;
       before?: number;
       after?: number;
+      /** Открыть ленту на первом непрочитанном (task-107) — считает сервер. */
+      around?: "unread";
       patient?: boolean;
       signal?: AbortSignal;
     } = {},
@@ -220,9 +222,17 @@ export const api = {
     const query = new URLSearchParams();
     if (options.limit) query.set("limit", String(options.limit));
     if (options.before) query.set("before", String(options.before));
+    if (options.around) query.set("around", options.around);
     if (options.after !== undefined) query.set("after", String(options.after));
     const path = `/v1/conversations/${id}/messages${query.size > 0 ? `?${query}` : ""}`;
-    type FeedPage = { items: Message[]; hasMore: boolean; head: number };
+    type FeedPage = {
+      items: Message[];
+      hasMore: boolean;
+      head: number;
+      /** Оба поля приходят только у окна «на непрочитанном» (task-107). */
+      hasNewer?: boolean;
+      readSeq?: number;
+    };
     const patientByDefault = !options.before && options.after === undefined;
     return (options.patient ?? patientByDefault)
       ? patiently<FeedPage>(path, options.signal)

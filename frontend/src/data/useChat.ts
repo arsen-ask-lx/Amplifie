@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { feedTroubleOf, screenTroubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message } from "./api.js";
 import { type Local, writtenEdge } from "./feed.js";
-import { FEED_PAGE, needsPage, pageAround, pageLatest } from "./feedPages.js";
+import { FEED_PAGE, needsPage, pageAround, pageUnread } from "./feedPages.js";
 import { emptyFeed, feedState } from "./feedState.js";
 import { type Focus, useAddress } from "./useAddress.js";
 import { useFeedSync } from "./useFeedSync.js";
@@ -82,9 +82,12 @@ export interface Chat
   panel: Panel;
   /**
    * Перед какой репликой стоит черта «Непрочитанные сообщения»
-   * в открытом разговоре. `null` — черты нет. Замирает при открытии.
+   * в открытом разговоре. `null` — черты нет. Приходит с лентой
+   * и замирает при открытии (task-107).
    */
   boundary: number | null;
+  /** Лента увидела реплики до этого номера — отметка прочтения (task-107). */
+  seen: (seq: number) => void;
   /** Закреплённое этого разговора, свежее сверху. */
   pinned: Message[];
   addChannel: (title: string) => Promise<void>;
@@ -103,7 +106,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
    * или «черновик ушёл», знает `feedState`, а не каждое место отдельно.
    */
   const [feed, dispatch] = useReducer(feedState, emptyFeed);
-  const { messages, pinned, hasOlder, hasNewer } = feed;
+  const { messages, pinned, hasOlder, hasNewer, readSeq } = feed;
   /** Не в конце ли лента — ссылкой, для эффекта загрузки и отметки прочтения. */
   const hasNewerRef = useRef(hasNewer);
   hasNewerRef.current = hasNewer;
@@ -240,9 +243,11 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     setLoading(true);
     setFailure((current) => (current?.of === "панель" ? current : null));
 
+    // Без номера чат открывается на первом непрочитанном (task-107),
+    // с номером — вокруг него (цитата, поиск).
     const load =
       wanted === null
-        ? pageLatest(currentId, stop.signal)
+        ? pageUnread(currentId, stop.signal)
         : pageAround(currentId, wanted, stop.signal);
     load
       .then((page) => {
@@ -277,6 +282,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
           items: page.items,
           hasMore: page.hasOlder,
           hasNewer: page.hasNewer,
+          ...(page.readSeq === undefined ? {} : { readSeq: page.readSeq }),
         });
         /**
          * ⚠️ КУРСОР ДОГОНА — ЭТО ГОЛОВА ПРОСТРАНСТВА, А НЕ НОМЕР ИЗ ЭТОЙ
@@ -434,20 +440,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     [actions.send, toLatest],
   );
 
-  /**
-   * «Человек внизу» для отметки прочтения — только когда лента в конце.
-   * Низ давнего отрезка — не низ разговора: отметка оттуда погасила бы
-   * непрочитанное, которого человек не видел, а номер назад не ходит.
-   */
-  const readingFollow = useMemo(
-    () => ({
-      get current() {
-        return following.current && !hasNewerRef.current;
-      },
-    }),
-    [],
-  );
-
   // Лента открытого разговора — одна на возврат наружу и на подсчёт
   // прочитанного: два разных выражения для одного и того же однажды
   // разошлись бы.
@@ -461,7 +453,6 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     currentId,
     messages: visible,
     meId: me.participant.id,
-    following: readingFollow,
     // ⚠️ СПИСОК БОЛЬШЕ НЕ ПЕРЕЧИТЫВАЕТСЯ ПРИ СМЕНЕ РАЗГОВОРА (task-097).
     // Он чинил число покинутого чата — и не чинил: панель успевала
     // перечитаться раньше, чем уходила отметка. Теперь отметка уходит
@@ -478,7 +469,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     ...actions,
     send,
     panel,
-    boundary: reading.boundary,
+    boundary: readSeq,
+    seen: reading.seen,
     pinned,
     messages: visible,
     hasOlder,

@@ -28,7 +28,7 @@ import {
 import { mentionsOf, unreadOf } from "./unread.js";
 
 /** Хранилище модуля talk: только запросы. Непрочитанное — в `unread.ts`, отдаётся отсюда. */
-export { countUnread, markRead } from "./unread.js";
+export { countUnread, markRead, readStateOf } from "./unread.js";
 
 /** Курсор панели — последнее место в серверном порядке, не номер строки. */
 export interface PanelCursor {

@@ -244,9 +244,12 @@ export async function listMessages(
   viewer: Viewer,
   conversationId: string,
   limit: number,
-  from: { before?: number; after?: number } = {},
+  from: { before?: number; after?: number; around?: "unread" } = {},
 ) {
   await requireVisible(db, viewer, conversationId);
+  // Открыть на первом непрочитанном (task-107): окно вокруг него, как
+  // у перехода по цитате, плюс отметка прочтения для черты.
+  if (from.around === "unread") return await aroundUnread(viewer, conversationId, limit);
   /**
    * Голова пространства — курсор догона для этой ленты (Д-19).
    *
@@ -263,6 +266,40 @@ export async function listMessages(
       ? await repo.listMessages(db, conversationId, limit, from.before)
       : await repo.listMessagesNewer(db, conversationId, limit, from.after);
   return { items: rows.map(presentMessage), hasMore: rows.length === limit, head };
+}
+
+/**
+ * Лента вокруг первой непрочитанной реплики (task-107).
+ *
+ * ⚠️ ОКНО, А НЕ «ВСЁ ПОСЛЕ ОТМЕТКИ». Непрочитанных бывает тысяча, и отдавать
+ * их разом значит платить за то, чего человек не увидит: он читает сверху вниз.
+ * Половина до черты нужна, чтобы было от чего оттолкнуться глазами — та же
+ * форма, что у перехода к реплике (task-099).
+ *
+ * ⚠️ НЕПРОЧИТАННОГО НЕТ — ПОСЛЕДНЯЯ СТРАНИЦА, как раньше. Это обычный случай,
+ * и отдельного вида ответа он не заслуживает.
+ */
+async function aroundUnread(viewer: Viewer, conversationId: string, limit: number) {
+  const head = await repo.currentSeq(db, viewer.workspaceId);
+  const { readSeq, firstUnread } = await repo.readStateOf(db, conversationId, viewer.participantId);
+  if (firstUnread === null) {
+    const rows = await repo.listMessages(db, conversationId, limit);
+    return { items: rows.map(presentMessage), hasMore: rows.length === limit, head, readSeq };
+  }
+  // Половина «до» включает саму реплику, половина «после» — то, что новее:
+  // границы те же, что у окна вокруг номера, поэтому дыры между ними нет.
+  const half = Math.max(1, Math.floor(limit / 2));
+  const [older, newer] = await Promise.all([
+    repo.listMessages(db, conversationId, half, firstUnread + 1),
+    repo.listMessagesNewer(db, conversationId, half, firstUnread),
+  ]);
+  return {
+    items: [...older, ...newer].map(presentMessage),
+    hasMore: older.length === half,
+    hasNewer: newer.length === half,
+    head,
+    readSeq,
+  };
 }
 
 /**

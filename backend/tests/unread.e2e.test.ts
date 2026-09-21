@@ -249,6 +249,56 @@ describe("непрочитанное", () => {
     });
   });
 
+  describe("task-107: лента открывается на первом непрочитанном", () => {
+    it("отдаёт окно вокруг первой непрочитанной и говорит, докуда прочитано", async () => {
+      const owner = await newPerson("Хозяин");
+      const guest = await invite(owner, "Сосед");
+      const channel = await channelOf(owner);
+
+      // Хозяин прочитал первые три, дальше двадцать чужих непрочитанных.
+      for (let n = 1; n <= 3; n += 1) await say(guest, channel.id, `прочитанная ${n}`);
+      const readTo = await say(guest, channel.id, "последняя прочитанная");
+      await markRead(owner, channel.id, readTo);
+      const first = await say(guest, channel.id, "первая непрочитанная");
+      for (let n = 1; n <= 20; n += 1) await say(guest, channel.id, `непрочитанная ${n}`);
+
+      const response = await get(
+        `/v1/conversations/${channel.id}/messages?around=unread&limit=10`,
+        owner,
+      );
+      expect(response.status).toBe(200);
+      const page = (await response.json()) as {
+        items: { seq: number; body: string }[];
+        readSeq: number;
+      };
+
+      // ⚠️ ОКНО ВОКРУГ ПЕРВОЙ НЕПРОЧИТАННОЙ, А НЕ КОНЕЦ ЧАТА. Иначе человек
+      // открывает чат внизу и «читает» то, чего не видел (жалоба владельца 17.09).
+      expect(page.items.map((one) => one.seq)).toContain(first);
+      expect(
+        page.items.some((one) => one.body === "непрочитанная 20"),
+        "окно доехало до конца чата — это не открытие на непрочитанном",
+      ).toBe(false);
+      // Черта рисуется по этому числу, и оно приходит с лентой: у чата вне
+      // первой порции панели строки с отметкой может ещё не быть (Д-51).
+      expect(page.readSeq, "лента не сказала, докуда прочитано").toBe(readTo);
+    });
+
+    it("непрочитанного нет — последняя страница, как раньше", async () => {
+      const owner = await newPerson("Хозяин");
+      const channel = await channelOf(owner);
+      for (let n = 1; n <= 5; n += 1) await say(owner, channel.id, `своя ${n}`);
+
+      const response = await get(
+        `/v1/conversations/${channel.id}/messages?around=unread&limit=10`,
+        owner,
+      );
+      expect(response.status).toBe(200);
+      const page = (await response.json()) as { items: { body: string }[]; hasMore: boolean };
+      expect(page.items.at(-1)?.body).toBe("своя 5");
+    });
+  });
+
   describe("дверь заперта как остальные", () => {
     it("чужой в разговор не отмечает", async () => {
       const owner = await newPerson("Свой");

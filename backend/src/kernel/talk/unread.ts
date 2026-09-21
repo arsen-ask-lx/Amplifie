@@ -79,6 +79,51 @@ export async function countUnread(
 }
 
 /**
+ * Докуда человек дочитал и какая реплика первая непрочитанная (task-107).
+ *
+ * ⚠️ ДВА ЧИСЛА ОДНИМ ЗАПРОСОМ, И ОБА НУЖНЫ ЛЕНТЕ. По первому она рисует
+ * черту, вокруг второго открывает окно. Отметки может не быть вовсе —
+ * тогда ноль: «не читал ничего», и первой непрочитанной будет самая ранняя
+ * чужая реплика.
+ *
+ * ⚠️ ПЕРВАЯ НЕПРОЧИТАННАЯ — ЧУЖАЯ. Своя непрочитанной не бывает (Р-029),
+ * и открывать чат на собственной реплике значило бы врать чертой.
+ *
+ * Цена: 7 буферов на базе в 200 тыс. реплик — обе половины идут по индексу
+ * `(conversation_id, seq)` (замер 18.09).
+ */
+export async function readStateOf(
+  tx: Executor,
+  conversationId: string,
+  participantId: string,
+): Promise<{ readSeq: number; firstUnread: number | null }> {
+  const rows = await tx
+    .select({
+      readSeq: sql<number>`COALESCE((
+        SELECT ${conversationRead.readSeq} FROM ${conversationRead}
+        WHERE ${conversationRead.conversationId} = ${conversationId}
+          AND ${conversationRead.participantId} = ${participantId}
+      ), 0)::int`,
+      firstUnread: sql<number | null>`(
+        SELECT ${message.seq} FROM ${message}
+        WHERE ${message.conversationId} = ${conversationId}
+          AND ${unseenBy(conversationId, participantId)}
+        ORDER BY ${message.seq}
+        LIMIT 1
+      )::int`,
+    })
+    .from(conversation)
+    .where(eq(conversation.id, conversationId))
+    .limit(1);
+  const row = rows[0];
+  return {
+    readSeq: Number(row?.readSeq ?? 0),
+    firstUnread:
+      row?.firstUnread === null || row?.firstUnread === undefined ? null : Number(row.firstUnread),
+  };
+}
+
+/**
  * Сколько раз в разговоре позвали этого человека и он этого не видел.
  * Своего «прочитано» у зова нет: он неувиден, пока не увидена реплика.
  */

@@ -23,9 +23,24 @@ export interface FeedState {
    * до живого конца, и живое в него вливается.
    */
   hasNewer: boolean;
+  /**
+   * Докуда человек дочитал этот чат — из ответа ленты (task-107).
+   * `null` — лента открыта не «на непрочитанном» (переход по цитате,
+   * поиск, догрузка): черту в этом случае рисовать не по чему.
+   *
+   * ⚠️ ЗАМИРАЕТ НА ОТКРЫТИИ, и это весь смысл черты: она отвечает
+   * на вопрос «докуда я дочитал», а не «что нового прямо сейчас».
+   */
+  readSeq: number | null;
 }
 
-export const emptyFeed: FeedState = { messages: [], pinned: [], hasOlder: false, hasNewer: false };
+export const emptyFeed: FeedState = {
+  messages: [],
+  pinned: [],
+  hasOlder: false,
+  hasNewer: false,
+  readSeq: null,
+};
 
 const edgesOf = (state: FeedState): Edges => ({ older: state.hasOlder, newer: state.hasNewer });
 
@@ -40,6 +55,8 @@ export type FeedCommand =
       items: Message[];
       hasMore: boolean;
       hasNewer?: boolean;
+      /** Докуда прочитано — только у окна «на непрочитанном» (task-107). */
+      readSeq?: number;
     }
   /** Пришли строки догона или события. `keep` — окно ленты, если человек внизу. */
   | { type: "arrived"; lines: SyncLine[]; openId: string | null; keep?: number | undefined }
@@ -78,6 +95,7 @@ export function feedState(state: FeedState, command: FeedCommand): FeedState {
         messages: joins ? merge(own, command.items) : command.items,
         hasOlder: command.hasMore,
         hasNewer,
+        readSeq: command.readSeq ?? null,
       };
     }
     case "arrived":

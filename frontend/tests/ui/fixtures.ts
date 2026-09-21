@@ -455,6 +455,23 @@ export async function seedHistory(page: Page, requests: Requests, count: number)
     await oneVoice(requests, room, token, sent + 1, Math.min(PER_REQUEST, count - sent));
   }
 
+  /**
+   * ⚠️ ИСТОРИЯ ЗАСЕЯНА ПРОЧИТАННОЙ (task-107). Чат с непрочитанным теперь
+   * открывается на черте, как в Telegram, а не в конце. Здесь засеяна
+   * давняя переписка, которую человек уже прочёл: иначе после перезагрузки
+   * он стоял бы у первой засеянной реплики, а не в конце разговора.
+   */
+  await page.evaluate(async (room) => {
+    const page = await fetch(`/v1/conversations/${room}/messages`, { credentials: "include" });
+    const { items } = (await page.json()) as { items: { seq: number }[] };
+    await fetch(`/v1/conversations/${room}/read`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ seq: items.at(-1)?.seq ?? 0 }),
+    });
+  }, room);
+
   await page.reload();
   await expect(bubbles(page).first()).toBeVisible();
 }

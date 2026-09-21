@@ -166,6 +166,14 @@ export const messagesPage = z.object({
   hasMore: z.boolean(),
   /** Голова пространства — начальный курсор догона (Д-19). */
   head: z.number(),
+  /**
+   * Докуда человек дочитал этот чат (task-107). Приходит с окном, открытым
+   * «на непрочитанном»: черту рисует лента, а не строка панели — у чата вне
+   * первой порции панели строки может ещё не быть (Д-51).
+   */
+  readSeq: z.number().optional(),
+  /** Есть ли за верхним краем окна более новые реплики (task-099, task-107). */
+  hasNewer: z.boolean().optional(),
 });
 
 export const pinnedList = z.object({ items: z.array(messageView) });
@@ -308,9 +316,19 @@ export const pageQuery = z
     limit: z.string().optional(),
     before: z.string().optional(),
     after: z.string().optional(),
+    /**
+     * Куда открыть ленту (task-107). `unread` — окно вокруг первой
+     * непрочитанной реплики; нет непрочитанного — последняя страница,
+     * как и раньше. Считает сервер: иначе открытие чата стоило бы лишнего
+     * круга «спроси отметку, потом ленту», а правило жило бы дважды.
+     */
+    around: z.literal("unread").optional(),
   })
   .refine((query) => query.before === undefined || query.after === undefined, {
     message: "страница ленты идёт либо назад (before), либо вперёд (after)",
+  })
+  .refine((query) => query.around === undefined || (!query.before && !query.after), {
+    message: "«вокруг непрочитанного» не сочетается с курсором страницы",
   });
 export const cursorQuery = z.object({ cursor: z.string().optional() });
 

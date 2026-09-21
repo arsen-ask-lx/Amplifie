@@ -30,6 +30,56 @@ function loadEdge(busy: { current: boolean }, load: () => void | Promise<void>):
   });
 }
 
+/**
+ * Встать при первом показе на нужную реплику. `false` — такой на экране нет,
+ * значит лента открывается в конце, как раньше.
+ */
+function openedAt(node: HTMLDivElement, boundary: number | null): boolean {
+  if (boundary === null) return false;
+  /**
+   * ⚠️ ВСТАЁМ НА ЧЕРТУ, А НЕ НА ПЕРВУЮ НЕПРОЧИТАННУЮ. Черта стоит НАД ней,
+   * и, прицелившись в реплику, мы уводили черту за верхний край: человек
+   * видел непрочитанное, но не видел, откуда оно начинается (замер 18.09).
+   * Нет черты (её прячет `splitAtLine`, когда граница старше загруженного) —
+   * целимся в саму реплику.
+   */
+  const line = node.querySelector<HTMLElement>("[data-unread-line]");
+  const target =
+    line ??
+    [...node.querySelectorAll<HTMLElement>("[data-seq]")].find(
+      (one) => Number(one.getAttribute("data-seq")) > boundary,
+    );
+  if (!target) return false;
+  node.scrollTop = Math.max(0, target.offsetTop - node.offsetTop - 12);
+  return true;
+}
+
+/**
+ * Наибольший номер, который человек видел ЦЕЛИКОМ (task-107).
+ *
+ * ⚠️ НАБЛЮДАТЕЛЬ, А НЕ ОБРАБОТЧИК ПРОКРУТКИ. Обработчик считал бы размеры
+ * на каждый пиксель движения; наблюдатель будит нас ровно тогда, когда
+ * реплика показалась целиком. Половина реплики под краем экрана
+ * прочитанной не считается — порог 1.
+ */
+function watchSeen(node: HTMLDivElement, onSeen: (seq: number) => void): () => void {
+  if (typeof IntersectionObserver === "undefined") return () => undefined;
+  let top = 0;
+  const watch = new IntersectionObserver(
+    (entries) => {
+      const shown = entries
+        .filter((one) => one.isIntersecting)
+        .map((one) => Number(one.target.getAttribute("data-seq")))
+        .filter((seq) => Number.isInteger(seq));
+      top = Math.max(top, ...shown);
+      if (top > 0) onSeen(top);
+    },
+    { root: node, threshold: 1 },
+  );
+  for (const one of node.querySelectorAll("[data-seq]")) watch.observe(one);
+  return () => watch.disconnect();
+}
+
 export interface FeedScroll {
   box: RefObject<HTMLDivElement | null>;
   /** Лента в конце. Нужно только кнопке «вниз». */
@@ -48,6 +98,8 @@ export function useFeedScroll({
   onLoadNewer,
   onToLatest,
   focus,
+  boundary,
+  onSeen,
 }: {
   /** Номер самой свежей реплики — по его смене лента едет вниз. */
   newest: number;
@@ -77,6 +129,13 @@ export function useFeedScroll({
   onLoadNewer: () => void | Promise<void>;
   onToLatest: () => void;
   focus: Focus | null;
+  /**
+   * Последний прочитанный номер (task-107): при первом показе лента встаёт
+   * на черту за ним. `null` — в конец, как раньше.
+   */
+  boundary: number | null;
+  /** Наибольший номер, который человек и правда видел на экране. */
+  onSeen: (seq: number) => void;
 }): FeedScroll {
   const box = useRef<HTMLDivElement>(null);
 
@@ -115,9 +174,25 @@ export function useFeedScroll({
    * Так открывается чат в Телеграме, и это правильно: разговор читают
    * с конца, а начало — это то, куда листают намеренно.
    */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: только первый показ
   useLayoutEffect(() => {
     const node = box.current;
-    if (node) node.scrollTop = node.scrollHeight;
+    if (!node) return;
+    /**
+     * ⚠️ НА ПЕРВОЕ НЕПРОЧИТАННОЕ, ЕСЛИ ОНО ЕСТЬ (task-107). Телеграм при
+     * открытии чата встаёт на полосу непрочитанного, а не в конец
+     * (`countInitialScrollTop`), и владелец просил ровно это. Без номера —
+     * как раньше, в конец: разговор читают с конца.
+     *
+     * ⚠️ БЕЗ ВСПЫШКИ. Подсветка — ответ на переход по цитате или поиску,
+     * то есть на действие человека над репликой. Открытие чата им не является.
+     */
+    if (openedAt(node, boundary)) {
+      stuckToBottom.current = false;
+      setAtBottom(false);
+      return;
+    }
+    node.scrollTop = node.scrollHeight;
   }, []);
 
   /**
@@ -191,6 +266,20 @@ export function useFeedScroll({
     });
     return () => cancelAnimationFrame(frame);
   }, [newest, newestMine]);
+
+  /**
+   * Что человек и правда видел (task-107): пересобираем наблюдателя
+   * на каждую пришедшую страницу — узлы реплик новые.
+   *
+   * ⚠️ ОТМЕТКУ ШЛЁМ НЕ ОТСЮДА. Здесь только «видел до номера»; когда и что
+   * сказать серверу, решает `useReading` и модуль окон (не чаще раза
+   * в три секунды на чат).
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: число реплик — сигнал «узлы сменились»
+  useEffect(() => {
+    const node = box.current;
+    return node ? watchSeen(node, onSeen) : undefined;
+  }, [count, onSeen]);
 
   /**
    * Переход по цитате: довести до реплики и отметить её.

@@ -225,6 +225,8 @@ export function registerChatRoutes(scope: FastifyInstance): void {
       return listMessages(actorOf(request), request.params.id, pageSize(request.query.limit), {
         ...(before > 0 ? { before } : {}),
         ...(after === undefined ? {} : { after }),
+        // Открыть чат на первом непрочитанном (task-107).
+        ...(request.query.around === undefined ? {} : { around: request.query.around }),
       });
     },
   );

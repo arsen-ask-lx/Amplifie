@@ -42,6 +42,11 @@ export function needsPage(input: {
 /** Страница ленты вместе с тем, что за её краями. */
 export interface FeedWindow {
   items: Message[];
+  /**
+   * Докуда человек дочитал этот чат (task-107). Есть только у окна, открытого
+   * «на непрочитанном»: по нему лента ставит черту и знает, куда встать.
+   */
+  readSeq?: number;
   /** Есть ли старше нижнего края. */
   hasOlder: boolean;
   /** Есть ли новее верхнего края; `false` — страница доходит до конца. */
@@ -85,4 +90,26 @@ export async function pageAround(
 export async function pageLatest(conversationId: string, signal: AbortSignal): Promise<FeedWindow> {
   const page = await api.messages(conversationId, { limit: FEED_PAGE, signal });
   return { items: page.items, hasOlder: page.hasMore, hasNewer: false, head: page.head };
+}
+
+/**
+ * Лента так, как её открывает человек: на первом непрочитанном (task-107).
+ *
+ * ⚠️ РЕШАЕТ СЕРВЕР, А НЕ КЛИЕНТ. Клиенту пришлось бы сперва спросить отметку
+ * прочтения, потом ленту — лишний круг на каждое открытие чата, — и правило
+ * «первое непрочитанное» жило бы в двух местах. Непрочитанного нет — ответ
+ * тот же, что у `pageLatest`.
+ *
+ * `readSeq` приходит вместе со страницей: черту рисует лента, а не строка
+ * панели, которой у чата вне первой порции может ещё не быть (Д-51).
+ */
+export async function pageUnread(conversationId: string, signal: AbortSignal): Promise<FeedWindow> {
+  const page = await api.messages(conversationId, { limit: FEED_PAGE, around: "unread", signal });
+  return {
+    items: page.items,
+    hasOlder: page.hasMore,
+    hasNewer: page.hasNewer ?? false,
+    head: page.head,
+    ...(page.readSeq === undefined ? {} : { readSeq: page.readSeq }),
+  };
 }
