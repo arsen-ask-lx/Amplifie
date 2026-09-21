@@ -78,7 +78,29 @@ function sedReads(tokens) {
   return paths.flatMap((path) => sedRanges(script ?? "").map((range) => ({ path, range })));
 }
 
-const READERS = { cat: catReads, head: headReads, sed: sedReads };
+/** Сколько строк просит PowerShell: `-TotalCount N`, `-First N`, `-Head N`. */
+function psCount(tokens) {
+  const at = tokens.findIndex((one) => /^-(?:TotalCount|First|Head)$/iu.test(one));
+  return at < 0 ? null : Number(tokens[at + 1]);
+}
+
+/**
+ * `Get-Content файл` — целиком; с `-TotalCount N` или `| Select-Object -First N` —
+ * начало; `-Tail` и прочий конвейер — хвост или обработка, не чтение подряд.
+ * PowerShell здесь — вторая оболочка агента (разбор критика 21.09: 98 вызовов).
+ */
+function getContentReads(tokens, stages) {
+  if (tokens.some((one) => /^-Tail$/iu.test(one))) return [];
+  const paths = tokens
+    .slice(1)
+    .filter((one, n, all) => !one.startsWith("-") && !/^-/u.test(all[n - 1] ?? ""));
+  const next = words(stages[1] ?? "");
+  const count = psCount(tokens) ?? (/^Select-Object$/iu.test(next[0] ?? "") ? psCount(next) : null);
+  if (stages.length > 1 && count === null) return [];
+  return paths.map((path) => ({ path, range: count === null ? "all" : [1, count] }));
+}
+
+const READERS = { cat: catReads, head: headReads, sed: sedReads, "Get-Content": getContentReads };
 
 /**
  * Что открыла одна команда оболочки: `[{ path, range }]`, где `range` —
@@ -109,7 +131,7 @@ function* ownRecords(records, until) {
 
 /** Просьба автора: команда оболочки или правка файла. */
 function callEvent(block, at) {
-  if (block.name === "Bash")
+  if (block.name === "Bash" || block.name === "PowerShell")
     return { kind: "shell", command: String(block.input?.command ?? ""), at };
   if (block.name === "Edit" || block.name === "Write") {
     return { kind: "edit", path: String(block.input?.file_path ?? ""), at };
@@ -129,16 +151,25 @@ function readEvent(file, at) {
   };
 }
 
-/** Одно событие из блока записи — или null. */
+/**
+ * Одно событие из блока записи — или null.
+ *
+ * ⚠️ ОБРЕЗАННЫЙ ВЫВОД — НЕ ЧТЕНИЕ (разбор критика 21.09). Вывод команды
+ * длиннее порога Claude Code обрезает до превью, и `cat` большого файла
+ * показывает начало, а не файл. Признак `truncated` ставит запуск, разбирая
+ * ответ; здесь он помечает уже заведённое событие команды.
+ */
 function eventOf(block, record, asked) {
   const at = timeOf(record);
   if (block.type === "tool_use") {
-    asked.set(block.id, block);
-    return callEvent(block, at);
+    const event = callEvent(block, at);
+    asked.set(block.id, { name: block.name, event });
+    return event;
   }
+  const call = asked.get(block.tool_use_id);
+  if (block.type === "tool_result" && block.truncated && call?.event) call.event.truncated = true;
   const file = record.toolUseResult?.file;
-  const wasRead = asked.get(block.tool_use_id)?.name === "Read";
-  return block.type === "tool_result" && file && wasRead ? readEvent(file, at) : null;
+  return block.type === "tool_result" && file && call?.name === "Read" ? readEvent(file, at) : null;
 }
 
 /**
@@ -210,16 +241,20 @@ export function coverageOf(events, linesOf, root = "Amplifie") {
       // Агент сам поменял файл: прочитанное до правки описывает другой текст.
       const path = normPath(event.path, root);
       if (seen.has(path)) seen.set(path, { ...seen.get(path), ranges: [] });
-      continue;
+    } else {
+      for (const one of readsOf(event)) {
+        noteRead(seen, normPath(one.path, root), { ...one, at: event.at }, linesOf);
+      }
     }
-    const reads =
-      event.kind === "read"
-        ? [{ path: event.path, range: event.range, total: event.total }]
-        : shellReads(event.command).map((one) => ({ ...one, total: null }));
-    for (const one of reads)
-      noteRead(seen, normPath(one.path, root), { ...one, at: event.at }, linesOf);
   }
   return seen;
+}
+
+/** Что открыло событие: чтение инструментом или команда, чей вывод дошёл целиком. */
+function readsOf(event) {
+  if (event.truncated) return [];
+  if (event.kind === "read") return [{ path: event.path, range: event.range, total: event.total }];
+  return shellReads(event.command).map((one) => ({ ...one, total: null }));
 }
 
 /** Похоже ли слово в обратных кавычках на имя файла, а не функции. */
@@ -250,18 +285,23 @@ export function claimsIn(plan) {
   return [...new Set([...tableClaims(plan), ...oldClaims(plan)])].map((file) => ({ file }));
 }
 
-/** Запись файла плана с заявлением о прочитанном. */
+/**
+ * Запись файла плана, которая САМА заявляет прочитанное: строка таблицы
+ * «целиком» или абзац «Прочитано целиком:». Слово «прочитано» в любой другой
+ * правке момент не сдвигает — иначе поздняя правка задним числом оправдывала
+ * бы заявление (разбор критика 21.09).
+ */
 function isClaim(block, planName) {
   if (block.type !== "tool_use" || !["Write", "Edit"].includes(block.name)) return false;
   const path = String(block.input?.file_path ?? "");
   const text = String(block.input?.content ?? block.input?.new_string ?? "");
-  return path.includes(planName) && /рочитано/u.test(text);
+  return path.includes(planName) && claimsIn(text).length > 0;
 }
 
 /**
- * Когда план сделал заявление: последняя запись файла плана, в тексте
- * которой есть «прочитано». Сверять надо с тем, что было открыто к этой
- * минуте, — прочитанное позже заявление задним числом не оправдывает.
+ * Когда план сделал заявление: последняя запись файла плана с заявлением.
+ * Сверять надо с тем, что было открыто к этой минуте, — прочитанное позже
+ * заявление задним числом не оправдывает.
  */
 export function claimTime(records, planName) {
   let when = null;
@@ -345,4 +385,27 @@ function judge(file, coverage) {
  */
 export function verdict(claims, coverage) {
   return claims.map(({ file }) => judge(file, coverage));
+}
+
+/** Вызов критика по этому плану: агент `plan-critic` или его инструкция в задании. */
+function isCritic(block, planName) {
+  if (block.type !== "tool_use" || block.name !== "Agent") return false;
+  const prompt = String(block.input?.prompt ?? "");
+  const critic = block.input?.subagent_type === "plan-critic" || prompt.includes("plan-critic");
+  return critic && prompt.includes(planName);
+}
+
+/**
+ * Звали ли критика по этому плану после заявления.
+ *
+ * ⚠️ ГЕЙТ ПЛАНА ПРОВЕРЯЕТ ФОРМУ, А ЭТО — ФАКТ (разбор критика 21.09). Строку
+ * «Замечаний нет» автор может написать сам, не зовя никого; в конвейере это
+ * не отличить. Отличить можно только по записи сессии — здесь.
+ */
+export function criticRan(records, planName, since) {
+  for (const record of ownRecords(records, null)) {
+    if (since !== null && timeOf(record) < since) continue;
+    if ((record.message?.content ?? []).some((block) => isCritic(block, planName))) return true;
+  }
+  return false;
 }

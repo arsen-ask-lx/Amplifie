@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
-import { claimsIn, claimTime, coverageOf, readsFrom, verdict } from "./trace-rules.mjs";
+import { claimsIn, claimTime, coverageOf, criticRan, readsFrom, verdict } from "./trace-rules.mjs";
 
 const TASKS = "dock/tasks";
 
@@ -89,7 +89,7 @@ async function records(path) {
         content: content.map((one) =>
           one.type === "tool_use"
             ? { type: one.type, id: one.id, name: one.name, input: one.input }
-            : { type: one.type, tool_use_id: one.tool_use_id },
+            : { type: one.type, tool_use_id: one.tool_use_id, truncated: truncated(one) },
         ),
       },
       ...(file ? { toolUseResult: { file: { ...file, content: undefined } } } : {}),
@@ -98,6 +98,13 @@ async function records(path) {
   if (broken > 0) console.log(`строк записи не разобрано: ${broken}`);
   return kept;
 }
+
+/**
+ * Claude Code обрезал вывод команды до превью: полный вывод сохранён в файл,
+ * а агент увидел только начало (разбор критика 21.09).
+ */
+const truncated = (block) =>
+  /Output too large|persisted-output/u.test(JSON.stringify(block.content ?? ""));
 
 /** Сколько строк в файле репозитория сейчас — для команд оболочки. */
 function linesOf(path) {
@@ -115,16 +122,25 @@ const planFile = planPath(plan);
 const session = process.env.SESSION ?? latestSession();
 const all = await records(session);
 const until = claimTime(all, plan);
+/**
+ * ⚠️ БЕЗ МОМЕНТА ЗАЯВЛЕНИЯ ОТВЕТА НЕТ (разбор критика 21.09). Самой свежей
+ * бывает чужая запись — рядом работает второй агент, — и сверка по ней
+ * засчитала бы автору чужие чтения и ответила зелёным.
+ */
+if (until === null) {
+  fail(
+    `в записи ${basename(session)} план ${plan} не писался — сверять не с чем.\n` +
+      "  ПОЧИНИТЬ: укажи запись, где план писался: SESSION=путь/к/сессии.jsonl",
+  );
+}
 const claims = claimsIn(readFileSync(planFile, "utf8"));
-const since = until === null ? null : until - FRESH_HOURS * 3_600_000;
+const since = until - FRESH_HOURS * 3_600_000;
 const rows = verdict(claims, coverageOf(readsFrom(all, until, since), linesOf));
 
 console.log(`план: ${planFile}`);
 console.log(`запись: ${basename(session)} — событий с инструментами ${all.length}`);
 console.log(
-  until === null
-    ? "время заявления не найдено: план писался не в этой сессии — сверяется со всей записью"
-    : `сверка с тем, что было открыто за ${FRESH_HOURS} ч до ${new Date(until).toISOString()}`,
+  `сверка с тем, что было открыто за ${FRESH_HOURS} ч до ${new Date(until).toISOString()}`,
 );
 console.log("");
 /** Сколько часов прошло от последнего чтения до заявления — давнее видно сразу. */
@@ -141,6 +157,11 @@ for (const row of rows) {
   );
 }
 
+const critic = criticRan(all, plan, until);
+console.log(
+  `\n${critic ? "✔" : "✘"} критика plan-critic по этому плану ${critic ? "звали" : "не звали"}`,
+);
+
 const wrong = rows.filter((one) => one.status !== "целиком");
 console.log(`\nзаявлено целиком ${rows.length}, подтверждено ${rows.length - wrong.length}`);
 if (rows.length === 0) {
@@ -151,6 +172,14 @@ if (wrong.length > 0) {
     "\nЗАЯВЛЕНО, НО НЕ СДЕЛАНО.\n" +
       "  ПОЧИНИТЬ: прочитай эти файлы целиком — или честно пометь в таблице\n" +
       "  «Прочитано» как «фрагмент (строки)». Пересказ подагента чтением не считается.",
+  );
+  process.exit(1);
+}
+if (!critic) {
+  console.error(
+    "\nКРИТИКА НЕ БЫЛО.\n" +
+      "  ПОЧИНИТЬ: позови агента plan-critic с номером плана — строка «Замечаний нет»,\n" +
+      "  написанная автором, разбора не заменяет.",
   );
   process.exit(1);
 }

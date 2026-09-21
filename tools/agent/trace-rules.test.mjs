@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { claimsIn, claimTime, coverageOf, readsFrom, verdict } from "./trace-rules.mjs";
+import { claimsIn, claimTime, coverageOf, criticRan, readsFrom, verdict } from "./trace-rules.mjs";
 
 let clock = 0;
 const at = () => new Date(Date.UTC(2026, 8, 21, 12, 0, clock++)).toISOString();
@@ -294,5 +294,103 @@ describe("когда прочитано", () => {
       coverageOf(events, linesOf),
     );
     assert.equal(typeof rows[0].lastAt, "number");
+  });
+});
+
+/*
+ * Дыры, найденные первым разбором критика (task-109, 21.09). Каждая —
+ * подсаженным случаем: гейт, который ни разу не краснел на своей дыре,
+ * неотличим от гейта без неё.
+ */
+
+/** Команда оболочки, чей вывод Claude Code обрезал до превью. */
+function truncatedBash(command) {
+  const [asked, answered] = bash(command);
+  answered.message.content[0].truncated = true;
+  return [asked, answered];
+}
+
+describe("разбор критика: обрезанный вывод", () => {
+  it("cat, чей вывод обрезан до превью, — не чтение целиком", () => {
+    const events = readsFrom(truncatedBash("cat frontend/src/data/readMarks.ts"));
+    const rows = verdict(
+      claimsIn("| `readMarks.ts` | 180 | целиком |"),
+      coverageOf(events, linesOf),
+    );
+    assert.equal(rows[0].status, "не открыт");
+  });
+});
+
+describe("разбор критика: PowerShell", () => {
+  it("Get-Content файла — целиком", () => {
+    const records = call(
+      "PowerShell",
+      { command: "Get-Content frontend/src/data/readMarks.ts" },
+      {},
+    );
+    const rows = verdict(
+      claimsIn("| `readMarks.ts` | 180 | целиком |"),
+      coverageOf(readsFrom(records), linesOf),
+    );
+    assert.equal(rows[0].status, "целиком");
+  });
+
+  it("Get-Content -TotalCount 50 — начало", () => {
+    const records = call(
+      "PowerShell",
+      { command: "Get-Content frontend/src/data/readMarks.ts -TotalCount 50" },
+      {},
+    );
+    assert.deepEqual([...coverageOf(readsFrom(records), linesOf).values()][0].ranges, [[1, 50]]);
+  });
+});
+
+describe("разбор критика: момент заявления", () => {
+  it("правка плана со словом «прочитано», но без строк «целиком», момент не сдвигает", () => {
+    const records = [
+      ...write("E:/Amplifie/dock/tasks/task-900-x.md", "| `a.ts` | 10 | целиком |"),
+      ...call(
+        "Edit",
+        { file_path: "E:/Amplifie/dock/tasks/task-900-x.md", new_string: "всё прочитано, спасибо" },
+        {},
+      ),
+    ];
+    const claimed = claimTime(records, "task-900");
+    assert.equal(claimed, Date.parse(records[0].timestamp));
+  });
+
+  it("правка, дописавшая строку «целиком» без слова «прочитано», — это заявление", () => {
+    const records = [
+      ...write("E:/Amplifie/dock/tasks/task-900-x.md", "# план"),
+      ...call(
+        "Edit",
+        {
+          file_path: "E:/Amplifie/dock/tasks/task-900-x.md",
+          new_string: "| `b.ts` | 5 | целиком |",
+        },
+        {},
+      ),
+    ];
+    assert.equal(claimTime(records, "task-900"), Date.parse(records[2].timestamp));
+  });
+});
+
+describe("разбор критика: был ли критик", () => {
+  const plan = write("E:/Amplifie/dock/tasks/task-900-x.md", "| `a.ts` | 10 | целиком |");
+  const critic = (prompt) => call("Agent", { subagent_type: "plan-critic", prompt }, {});
+
+  it("критик позван после заявления и по этому плану — был", () => {
+    const records = [...plan, ...critic("Разбери план task-900")];
+    assert.equal(criticRan(records, "task-900", claimTime(records, "task-900")), true);
+  });
+
+  it("критика не звали — строка «Замечаний нет» его не заменит", () => {
+    const records = [...plan];
+    assert.equal(criticRan(records, "task-900", claimTime(records, "task-900")), false);
+  });
+
+  it("критик по другому плану — не в счёт", () => {
+    const records = [...plan, ...critic("Разбери план task-901")];
+    assert.equal(criticRan(records, "task-900", claimTime(records, "task-900")), false);
   });
 });

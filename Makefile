@@ -277,6 +277,10 @@ trace-audit: ## план заявил «прочитано целиком» — 
 trace-check: ## проверки правил сверки плана с делом (подсаженные нарушения)
 > node --test tools/agent/trace-rules.test.mjs
 
+plan-review: ## план с task-109 не одобрен без «Прочитано», «Варианты» и «Разбор критика»
+> node --test tools/checks/plan-review-rule.test.mjs
+> node tools/checks/check-plan-review.mjs
+
 # ⚠️ ВСЕ ОБЪЯВЛЕННЫЕ ПРОВЕРКИ — ОДНИМ ПРОГОНОМ AQK, ПО СПИСКУ ИЗ .aqk.yml.
 # Прежде тут стояла своя обёртка (tools/checks/run-gates.mjs), а `make check`
 # перечислял проверки вторым списком — и списки разошлись: `rhythm` был
@@ -430,4 +434,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: trace-audit trace-check help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
+.PHONY: trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
