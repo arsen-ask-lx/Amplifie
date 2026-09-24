@@ -17,6 +17,33 @@ function row(page: Page, title: string) {
   return page.getByRole("button", { name: new RegExp(`^${title}`, "u") });
 }
 
+/**
+ * Строка панели встала на место: две подряд одинаковые координаты.
+ *
+ * ⚠️ ЗДЕСЬ БЫЛ `waitForLoadState("networkidle")`, И ОН НЕ НАСТУПАЕТ НИКОГДА
+ * (Д-54). Живые обновления держат `/v1/stream` открытым всё время жизни
+ * вкладки, а «сеть затихла» для Playwright значит «ни одного запроса
+ * в полёте полсекунды». Незавершающийся запрос ровно один — и его хватает.
+ * Ожидание молча выедало полный срок сценария и красило его на исправном
+ * коде; в трёх полных прогонах подряд оно стоило по две минуты каждый.
+ *
+ * Ждём то, ради чего ожидание и ставилось: строка перестала ехать.
+ */
+async function settled(page: Page, title: string): Promise<void> {
+  let previous = Number.NaN;
+  await expect
+    .poll(
+      async () => {
+        const at = Math.round((await row(page, title).boundingBox())?.y ?? Number.NaN);
+        const same = Number.isFinite(at) && at === previous;
+        previous = at;
+        return same;
+      },
+      { message: `строка «${title}» не встала на место` },
+    )
+    .toBe(true);
+}
+
 /** Завести проект запросом: здесь проверяется меню, а не окно заводки. */
 async function project(page: Page, title: string): Promise<string> {
   const made = await page.evaluate(async (name) => {
@@ -88,7 +115,7 @@ test("у любого чата одно меню по правой кнопке,
   // а панель следом перечитывается: меню, открытое над едущей строкой,
   // Radix переставляет, и Playwright не дожидается «устойчивого» пункта.
   // Поймано миганием в пачке прогонов (task-106, 18.09).
-  await page.waitForLoadState("networkidle");
+  await settled(page, "Смета");
 
   // В проекте — то же меню, с «Убрать из проекта».
   await row(page, "Смета").click({ button: "right" });
