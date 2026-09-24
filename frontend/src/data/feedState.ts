@@ -1,5 +1,5 @@
 import type { Message, SyncLine } from "./api.js";
-import { type Edges, inside, type Local, merge, mergePinned, ofRoom } from "./feed.js";
+import { type Edges, inside, merge, mergePinned, ofRoom } from "./feed.js";
 
 /**
  * Что происходит с лентой — одна чистая функция (task-098, Д-10).
@@ -12,8 +12,12 @@ import { type Edges, inside, type Local, merge, mergePinned, ofRoom } from "./fe
  */
 
 export interface FeedState {
-  /** Реплики, в том числе черновики этой вкладки. */
-  messages: Local[];
+  /**
+   * Записанные реплики. Неотправленное живёт в очереди вкладки и ложится
+   * поверх при показе (`sendQueue`, task-111): лента теряет чужие чаты
+   * при каждой загрузке, а черновик терять нельзя.
+   */
+  messages: Message[];
   /** Закреплённое открытого разговора, свежее сверху. */
   pinned: Message[];
   hasOlder: boolean;
@@ -64,11 +68,10 @@ export type FeedCommand =
   | { type: "older"; items: Message[]; hasMore: boolean }
   /** Долистали вперёд, к живому концу (task-099). */
   | { type: "newer"; items: Message[]; hasMore: boolean }
-  /** Своя запись вернулась ответом (пересылка в открытый разговор). */
+  /** Своя запись вернулась ответом: отправка из очереди, пересылка в открытый разговор. */
   | { type: "added"; items: Message[] }
-  | { type: "drafted"; draft: Local }
-  | { type: "sent"; clientMsgId: string; message: Message }
-  | { type: "notSent"; clientMsgId: string }
+  /** Своя реплика ушла в очередь (task-111). */
+  | { type: "sending" }
   | { type: "pinMarked"; messageId: string; pinnedAt: string | null }
   | { type: "edited"; message: Message }
   | { type: "removed"; messageId: string }
@@ -135,29 +138,12 @@ export function feedState(state: FeedState, command: FeedCommand): FeedState {
 /** Команды о своих действиях над репликами. */
 function ownChange(state: FeedState, command: FeedCommand): FeedState {
   switch (command.type) {
-    case "drafted":
-      // Своя отправка из давнего уводит в конец, как у Телеграма: лента —
-      // только черновик, а конец привезёт загрузка, которую зовёт хук.
-      if (state.hasNewer) {
-        return { ...state, messages: [command.draft], hasOlder: true, hasNewer: false };
-      }
-      return { ...state, messages: [...state.messages, command.draft] };
-    case "sent": {
-      // Черновик заменяется настоящей записью: держать обе — однажды показать обе.
-      // Лента не в конце записанную за край не принимает (task-099).
-      const rest = state.messages.filter((one) => one.id !== command.clientMsgId);
-      return {
-        ...state,
-        messages: merge(rest, inside(rest, [command.message], edgesOf(state))),
-      };
-    }
-    case "notSent":
-      return {
-        ...state,
-        messages: state.messages.map((one) =>
-          one.id === command.clientMsgId ? { ...one, state: "не ушло" } : one,
-        ),
-      };
+    case "sending":
+      // Своя отправка из давнего уводит в конец, как у Телеграма: лента пуста
+      // до загрузки конца, которую зовёт хук, а черновик кладёт поверх очередь.
+      // В конце ленте меняться не из-за чего — та же ссылка, без перерисовки.
+      if (!state.hasNewer) return state;
+      return { ...state, messages: [], hasOlder: true, hasNewer: false };
     case "pinMarked":
       return {
         ...state,

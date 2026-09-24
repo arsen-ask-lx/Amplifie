@@ -1,3 +1,4 @@
+import { retryAfterMs } from "@amplifie/contract";
 import type {
   ChangeEvent,
   Conversation,
@@ -75,7 +76,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 204) return undefined as T;
 
   const body = await response.json().catch(() => ({ error: "bad_response" }));
-  if (!response.ok) throw new ApiError(response.status, body as FieldErrors);
+  if (!response.ok) {
+    // Срок сервера — тем же разбором, что у потока (`retryAfterMs`): второй
+    // разборщик однажды понял бы «Retry-After» иначе (task-111).
+    const wait = retryAfterMs(response.headers.get("retry-after"), Date.now());
+    throw new ApiError(response.status, body as FieldErrors, wait);
+  }
   return body as T;
 }
 
@@ -242,16 +248,19 @@ export const api = {
   /**
    * Отправка. `clientMsgId` рождается в момент набора и не меняется при
    * повторе: сервер по нему узнаёт то же самое сообщение и не заводит второе.
+   * `signal` — предел попытки: зависший ответ не держит очередь (task-111).
    */
   send: (
     id: string,
     body: string,
     clientMsgId: string,
     links: { replyToId?: string; forwardedFromId?: string } = {},
+    signal?: AbortSignal,
   ) =>
     request<Message>(`/v1/conversations/${id}/messages`, {
       method: "POST",
       body: JSON.stringify({ body, clientMsgId, ...links }),
+      ...(signal ? { signal } : {}),
     }),
 
   /** Закреплённое разговора. Отдельной дверью: полоска нужна с первого кадра. */

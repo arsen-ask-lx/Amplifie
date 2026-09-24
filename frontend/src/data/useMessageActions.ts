@@ -1,8 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { troubleOf } from "../shared/trouble.js";
 import { api, type Me, type Message, type Quote } from "./api.js";
-import { type Local, maxSeq } from "./feed.js";
 import type { FeedCommand } from "./feedState.js";
+import { type Outgoing, sendQueue } from "./sendQueue.js";
 
 /**
  * Что человек делает с репликами: отправить, ответить, поправить, удалить,
@@ -31,7 +31,13 @@ function agentTrouble(error: unknown): string {
 }
 
 export interface MessageActions {
-  send: (body: string, clientMsgId: string, scope?: "conversation" | "project") => Promise<void>;
+  send: (body: string, clientMsgId: string, scope?: "conversation" | "project") => void;
+  /** Все «не ушедшие» — ещё раз, тем же ключом и в порядке набора (task-111). */
+  retry: () => void;
+  /** Не отправлять реплику, которая ещё ждёт (task-111). */
+  cancel: (message: Message) => void;
+  /** Неотправленное этой вкладки — лента кладёт его поверх записанного. */
+  outgoing: readonly Outgoing[];
   /** Почему агент не ответил. Показывается один раз и не как его реплика. */
   agentFailure: string | null;
   /** На что отвечаем прямо сейчас. Строка над полем ввода. */
@@ -47,15 +53,23 @@ export function useMessageActions({
   currentId,
   me,
   dispatch,
-  messagesRef,
+  onSessionEnded,
 }: {
   currentId: string | null | undefined;
   me: Me;
   dispatch: (command: FeedCommand) => void;
-  /** Лента на сейчас — для номера черновика, без перерисовки на каждое её изменение. */
-  messagesRef: { current: Local[] };
+  /** Сервер не узнал сессию на отправке — решает приложение, как и на потоке. */
+  onSessionEnded: () => void;
 }): MessageActions {
-  const [agentFailure, setAgentFailure] = useState<string | null>(null);
+  /**
+   * Почему агент не ответил — и в каком чате. Очередь зовёт агента, когда
+   * реплика записана, а это бывает через минуту и в другом открытом чате:
+   * чужой отказ под этой лентой был бы враньём про этот разговор.
+   */
+  const [agentFailure, setAgentFailure] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
   /** На что сейчас отвечаем. `null` — обычная отправка. */
   const [replying, setReplying] = useState<Quote | null>(null);
 
@@ -63,104 +77,82 @@ export function useMessageActions({
   // на каждый выбор цитаты, а вместе с ним — обработчик поля ввода.
   const replyingRef = useRef<Quote | null>(null);
   replyingRef.current = replying;
+  // Слушатель очереди живёт дольше смены чата — открытый читает по ссылке.
+  const currentIdRef = useRef(currentId);
+  currentIdRef.current = currentId;
+  const sessionEnded = useRef(onSessionEnded);
+  sessionEnded.current = onSessionEnded;
+
+  const outgoing = useSyncExternalStore(sendQueue.subscribe, sendQueue.current);
+
+  /**
+   * Записанное вливается в ленту, отказ агента встаёт строкой над полем.
+   * Подписка живёт, пока открыт экран чата; очередь — дольше: ушёл
+   * в настройки — реплики уходят без экрана, а по возвращении лента
+   * привезёт их с сервера.
+   *
+   * ⚠️ В ЛЕНТУ — ТОЛЬКО ЗАПИСЬ ОТКРЫТОГО ЧАТА. Хвост чата A, записанный,
+   * пока открыт B, лёг бы в ленту B и сдвинул её края: запись A приедет
+   * со страницей A.
+   *
+   * Ответ агента НЕ вклеиваем руками: он приедет тем же путём, что и чужие
+   * сообщения, — звонком и догоном через /v1/sync.
+   */
+  useEffect(
+    () =>
+      sendQueue.listen({
+        delivered: (item, message) => {
+          if (item.conversationId === currentIdRef.current) {
+            dispatch({ type: "added", items: [message] });
+          }
+          setAgentFailure(null);
+        },
+        agentFailed: (item, error) =>
+          setAgentFailure({ conversationId: item.conversationId, text: agentTrouble(error) }),
+        sessionEnded: () => sessionEnded.current(),
+      }),
+    [dispatch],
+  );
 
   const send = useCallback(
-    async (
-      body: string,
-      clientMsgId: string,
-      scope: "conversation" | "project" = "conversation",
-    ) => {
+    (body: string, clientMsgId: string, scope: "conversation" | "project" = "conversation") => {
       if (!currentId) return;
 
       /**
-       * ⚠️ РЕПЛИКА ПОЯВЛЯЕТСЯ ДО ОТВЕТА СЕРВЕРА, И ЭТО НЕ УКРАШЕНИЕ.
-       * Раньше поле ввода ждало ответа, а неудачу показывало полосой над
-       * собой — «Сообщение не ушло». Так не делает ни один мессенджер,
-       * и не зря: полоса говорит о СОБЫТИИ, а сломалось КОНКРЕТНОЕ
-       * сообщение, и человеку нужно видеть какое. В Телеграме реплика
-       * встаёт в ленту сразу с часиками, а неудача помечается на ней же.
-       *
-       * Номер на пол-деления больше последнего: место в ленте занимается
-       * сразу, а настоящий номер приедет с сервера. Дробь безопасна —
-       * сортировка числовая, а курсор догона берётся не отсюда.
+       * ⚠️ ЦИТАТА — МОМЕНТА НАБОРА, И СТРОКА ОТВЕТА ГАСНЕТ СРАЗУ (task-111).
+       * Раньше цитата читалась после ответа сервера, а строка гасла только
+       * после успеха. Пока ответ шёл миллисекунды, разницы не было; в очереди
+       * реплика ждёт до минуты, и следующая унесла бы чужую цитату.
        */
-      const draft: Local = {
-        // ⚠️ ИМЯ ЧЕРНОВИКА — ЕГО СОБСТВЕННЫЙ КЛЮЧ, и настоящий `id`
-        // приедет с сервера позже. Оба поля заполнены сразу, поэтому
-        // опознать реплику можно с первой миллисекунды.
-        id: clientMsgId,
+      const replyTo = replyingRef.current;
+      setReplying(null);
+      dispatch({ type: "sending" });
+
+      /**
+       * ⚠️ РЕПЛИКА ПОЯВЛЯЕТСЯ ДО ОТВЕТА СЕРВЕРА, И ЭТО НЕ УКРАШЕНИЕ. В
+       * Телеграме реплика встаёт в ленту сразу с часиками, а неудача
+       * помечается на ней же: сломалось КОНКРЕТНОЕ сообщение, и человеку
+       * нужно видеть какое. Черновик рисует лента из очереди (`withDrafts`).
+       */
+      sendQueue.push({
         clientMsgId,
         conversationId: currentId,
         body,
-        kind: "human",
-        /**
-         * ⚠️ НОМЕР СЧИТАЕТСЯ ПО ЭТОЙ КОМНАТЕ, А НЕ ПО ВСЕЙ ЛЕНТЕ. В
-         * состоянии лежат реплики ВСЕХ комнат сразу (наружу они уходят
-         * отфильтрованными), и общий максимум брался из чужого разговора.
-         * В пустом канале черновик получал номер на сотню больше соседей
-         * и прыгал по ленте, когда приезжал настоящий.
-         */
-        seq: maxSeq(messagesRef.current.filter((one) => one.conversationId === currentId)) + 0.5,
-        createdAt: new Date().toISOString(),
-        editedAt: null,
-        pinnedAt: null,
-        // Цитата в черновике — та же, что человек видит над полем ввода:
-        // строить её заново из ответа сервера значило бы показать сперва
-        // реплику без цитаты, а потом с ней.
-        replyTo: replyingRef.current,
-        forwardedFrom: null,
+        replyTo,
+        scope,
         author: {
           id: me.participant.id,
           name: me.participant.displayName,
           kind: me.participant.kind,
         },
-        state: "идёт",
-      };
-      dispatch({ type: "drafted", draft });
-
-      let sent: Message;
-      try {
-        sent = await api.send(currentId, body, clientMsgId, {
-          ...(replyingRef.current ? { replyToId: replyingRef.current.id } : {}),
-        });
-      } catch {
-        // Помечаем ту самую реплику и уходим. Ключ идемпотентности у неё
-        // прежний, поэтому повтор не задвоит её на сервере.
-        dispatch({ type: "notSent", clientMsgId });
-        return;
-      }
-
-      // Ответ отдан: строка над полем ввода больше не нужна.
-      setReplying(null);
-
-      // Черновик заменяется настоящей записью: у неё свой идентификатор
-      // и настоящий номер. Держать обе — значит однажды показать обе.
-      dispatch({ type: "sent", clientMsgId, message: sent });
-
-      // Зовём агента ВСЕГДА, а решает сервер.
-      //
-      // Почему не проверять обращение здесь: правило «звали ли агента»
-      // должно жить в одном месте, иначе две копии разъедутся. Без
-      // обращения сервер отвечает 204 мгновенно и молча.
-      //
-      // ⚠️ БЕЗ await: `send` обязан завершиться, как только сообщение
-      // записано. Первая редакция ждала здесь ответа модели — и поле ввода
-      // держало набранный текст все пять секунд, будто отправка не прошла.
-      // Найдено живым прогоном, тесты этого видеть не могли.
-      setAgentFailure(null);
-      void (async () => {
-        try {
-          // Ответ агента НЕ вклеиваем руками: он приедет тем же путём, что
-          // и чужие сообщения — звонком и догоном через /v1/sync. Второй
-          // путь доставки разошёлся бы с первым, и разошёлся бы молча.
-          await api.ask(currentId, scope);
-        } catch (error) {
-          setAgentFailure(agentTrouble(error));
-        }
-      })();
+        createdAt: new Date().toISOString(),
+      });
     },
-    [currentId, me, dispatch, messagesRef],
+    [currentId, me, dispatch],
   );
+
+  const retry = useCallback(() => sendQueue.retry(), []);
+  const cancel = useCallback((message: Message) => sendQueue.cancel(message.clientMsgId), []);
 
   /**
    * Взять реплику в ответ или отменить ответ.
@@ -229,5 +221,18 @@ export function useMessageActions({
     [currentId, dispatch],
   );
 
-  return { send, agentFailure, replying, reply, pin, edit, remove, forward };
+  return {
+    send,
+    retry,
+    cancel,
+    outgoing,
+    agentFailure:
+      agentFailure && agentFailure.conversationId === currentId ? agentFailure.text : null,
+    replying,
+    reply,
+    pin,
+    edit,
+    remove,
+    forward,
+  };
 }

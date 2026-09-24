@@ -88,6 +88,8 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
     onRemove: (message: Message) => setRemoving([message]),
     canRemove,
     onSelect: (message: Message) => setPicked(new Set([message.id])),
+    onRetry: () => chat.retry(),
+    onCancel: (message: Message) => chat.cancel(message),
   };
 
   if (chat.conversations.length === 0) return <NoChats loading={chat.loading} />;

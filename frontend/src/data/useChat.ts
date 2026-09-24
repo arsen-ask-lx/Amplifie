@@ -4,6 +4,7 @@ import { api, type Conversation, type Me, type Message } from "./api.js";
 import { type Local, writtenEdge } from "./feed.js";
 import { FEED_PAGE, needsPage, pageAround, pageUnread } from "./feedPages.js";
 import { emptyFeed, feedState } from "./feedState.js";
+import { withDrafts } from "./sendQueue.js";
 import { type Focus, useAddress } from "./useAddress.js";
 import { useFeedSync } from "./useFeedSync.js";
 import { type MessageActions, useMessageActions } from "./useMessageActions.js";
@@ -42,11 +43,8 @@ export interface LoadFailure {
   retry?: () => void;
 }
 
-export interface Chat
-  extends Pick<
-    MessageActions,
-    "send" | "agentFailure" | "replying" | "reply" | "pin" | "edit" | "remove" | "forward"
-  > {
+/** Действия с репликами — все, кроме очереди: она уже лежит в ленте (`withDrafts`). */
+export interface Chat extends Omit<MessageActions, "outgoing"> {
   conversations: Conversation[];
   current: Conversation | null;
   messages: Local[];
@@ -136,8 +134,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   // не спрашивает, он про ленту не знает.
   const rooms = useRooms(where, me.participant.id);
 
-  // Что на экране сейчас — для отправки, которой нужен последний номер,
-  // но не нужна перерисовка при каждом его изменении.
+  // Что в ленте сейчас — для решения «грузить ли страницу», которому
+  // не нужна перерисовка при каждом её изменении.
   const messagesRef = useRef<Local[]>([]);
   messagesRef.current = messages;
 
@@ -426,24 +424,29 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     following.current = yes;
   }, []);
 
-  const actions = useMessageActions({ currentId, me, dispatch, messagesRef });
+  const actions = useMessageActions({ currentId, me, dispatch, onSessionEnded: endSession });
 
   /**
-   * Отправка из давнего уводит в конец, как у Телеграма: лента становится
-   * черновиком (`feedState`, `drafted`), конец привозит загрузка.
+   * Отправка из давнего уводит в конец, как у Телеграма: лента пустеет
+   * до конца (`feedState`, `sending`), конец привозит загрузка.
    */
   const send = useCallback<Chat["send"]>(
     (...args) => {
       if (hasNewerRef.current) toLatest();
-      return actions.send(...args);
+      actions.send(...args);
     },
     [actions.send, toLatest],
   );
 
   // Лента открытого разговора — одна на возврат наружу и на подсчёт
   // прочитанного: два разных выражения для одного и того же однажды
-  // разошлись бы.
-  const visible = messages.filter((m) => m.conversationId === currentId);
+  // разошлись бы. Неотправленное — поверх, из очереди вкладки (task-111).
+  const visible = withDrafts(
+    messages.filter((m) => m.conversationId === currentId),
+    actions.outgoing,
+    currentId,
+    !hasNewer,
+  );
 
   // Что человек уже видел — отдельным знанием (Р-029). `useChat` про это
   // ничего не решает: он только даёт номер последней реплики и говорит,

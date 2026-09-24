@@ -21,6 +21,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly body: FieldErrors,
+    /** Сколько ждать по слову сервера (`Retry-After`), мс; 0 — не сказал. */
+    readonly retryAfterMs = 0,
   ) {
     super(body.error);
   }
@@ -34,6 +36,14 @@ export class ApiError extends Error {
  */
 export function statusOf(error: unknown): number | null {
   return error instanceof ApiError ? error.status : null;
+}
+
+/**
+ * Срок, названный сервером, в мс — или 0: не назвал или до сервера не дошли.
+ * Единственное место, где его читают, как и `status` (task-111).
+ */
+export function retryAfterOf(error: unknown): number {
+  return error instanceof ApiError ? error.retryAfterMs : 0;
 }
 
 /** Ошибки по полям формы. Пусто — значит сервер не разбирал поля. */

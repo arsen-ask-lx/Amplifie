@@ -39,7 +39,7 @@ export function Composer({
   /** Где пишем — нужно подсказке «кого позвать» (Р-031). */
   conversationId: string | null;
   /** Этот чат в проекте — значит агента можно позвать по всему проекту. */
-  onSend: (body: string, clientMsgId: string, scope?: "conversation" | "project") => Promise<void>;
+  onSend: (body: string, clientMsgId: string, scope?: "conversation" | "project") => void;
   replying: QuoteData | null;
   onCancelReply: () => void;
   editing: Message | null;
@@ -136,7 +136,7 @@ export function Composer({
      * проект (Р-032), и дверь принимает `scope`. Не хватает ей только
      * места в интерфейсе — и это записано долгом, а не забыто.
      */
-    void onSend(body, key, "conversation");
+    onSend(body, key, "conversation");
   }
 
   return (

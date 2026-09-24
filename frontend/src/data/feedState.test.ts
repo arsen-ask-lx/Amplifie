@@ -76,31 +76,9 @@ describe("команды ленты", () => {
     expect(ids(got)).toEqual(["a", "b"]);
   });
 
-  it("drafted и sent: черновик встаёт в конец и вытесняется записанной", () => {
-    const drafted = feedState(withMessages([msg("a", 1)]), {
-      type: "drafted",
-      draft: { ...msg("черновик", 1.5), state: "идёт" },
-    });
-    const sent = feedState(drafted, {
-      type: "sent",
-      clientMsgId: "черновик",
-      message: msg("настоящая", 2, { clientMsgId: "черновик" }),
-    });
-    expect([ids(drafted), ids(sent)]).toEqual([
-      ["a", "черновик"],
-      ["a", "настоящая"],
-    ]);
-  });
-
-  it("notSent: помечается та самая реплика", () => {
-    const got = feedState(withMessages([{ ...msg("черновик", 1), state: "идёт" }, msg("b", 2)]), {
-      type: "notSent",
-      clientMsgId: "черновик",
-    });
-    expect(got.messages.map((one) => ("state" in one ? one.state : undefined))).toEqual([
-      "не ушло",
-      undefined,
-    ]);
+  it("sending в конце ленты — лента та же: черновик живёт в очереди, а не здесь (task-111)", () => {
+    const state = withMessages([msg("a", 1)]);
+    expect(feedState(state, { type: "sending" })).toBe(state);
   });
 
   it("pinMarked: меняется отметка только у этой реплики", () => {
@@ -192,19 +170,15 @@ describe("лента не в конце", () => {
     ]);
   });
 
-  it("drafted: своя отправка из старого — лента из черновика, край снят", () => {
-    const got = feedState(around(), {
-      type: "drafted",
-      draft: { ...msg("черновик", 11.5), state: "идёт" },
-    });
-    expect([ids(got), got.hasNewer, got.hasOlder]).toEqual([["черновик"], false, true]);
+  it("sending: своя отправка из давнего — лента пуста до загрузки конца, край снят", () => {
+    const got = feedState(around(), { type: "sending" });
+    expect([ids(got), got.hasNewer, got.hasOlder]).toEqual([[], false, true]);
   });
 
-  it("sent: записанная реплика не в конце ленты не вклеивается за край", () => {
+  it("added: записанная реплика не в конце ленты не вклеивается за край", () => {
     const got = feedState(around(), {
-      type: "sent",
-      clientMsgId: "черновик",
-      message: msg("настоящая", 700, { clientMsgId: "черновик" }),
+      type: "added",
+      items: [msg("настоящая", 700, { clientMsgId: "черновик" })],
     });
     expect(ids(got)).toEqual(["десятая", "одиннадцатая"]);
   });
