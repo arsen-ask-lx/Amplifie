@@ -36,7 +36,42 @@ export interface FeedState {
    * на вопрос «докуда я дочитал», а не «что нового прямо сейчас».
    */
   readSeq: number | null;
+  /**
+   * Срезы чатов, где человек уже был (task-114) — чтобы возврат показывал
+   * переписку в том же кадре, а не пустое место на время ответа сервера.
+   *
+   * ⚠️ СРЕЗ ЦЕЛИКОМ, А НЕ ОДНИ РЕПЛИКИ. `hasOlder`, `hasNewer` и `readSeq`
+   * — по одному значению на вкладку, и в миг показа снимка они принадлежат
+   * ПОКИНУТОМУ чату. Положи в снимок только реплики — и возврат в дочитанный
+   * чат нарисует черту «Непрочитанные» над всей перепиской, взяв `readSeq`
+   * соседа (у пустого чата это ноль). Поймано разбором критика, не прогоном.
+   *
+   * ⚠️ ПОРЯДОК КЛЮЧЕЙ — ПОРЯДОК СВЕЖЕСТИ. Показанный снимок переписывается
+   * заново и уезжает в конец; вытесняется первый. Тот же приём, что у отметок
+   * подтверждённых сессий на сервере: отдельного поля с временем не нужно.
+   */
+  snapshots: Record<string, Snapshot>;
 }
+
+/** Что помним про чат, из которого ушли. Все четыре поля ленты, не только её. */
+export interface Snapshot {
+  messages: Message[];
+  hasOlder: boolean;
+  hasNewer: boolean;
+  readSeq: number | null;
+}
+
+/**
+ * Сколько чатов помним. Восемь — не «вышел и вернулся», а обычное хождение
+ * по проекту: смета → договор → подрядчик → обратно в смету.
+ */
+const SNAPSHOTS = 8;
+
+/**
+ * Сколько реплик кладём в снимок. Полного окна (300) не нужно: снимок живёт
+ * до ответа сервера, а показывается его конец.
+ */
+const SNAPSHOT = 50;
 
 export const emptyFeed: FeedState = {
   messages: [],
@@ -44,6 +79,7 @@ export const emptyFeed: FeedState = {
   hasOlder: false,
   hasNewer: false,
   readSeq: null,
+  snapshots: {},
 };
 
 const edgesOf = (state: FeedState): Edges => ({ older: state.hasOlder, newer: state.hasNewer });
@@ -64,6 +100,8 @@ export type FeedCommand =
     }
   /** Пришли строки догона или события. `keep` — окно ленты, если человек внизу. */
   | { type: "arrived"; lines: SyncLine[]; openId: string | null; keep?: number | undefined }
+  /** Вернулись в чат, где уже были: показать срез из памяти до ответа (task-114). */
+  | { type: "restored"; conversationId: string }
   /** Долистали назад. */
   | { type: "older"; items: Message[]; hasMore: boolean }
   /** Долистали вперёд, к живому концу (task-099). */
@@ -95,10 +133,43 @@ export function feedState(state: FeedState, command: FeedCommand): FeedState {
       const joins = !hasNewer && !state.hasNewer && own.length > 0;
       return {
         ...state,
-        messages: joins ? merge(own, command.items) : command.items,
+        /**
+         * ⚠️ СТРАНИЦА — ПРАВДА В СВОЁМ ДИАПАЗОНЕ (task-114). `merge` умеет
+         * убирать реплику только по надгробию: отсутствия реплики в ответе
+         * он не читает. Пока `own` был пуст при переходе, это было незаметно —
+         * страница подменяла ленту целиком. Со снимком `own` не пуст, и без
+         * этого правила реплика, удалённая за время отсутствия, пережила бы
+         * слияние и осталась на экране до перезагрузки.
+         */
+        messages: joins ? merge(truthOf(own, command.items), command.items) : command.items,
         hasOlder: command.hasMore,
         hasNewer,
         readSeq: command.readSeq ?? null,
+        snapshots: remembered(state, command.conversationId),
+      };
+    }
+    case "restored": {
+      /**
+       * ⚠️ СНАЧАЛА ЗАПОМНИТЬ ПОКИНУТЫЙ, ПОТОМ ПОКАЗАТЬ СРЕЗ, И ПОРЯДОК ЗДЕСЬ
+       * НЕ УКРАШЕНИЕ. Снимок снимается по тому, чья лента лежит сейчас,
+       * а показ среза эту ленту подменяет: после него приходящая страница
+       * застаёт «ухожу сам из себя» и не запоминает ничего. Снимок чата
+       * тогда замирал навсегда на том, каким он был до ПЕРВОГО возврата.
+       * Наружу выходило так: возврат показывал переписку недельной давности
+       * и реплику, удалённую полминуты назад. Поймано признаком П-3.
+       */
+      const snapshots = remembered(state, command.conversationId);
+      const kept = snapshots[command.conversationId];
+      if (!kept) return { ...state, snapshots };
+      const { [command.conversationId]: _shown, ...rest } = snapshots;
+      return {
+        ...state,
+        messages: kept.messages,
+        hasOlder: kept.hasOlder,
+        hasNewer: kept.hasNewer,
+        readSeq: kept.readSeq,
+        // Показанный снимок — снова самый свежий: вытеснится он последним.
+        snapshots: { ...rest, [command.conversationId]: kept },
       };
     }
     case "arrived":
@@ -173,4 +244,66 @@ function ownChange(state: FeedState, command: FeedCommand): FeedState {
     default:
       return state;
   }
+}
+
+/**
+ * Что из ленты переживает пришедшую страницу.
+ *
+ * ⚠️ РЕЖЕМ СТРОГО ВНУТРИ ДИАПАЗОНА СТРАНИЦЫ, И ЭТО ГЛАВНОЕ. Страница
+ * отвечает на вопрос «что сейчас в этом отрезке номеров» — значит внутри
+ * отрезка её слово последнее, а за краями она ничего не утверждает.
+ * Отрезать по краям значило бы стирать с экрана свежую реплику, приехавшую
+ * живой, пока страница летела, и давнее окно, догруженное листанием.
+ *
+ * Пустая страница диапазона не задаёт и потому не режет ничего.
+ */
+function truthOf(current: Message[], page: Message[]): Message[] {
+  if (page.length === 0) return current;
+  const seqs = page.map((one) => one.seq);
+  const low = Math.min(...seqs);
+  const high = Math.max(...seqs);
+  const came = new Set(page.map((one) => one.id));
+  return current.filter((one) => one.seq < low || one.seq > high || came.has(one.id));
+}
+
+/**
+ * Положить в снимки чат, из которого уходим.
+ *
+ * ⚠️ РЕШАЕТСЯ ПО ТОМУ, ЧТО В ЛЕНТЕ, а не по тому, что нам сказали: команда
+ * знает только, чья страница пришла. Лента же держит ровно один чат, и его
+ * идентификатор — у первой реплики.
+ */
+function remembered(state: FeedState, arriving: string): Record<string, Snapshot> {
+  const leaving = state.messages[0]?.conversationId;
+  if (!leaving || leaving === arriving) return state.snapshots;
+
+  const { [leaving]: _was, ...rest } = state.snapshots;
+  const kept = state.messages.filter((one) => one.conversationId === leaving).slice(-SNAPSHOT);
+  const snapshots: Record<string, Snapshot> = {
+    ...rest,
+    [leaving]: {
+      messages: kept,
+      hasOlder: state.hasOlder,
+      hasNewer: state.hasNewer,
+      /**
+       * ⚠️ «ПРОЧИТАНО ВСЁ, ЧТО ЗДЕСЬ ЛЕЖИТ», А НЕ `state.readSeq`. Отметка
+       * в ленте ЗАМИРАЕТ НА ОТКРЫТИИ — в этом весь смысл черты (task-107), —
+       * и к мигу ухода она устарела на всё, что человек прочёл глазами.
+       * Положи её в снимок как есть — и возврат в дочитанный чат нарисует
+       * черту «Непрочитанные» над всей перепиской. Поймано живым сценарием
+       * `switch-instant.spec.ts`, а не рассуждением.
+       *
+       * Число честное: снимок показывается ТОЛЬКО у чата, где сервер
+       * насчитал ноль непрочитанного, — значит всё, что в нём лежит,
+       * и правда прочитано.
+       */
+      readSeq: kept.at(-1)?.seq ?? state.readSeq,
+    },
+  };
+
+  // Вытесняется тот, который дольше всех не показывали: порядок ключей —
+  // порядок свежести, значит лишний всегда первый.
+  const keys = Object.keys(snapshots);
+  for (const old of keys.slice(0, Math.max(0, keys.length - SNAPSHOTS))) delete snapshots[old];
+  return snapshots;
 }

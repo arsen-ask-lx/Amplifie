@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { feedTroubleOf, screenTroubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Me, type Message } from "./api.js";
 import { type Local, writtenEdge } from "./feed.js";
 import { FEED_PAGE, needsPage, pageAround, pageUnread } from "./feedPages.js";
-import { emptyFeed, feedState } from "./feedState.js";
+import { emptyFeed, feedState, type Snapshot } from "./feedState.js";
 import { withDrafts } from "./sendQueue.js";
 import { type Focus, useAddress } from "./useAddress.js";
 import { useFeedSync } from "./useFeedSync.js";
@@ -105,6 +105,12 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
    */
   const [feed, dispatch] = useReducer(feedState, emptyFeed);
   const { messages, pinned, hasOlder, hasNewer, readSeq } = feed;
+  /**
+   * Срезы чатов — ссылкой: их читает эффект загрузки, а перерисовывать
+   * ленту при смене снимков незачем, на экране от этого ничего не меняется.
+   */
+  const snapshotsRef = useRef(feed.snapshots);
+  snapshotsRef.current = feed.snapshots;
   /** Не в конце ли лента — ссылкой, для эффекта загрузки и отметки прочтения. */
   const hasNewerRef = useRef(hasNewer);
   hasNewerRef.current = hasNewer;
@@ -133,6 +139,14 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   // Список каналов — отдельным знанием (Д-10, task-020). Лента про него
   // не спрашивает, он про ленту не знает.
   const rooms = useRooms(where, me.participant.id);
+  /**
+   * Строки панели — ссылкой, ради одного числа в эффекте загрузки: есть ли
+   * у чата непрочитанное (task-114). В зависимостях эффекта им не место —
+   * список перечитывается на каждое изменение пространства, и лента
+   * загружалась бы заново от чужой реплики в соседнем канале.
+   */
+  const roomsRef = useRef(rooms.items);
+  roomsRef.current = rooms.items;
 
   // Что в ленте сейчас — для решения «грузить ли страницу», которому
   // не нужна перерисовка при каждом её изменении.
@@ -222,6 +236,33 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     onTrouble: setTrouble,
     onSessionEnded: endSession,
   });
+
+  /**
+   * Вернулись в чат, где уже были, — показываем его срез из памяти
+   * в том же кадре, не дожидаясь сервера (task-114).
+   *
+   * ⚠️ СЛОЙ, А НЕ ЭФФЕКТ, И ЭТО ИЗМЕРЕНО. Обычный эффект отрабатывает ПОСЛЕ
+   * кадра: между щелчком по чату и показом снимка браузер успевал нарисовать
+   * пустое место — наблюдатель сценария насчитал пять таких кадров из семи.
+   * Слой отрабатывает до отрисовки, и пустого кадра не остаётся ни одного.
+   *
+   * ⚠️ ТРИ УСЛОВИЯ, И КАЖДОЕ ЗАКРЫВАЕТ СВОЮ ЛОЖЬ. Снимок есть — иначе
+   * показывать нечего. Снят с ленты В КОНЦЕ — иначе возврат покажет кусок
+   * годичной давности, из которого лента прыгнет в конец. У чата НЕТ
+   * НЕПРОЧИТАННОГО — иначе черта приедет вместе со страницей и дёрнет ленту
+   * на глазах; этот случай берёт следующий срез.
+   *
+   * ⚠️ ЧИСЛО НЕПРОЧИТАННОГО — СЕРВЕРНОЕ. Поправленное (`reading.unreadOf`)
+   * считается ниже по файлу, то есть позже этого решения, и взять его здесь
+   * значит взять прошлое значение.
+   */
+  useLayoutEffect(() => {
+    if (!currentId || wanted !== null) return;
+    const already = messagesRef.current.some((one) => one.conversationId === currentId);
+    const unread = roomsRef.current.find((one) => one.id === currentId)?.unread ?? 0;
+    if (!restorable(snapshotsRef.current[currentId], unread, already)) return;
+    dispatch({ type: "restored", conversationId: currentId });
+  }, [currentId, wanted]);
 
   // Лента выбранного разговора — с нуля при каждом переключении.
   // `wanted` в зависимостях: переход по цитате в УЖЕ открытый разговор
@@ -491,4 +532,20 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     removeChannel: rooms.removeChannel,
     addThread: rooms.addThread,
   };
+}
+
+/**
+ * Можно ли показать срез чата из памяти, не дожидаясь сервера (task-114).
+ *
+ * Отдельной чистой функцией, а не цепочкой условий внутри слоя: три отказа
+ * подряд перевалили предел сложности, а главное — каждое условие здесь
+ * отвечает за свою ложь, и читать их проще рядом.
+ */
+function restorable(kept: Snapshot | undefined, unread: number, already: boolean): boolean {
+  if (already) return false;
+  // Не в конце — значит срез снят с давнего окна: покажем год назад,
+  // а страница тут же уведёт в конец.
+  if (!kept || kept.hasNewer) return false;
+  // Есть непрочитанное — черта приедет со страницей и дёрнет ленту.
+  return unread === 0;
 }

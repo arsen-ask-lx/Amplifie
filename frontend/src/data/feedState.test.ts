@@ -183,3 +183,141 @@ describe("лента не в конце", () => {
     expect(ids(got)).toEqual(["десятая", "одиннадцатая"]);
   });
 });
+
+/**
+ * Снимок чата и правда страницы (task-114).
+ *
+ * ⚠️ ДВА РАЗНЫХ СВОЙСТВА, И ОНИ НУЖНЫ ДРУГ ДРУГУ. Снимок показывается до ответа
+ * сервера — значит он может устареть. Правда страницы — то, что этот ответ
+ * его исправляет: реплика, которой в пришедшей странице нет, с экрана уходит.
+ * Без второго снимок превращается в место, где удалённое живёт вечно.
+ */
+describe("снимок чата", () => {
+  const snapshotOf = (state: FeedState, room: string) => state.snapshots[room];
+
+  it("страница — правда в своём диапазоне: пропавшая в ней реплика уходит", () => {
+    const state = withMessages([msg("a", 1), msg("b", 2), msg("c", 3)]);
+    const got = feedState(state, {
+      type: "loaded",
+      conversationId: ROOM,
+      items: [msg("a", 1), msg("c", 3)],
+      hasMore: false,
+    });
+    expect(ids(got), "b лежит внутри [1..3] и в странице её нет").toEqual(["a", "c"]);
+  });
+
+  it("за краями страницы ничего не режется: свежее сверху и давнее снизу целы", () => {
+    // «свежая» приехала живой, пока страница летела: её номер выше верхнего
+    // края. «давняя» осталась от прошлой догрузки: ниже нижнего края.
+    const state = withMessages([msg("давняя", 1), msg("b", 5), msg("свежая", 9)]);
+    const got = feedState(state, {
+      type: "loaded",
+      conversationId: ROOM,
+      items: [msg("b", 5), msg("d", 6)],
+      hasMore: false,
+    });
+    expect(ids(got)).toEqual(["давняя", "b", "d", "свежая"]);
+  });
+
+  it("уход из чата кладёт срез целиком, а не одни реплики", () => {
+    const state = withMessages([msg("a", 1), msg("b", 2)], {
+      hasOlder: true,
+      hasNewer: false,
+      readSeq: 2,
+    });
+    const got = feedState(state, {
+      type: "loaded",
+      conversationId: OTHER,
+      items: [msg("чужая", 7, { conversationId: OTHER })],
+      hasMore: false,
+    });
+    expect(snapshotOf(got, ROOM)).toEqual({
+      messages: [msg("a", 1), msg("b", 2)],
+      hasOlder: true,
+      hasNewer: false,
+      readSeq: 2,
+    });
+  });
+
+  it("устаревшая отметка прочтения в снимок не попадает", () => {
+    // `readSeq` в ленте замирает на открытии: тут он остался нулём с того
+    // мига, когда чат открыли пустым, а человек с тех пор прочёл обе реплики.
+    const state = withMessages([msg("a", 1), msg("b", 2)], { readSeq: 0 });
+    const got = feedState(state, {
+      type: "loaded",
+      conversationId: OTHER,
+      items: [msg("чужая", 7, { conversationId: OTHER })],
+      hasMore: false,
+    });
+    expect(snapshotOf(got, ROOM)?.readSeq, "черта встанет над всей перепиской").toBe(2);
+  });
+
+  it("возврат восстанавливает все четыре поля, а не только ленту", () => {
+    const left = feedState(
+      withMessages([msg("a", 1), msg("b", 2)], { hasOlder: true, hasNewer: false, readSeq: 2 }),
+      {
+        type: "loaded",
+        conversationId: OTHER,
+        items: [msg("чужая", 7, { conversationId: OTHER })],
+        hasMore: true,
+      },
+    );
+    const back = feedState(left, { type: "restored", conversationId: ROOM });
+    expect([ids(back), back.hasOlder, back.hasNewer, back.readSeq]).toEqual([
+      ["a", "b"],
+      true,
+      false,
+      2,
+    ]);
+  });
+
+  it("вход срезом тоже запоминает покинутый чат, иначе его снимок замирает навсегда", () => {
+    // ⚠️ НАЙДЕНО ПРИЗНАКОМ П-3, А НЕ РАЗБОРОМ. Снимок покинутого брался
+    // на приходе страницы — по тому, чья лента лежит сейчас. Но после
+    // показа среза в ленте лежит уже НОВЫЙ чат, и страница застаёт
+    // «ухожу сам из себя»: снимок покинутого не обновлялся ни разу.
+    // Наружу это выходило так: возврат показывал переписку недельной
+    // давности, а живьём — реплику, удалённую полминуты назад.
+    const state = withMessages([msg("a", 1), msg("b", 2)], {
+      snapshots: {
+        [OTHER]: {
+          messages: [msg("чужая", 7, { conversationId: OTHER })],
+          hasOlder: false,
+          hasNewer: false,
+          readSeq: 7,
+        },
+      },
+    });
+    const back = feedState(state, { type: "restored", conversationId: OTHER });
+    expect(ids(back), "срез соседа показан").toEqual(["чужая"]);
+    expect(
+      snapshotOf(back, ROOM)?.messages.map((one) => one.id),
+      "покинутый забыт",
+    ).toEqual(["a", "b"]);
+  });
+
+  it("девятый снимок вытесняет тот, который дольше всех не показывали", () => {
+    let state: FeedState = emptyFeed;
+    // Десять чатов подряд: каждый раз уходим в следующий, и предыдущий
+    // ложится в снимки. Снимков обязано остаться восемь, и уйти обязан
+    // самый давний — первый.
+    for (let n = 1; n <= 10; n++) {
+      state = feedState(state, {
+        type: "loaded",
+        conversationId: `чат-${n}`,
+        items: [msg(`реплика-${n}`, n, { conversationId: `чат-${n}` })],
+        hasMore: false,
+      });
+    }
+    expect(Object.keys(state.snapshots)).toEqual([
+      "чат-2",
+      "чат-3",
+      "чат-4",
+      "чат-5",
+      "чат-6",
+      "чат-7",
+      "чат-8",
+      "чат-9",
+    ]);
+  });
+});
