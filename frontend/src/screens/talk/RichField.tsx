@@ -16,7 +16,7 @@ import {
 } from "lexical";
 import { Handle, Keys, markSelection } from "./fieldKeys.js";
 import { Mentions } from "./Mentions.js";
-import { $fillFromMarkup, toMarkup } from "./markupNodes.js";
+import { $fillFromMarkup, markupNow, toMarkup } from "./markupNodes.js";
 
 /**
  * Поле ввода с ВИДИМОЙ разметкой (Р-020).
@@ -104,6 +104,17 @@ function focusSoon(editor: LexicalEditor): void {
 }
 
 export interface FieldApi {
+  /**
+   * Что в поле ПРЯМО СЕЙЧАС — нашей строкой с разметкой (Д-21).
+   *
+   * ⚠️ ХОЗЯИН НАБРАННОГО ОДИН, И ЭТО РЕДАКТОР. Полоса ввода держит рядом
+   * копию для выключенной кнопки отправки, но копию обновляет слушатель,
+   * которого редактор зовёт следующим тактом. Отправка, читавшая копию,
+   * у того, кто вставил текст и мгновенно нажал ввод, не отправляла ничего
+   * (8 потерь из 12 живой вставкой). Здесь состояние спрашивается у того,
+   * кто им владеет, — и опоздать оно не может.
+   */
+  read: () => string;
   focus: () => void;
   clear: () => void;
   fill: (markup: string) => void;
@@ -179,6 +190,7 @@ export function RichField({
         <Handle
           onReady={(editor) =>
             onReady({
+              read: () => markupNow(editor),
               focus: () => editor.focus(),
               clear: () =>
                 editor.update(() => {

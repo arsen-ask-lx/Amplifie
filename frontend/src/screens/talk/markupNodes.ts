@@ -230,12 +230,29 @@ function markupOf(node: unknown): string {
  * а тем, что круг устойчив и не теряет ни одного вида.
  */
 export function toMarkup(editor: LexicalEditor): string {
-  return editor.getEditorState().read(() => {
-    const parts: string[] = [];
-    for (const block of $getRoot().getChildren()) {
-      const children = (block as { getChildren?: () => unknown[] }).getChildren?.() ?? [];
-      for (const node of children) parts.push(markupOf(node));
-    }
-    return parts.join("");
-  });
+  return editor.getEditorState().read($markup);
+}
+
+/**
+ * То же дерево в строку, но с ДОСЫЛКОЙ ещё не сведённых правок (Д-21).
+ *
+ * ⚠️ РАЗНИЦА НЕ В СТИЛЕ, А В ТАКТЕ. `toMarkup` читает последнее сведённое
+ * состояние: вставка, случившаяся этим же тактом, в нём ещё не видна —
+ * редактор сводит её микрозадачей. `editor.read` по умолчанию сперва
+ * досылает отложенное, и потому отвечает на вопрос «что в поле прямо
+ * сейчас», а не «что было мгновение назад». Отправке нужен именно
+ * первый ответ: человек вставляет текст и бьёт по вводу в один такт.
+ */
+export function markupNow(editor: LexicalEditor): string {
+  return editor.read($markup);
+}
+
+/** Сбор строки внутри уже открытого чтения редактора. */
+function $markup(): string {
+  const parts: string[] = [];
+  for (const block of $getRoot().getChildren()) {
+    const children = (block as { getChildren?: () => unknown[] }).getChildren?.() ?? [];
+    for (const node of children) parts.push(markupOf(node));
+  }
+  return parts.join("");
 }
