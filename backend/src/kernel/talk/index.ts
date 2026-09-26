@@ -23,6 +23,7 @@ export {
   listProjectConversations,
   listRecent,
   markRead,
+  PinLimitError,
   panelSnapshot,
   pinMessage,
   sendAsAgent,

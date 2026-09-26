@@ -196,12 +196,7 @@ export function feedState(state: FeedState, command: FeedCommand): FeedState {
           // а резать отрезок, который человек читает, — терять его.
           state.hasNewer ? undefined : command.keep,
         ),
-        // Живое вливается только в закреплённое открытого чата: чужой список
-        // дополнять нечем, его сменит ответ сервера.
-        pinned:
-          state.pinnedFor === command.openId
-            ? mergePinned(state.pinned, command.lines, command.openId)
-            : state.pinned,
+        pinned: livePinned(state, command.lines, command.openId),
       };
     case "older":
       return {
@@ -292,6 +287,14 @@ function truthOf(current: Message[], page: Message[]): Message[] {
  * знает только, чья страница пришла. Лента же держит ровно один чат, и его
  * идентификатор — у первой реплики.
  */
+/**
+ * Живое вливается только в закреплённое открытого чата (Д-59): чужой список
+ * дополнять нечем — его сменит ответ сервера про закреплённое нового чата.
+ */
+function livePinned(state: FeedState, lines: SyncLine[], openId: string | null): Message[] {
+  return state.pinnedFor === openId ? mergePinned(state.pinned, lines, openId) : state.pinned;
+}
+
 function remembered(state: FeedState, arriving: string): Record<string, Snapshot> {
   const leaving = state.messages[0]?.conversationId;
   if (!leaving || leaving === arriving) return state.snapshots;

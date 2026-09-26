@@ -10,7 +10,11 @@ import {
   NoSecretKeyError,
   RegistrationClosedError,
 } from "../../kernel/identity/index.js";
-import { ConversationNotVisibleError, MentionNotAllowedError } from "../../kernel/talk/index.js";
+import {
+  ConversationNotVisibleError,
+  MentionNotAllowedError,
+  PinLimitError,
+} from "../../kernel/talk/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../platform/rendezvous.js";
 
 /**
@@ -27,6 +31,8 @@ const KNOWN: ReadonlyArray<{
   { kind: ConversationNotVisibleError, code: 404, error: "not_found" },
   { kind: InviteNotUsableError, code: 404, error: "not_found" },
   { kind: MentionNotAllowedError, code: 422, error: "mention_not_allowed", detail: true },
+  // Потолок закреплённого (Р-045): не ошибка человека, а правило чата — 409.
+  { kind: PinLimitError, code: 409, error: "pin_limit" },
   { kind: BadKeyFormatError, code: 422, error: "bad_key_format", detail: true },
   { kind: EmailTakenError, code: 409, error: "email_taken" },
   { kind: InvalidCredentialsError, code: 401, error: "invalid_credentials" },

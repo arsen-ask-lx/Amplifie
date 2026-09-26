@@ -880,6 +880,17 @@ export async function pinMessage(
       if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
       await requireVisible(tx, viewer, found.conversationId);
 
+      // Потолок (Р-045) — только для НОВОГО закрепления: повтор места не занимает.
+      // Гонку двух закреплений у сотни снимает замок строки пространства,
+      // который `change` берёт на номер изменения: записи идут по одной.
+      if (
+        pinned &&
+        found.pinnedAt === null &&
+        (await repo.countPinned(tx, found.conversationId)) >= PIN_LIMIT
+      ) {
+        throw new PinLimitError();
+      }
+
       // Повтор — не ошибка: результат тот же.
       await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
 
@@ -897,9 +908,18 @@ export async function pinMessage(
   );
 }
 
+/**
+ * Сколько реплик можно закрепить в одном чате (Р-045) — как у Slack.
+ * Сто первое сервер не принимает и называет причину: открепи старое.
+ */
+const PIN_LIMIT = 100;
+
+/** Потолок закреплённого достигнут — отказ с причиной, а не молчаливое «ок». */
+export class PinLimitError extends Error {}
+
 /** Закреплённое разговора, свежее сверху. */
 export async function listPinned(viewer: Viewer, conversationId: string) {
   await requireVisible(db, viewer, conversationId);
-  const rows = await repo.listPinned(db, conversationId);
+  const rows = await repo.listPinned(db, conversationId, PIN_LIMIT);
   return { items: rows.map(presentMessage) };
 }

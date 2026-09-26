@@ -604,7 +604,9 @@
      а слой утилит Tailwind сильнее этого слоя при любой точности правила —
      без пометки полоса оставалась шириной реплики (замер 26.09). */
   .msg-found {
+    /* biome-ignore lint/complexity/noImportantStyles: слой утилит сильнее — см. выше */
     width: calc(100% + 64px) !important;
+    /* biome-ignore lint/complexity/noImportantStyles: слой утилит сильнее — см. выше */
     max-width: none !important;
     margin-left: -52px;
     margin-right: -12px;

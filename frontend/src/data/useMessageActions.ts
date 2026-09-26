@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { troubleOf } from "../shared/trouble.js";
+import { toast } from "../shared/toast.js";
+import { pinTroubleOf, troubleOf } from "../shared/trouble.js";
 import { api, type Me, type Message, type Quote } from "./api.js";
 import type { FeedCommand } from "./feedState.js";
 import { type Outgoing, sendQueue } from "./sendQueue.js";
@@ -47,6 +48,17 @@ export interface MessageActions {
   edit: (messageId: string, body: string) => Promise<void>;
   remove: (messageId: string) => Promise<void>;
   forward: (message: Message, toConversationId: string) => Promise<void>;
+}
+
+/** Почему не закрепилось — словами человека (Р-045). */
+function pinRefusal(error: unknown, pinning: boolean): string {
+  const trouble = pinTroubleOf(error);
+  if (trouble === "потолок")
+    return "В чате уже 100 закреплённых — открепите старое, чтобы закрепить новое.";
+  if (trouble === "подождать") return "Слишком часто — подождите минуту и повторите.";
+  return pinning
+    ? "Не получилось закрепить. Повторите ещё раз."
+    : "Не получилось открепить. Повторите ещё раз.";
 }
 
 export function useMessageActions({
@@ -176,7 +188,18 @@ export function useMessageActions({
 
   const pin = useCallback(
     async (messageId: string, next: boolean) => {
-      await api.pin(messageId, next);
+      /**
+       * ⚠️ ОТКАЗ НАЗЫВАЕТСЯ ЧЕЛОВЕКУ, А НЕ ТЕРЯЕТСЯ (Р-045). Прежде ошибка
+       * закрепа уходила в `void` у вызывающего — и «ничего не произошло»
+       * было всем, что человек узнавал. Сервер теперь отказывает осмысленно:
+       * потолок в сто закреплённых и порог частоты.
+       */
+      try {
+        await api.pin(messageId, next);
+      } catch (error) {
+        toast(pinRefusal(error, next));
+        return;
+      }
       // Полоску не перечитываем: закрепление двигает номер изменения,
       // и реплика приедет ближайшим догоном — тем же путём, каким она
       // приезжает всем остальным. Правка на месте ниже нужна только

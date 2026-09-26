@@ -60,7 +60,7 @@ import {
   type Viewer,
   whereMentioned,
 } from "../../../kernel/talk/index.js";
-import { READ, SEARCH, SEND, SYNC } from "../limits.js";
+import { PIN, READ, SEARCH, SEND, SYNC } from "../limits.js";
 import { actorOf } from "./viewer.js";
 
 /**
@@ -300,14 +300,22 @@ export function registerChatRoutes(scope: FastifyInstance): void {
   });
 
   for (const [path, pin] of PIN_DOORS) {
-    app.post(path, { schema: { params: idParams } }, async (request, reply) => {
-      await pin(actorOf(request), request.params.id, true);
-      return reply.code(204).send();
-    });
-    app.delete(path, { schema: { params: idParams } }, async (request, reply) => {
-      await pin(actorOf(request), request.params.id, false);
-      return reply.code(204).send();
-    });
+    app.post(
+      path,
+      { config: { rateLimit: PIN }, schema: { params: idParams } },
+      async (request, reply) => {
+        await pin(actorOf(request), request.params.id, true);
+        return reply.code(204).send();
+      },
+    );
+    app.delete(
+      path,
+      { config: { rateLimit: PIN }, schema: { params: idParams } },
+      async (request, reply) => {
+        await pin(actorOf(request), request.params.id, false);
+        return reply.code(204).send();
+      },
+    );
   }
 
   /** Завести проект (Р-032). Прав проект не несёт — заводит любой участник. */

@@ -170,3 +170,17 @@ export function authTroubleOf(error: unknown): AuthTrouble {
       return "иное";
   }
 }
+
+/** Отказ закрепа (Р-045): потолок в сто закреплённых или порог частоты. */
+export type PinTrouble = "потолок" | "подождать" | "иное";
+
+export function pinTroubleOf(error: unknown): PinTrouble {
+  switch (statusOf(error)) {
+    case 409:
+      return "потолок";
+    case 429:
+      return "подождать";
+    default:
+      return "иное";
+  }
+}

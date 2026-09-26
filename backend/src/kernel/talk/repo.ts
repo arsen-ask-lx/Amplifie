@@ -536,17 +536,36 @@ export async function setPinned(
   return rows[0] ?? null;
 }
 
-/** Закреплённые разговора, свежие сверху. Их единицы — предел не нужен. */
-export async function listPinned(tx: Executor, conversationId: string) {
+/**
+ * Закреплённые разговора, свежие сверху, не больше потолка (Р-045).
+ *
+ * ⚠️ ПРЕДЕЛ НУЖЕН, ХОТЯ ОБЫЧНО ИХ ЕДИНИЦЫ. Список читается при каждом
+ * открытии чата: без потолка закреплённый спамом чат открывался бы всё
+ * медленнее. Потолок держит и запись (`pinMessage`), а предел здесь —
+ * страховка от того, что лежит в базе с тех времён, когда его не было.
+ */
+export async function listPinned(tx: Executor, conversationId: string, limit: number) {
   return selectMessages(tx)
-    .where(
-      and(
-        eq(message.conversationId, conversationId),
-        isNotNull(message.pinnedAt),
-        isNull(message.deletedAt),
-      ),
-    )
-    .orderBy(desc(message.pinnedAt));
+    .where(pinnedIn(conversationId))
+    .orderBy(desc(message.pinnedAt))
+    .limit(limit);
+}
+
+/** Сколько закреплено в разговоре — по тому же частичному индексу, что и список. */
+export async function countPinned(tx: Executor, conversationId: string): Promise<number> {
+  const rows = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(message)
+    .where(pinnedIn(conversationId));
+  return rows[0]?.n ?? 0;
+}
+
+function pinnedIn(conversationId: string) {
+  return and(
+    eq(message.conversationId, conversationId),
+    isNotNull(message.pinnedAt),
+    isNull(message.deletedAt),
+  );
 }
 
 /**
