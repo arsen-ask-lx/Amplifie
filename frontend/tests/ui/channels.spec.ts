@@ -40,7 +40,7 @@ test("удалённый канал уходит из панели вместе 
   await say(page, "это временный канал");
 
   await rowMenu(page, "Черновик");
-  await page.getByRole("menuitem", { name: "Удалить канал" }).click();
+  await page.getByRole("menuitem", { name: "Удалить чат" }).click();
   // Спрашиваем перед необратимым — и подтверждение обязано быть отдельным
   // шагом, а не тем же нажатием.
   await page.getByRole("button", { name: "Удалить", exact: true }).click();

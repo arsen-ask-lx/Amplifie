@@ -1,15 +1,11 @@
-import { Gear, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
+import { Gear, Plus, PushPin, PushPinSlash, Sliders } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { Conversation } from "../data/api.js";
 import type { PanelProject } from "../data/useRooms.js";
 import { ProjectGlyph } from "../shared/projectLook.js";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "../shared/ui/context-menu.js";
+import { ContextMenu, ContextMenuTrigger } from "../shared/ui/context-menu.js";
+import { DropdownMenu, DropdownMenuTrigger } from "../shared/ui/dropdown-menu.js";
+import { contextKit, dropdownKit, type MenuKit } from "../shared/ui/menuKit.js";
 
 /**
  * Проект в боковой панели: заголовок и его чаты (Р-032).
@@ -55,37 +51,39 @@ function Summary({ unread, mentions }: { unread: number; mentions: number }) {
 /**
  * Меню проекта: только действия, которые уже существуют в продукте.
  *
- * ⚠️ ПРАВОЙ КНОПКОЙ, КАК У ЧАТА (владелец 17.09, task-102). Действия над
- * строкой панели живут в одном и том же месте — иначе человеку приходится
- * помнить, у чего они на точках, а у чего по правой кнопке.
+ * ⚠️ ПРАВОЙ КНОПКОЙ, КАК У ЧАТА (владелец 17.09, task-102), И ЗНАЧКОМ
+ * НАСТРОЕК ПОСЛЕ ПЛЮСА (владелец 26.09). Оба пути открывают одно меню —
+ * иначе человеку пришлось бы помнить, где какие действия.
  */
 function ProjectMenu({
+  kit: { Content, Item, Separator },
   project,
   onPin,
   onRename,
   onRemove,
 }: {
+  kit: MenuKit;
   project: PanelProject;
   onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
   onRemove: () => void;
 }) {
   return (
-    <ContextMenuContent className="w-52">
-      <ContextMenuItem onSelect={() => void onPin(!project.pinned)}>
+    <Content className="w-52">
+      <Item onSelect={() => void onPin(!project.pinned)}>
         {project.pinned ? <PushPinSlash /> : <PushPin />}
         {project.pinned ? "Открепить" : "Закрепить"}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onSelect={onRename}>
+      </Item>
+      <Separator />
+      <Item onSelect={onRename}>
         <Gear />
         Редактировать проект
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem variant="destructive" onSelect={onRemove}>
+      </Item>
+      <Separator />
+      <Item variant="destructive" onSelect={onRemove}>
         Убрать проект
-      </ContextMenuItem>
-    </ContextMenuContent>
+      </Item>
+    </Content>
   );
 }
 
@@ -120,6 +118,7 @@ export function ProjectRow({
   // Тело остаётся в потоке лишь на время закрытия. Открытию не нужна
   // вторая React-фаза: первый кадр задаёт CSS `@starting-style`.
   const [bodyInFlow, setBodyInFlow] = useState(!collapsed);
+  const menu = { project, onPin, onRename, onRemove };
   const body = useRef<HTMLDivElement>(null);
 
   /**
@@ -172,9 +171,19 @@ export function ProjectRow({
             >
               <Plus className="size-3.5" weight="bold" />
             </button>
+            <DropdownMenu>
+              {/* Как плюс: виден при наведении и фокусе; открытое меню его держит. */}
+              <DropdownMenuTrigger
+                aria-label={`Настройки проекта «${project.title}»`}
+                className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100 data-[state=open]:opacity-100"
+              >
+                <Sliders className="size-3.5" weight="bold" />
+              </DropdownMenuTrigger>
+              <ProjectMenu kit={dropdownKit} {...menu} />
+            </DropdownMenu>
           </div>
         </ContextMenuTrigger>
-        <ProjectMenu project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
+        <ProjectMenu kit={contextKit} {...menu} />
       </ContextMenu>
 
       {/* ⚠️ У ПУСТОЙ ПАПКИ ТЕЛА НЕТ ВОВСЕ, А НЕ «ПУСТОЕ ТЕЛО». Пустой

@@ -1,15 +1,8 @@
-import { FolderSimple, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
+import { DotsThree, FolderSimple, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
 import type { Conversation, Project } from "../data/api.js";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from "../shared/ui/context-menu.js";
+import { ContextMenu, ContextMenuTrigger } from "../shared/ui/context-menu.js";
+import { DropdownMenu, DropdownMenuTrigger } from "../shared/ui/dropdown-menu.js";
+import { contextKit, dropdownKit, type MenuKit } from "../shared/ui/menuKit.js";
 
 /**
  * Строка канала в боковой панели.
@@ -94,47 +87,45 @@ function Badges({ unread, mentions }: { unread: number; mentions: number }) {
  * предлагала бы завести пустую папку — и в панели появлялись бы пустые.
  */
 function ToProject({
+  kit: { Item, Separator, Sub, SubTrigger, SubContent },
   channel,
   projects,
   onMove,
 }: {
+  kit: MenuKit;
   channel: Conversation;
   projects: Project[];
   onMove: (conversationId: string, projectId: string | null) => Promise<void>;
 }) {
   return (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger>
+    <Sub>
+      <SubTrigger>
         <FolderSimple />В проект
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent className="w-56">
+      </SubTrigger>
+      <SubContent className="w-56">
         {projects.map((project) => (
-          <ContextMenuItem
+          <Item
             key={project.id}
             disabled={project.id === channel.projectId}
             onSelect={() => void onMove(channel.id, project.id)}
           >
             {project.title}
-          </ContextMenuItem>
+          </Item>
         ))}
         {/* ⚠️ «НОВЫЙ ПРОЕКТ…» ОТСЮДА УБРАН (task-035). Он открывал
             браузерное окно `window.prompt` — чужое по виду и не знающее
             наших тем, — и был единственным путём завести папку. Теперь
             проекты заводятся плюсом в своём разделе, а здесь осталось
             только перекладывание. */}
-        {projects.length === 0 ? (
-          <ContextMenuItem disabled>Проектов пока нет</ContextMenuItem>
-        ) : null}
+        {projects.length === 0 ? <Item disabled>Проектов пока нет</Item> : null}
         {channel.projectId ? (
           <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={() => void onMove(channel.id, null)}>
-              Убрать из проекта
-            </ContextMenuItem>
+            <Separator />
+            <Item onSelect={() => void onMove(channel.id, null)}>Убрать из проекта</Item>
           </>
         ) : null}
-      </ContextMenuSubContent>
-    </ContextMenuSub>
+      </SubContent>
+    </Sub>
   );
 }
 
@@ -146,43 +137,46 @@ function ToProject({
  * развилка жила только из-за места под кнопки. Кнопок больше нет — и развилки тоже.
  */
 function ChannelMenu({
+  kit,
   channel,
   projects,
   onPin,
   onMove,
   onRemove,
 }: {
+  kit: MenuKit;
   channel: Conversation;
   projects: Project[];
   onPin: (pinned: boolean) => Promise<void>;
   onMove: (conversationId: string, projectId: string | null) => Promise<void>;
   onRemove: () => void;
 }) {
+  const { Content, Item, Separator } = kit;
   return (
-    <ContextMenuContent className="w-52">
-      <ContextMenuItem onSelect={() => void onPin(!channel.pinned)}>
+    <Content className="w-52">
+      <Item onSelect={() => void onPin(!channel.pinned)}>
         {channel.pinned ? <PushPinSlash /> : <PushPin />}
         {channel.pinned ? "Открепить" : "Закрепить"}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ToProject channel={channel} projects={projects} onMove={onMove} />
-      <ContextMenuSeparator />
-      <ContextMenuItem variant="destructive" onSelect={onRemove}>
+      </Item>
+      <Separator />
+      <ToProject kit={kit} channel={channel} projects={projects} onMove={onMove} />
+      <Separator />
+      {/* «Чат», а не «канал»: так его называет панель и сам человек (владелец 26.09). */}
+      <Item variant="destructive" onSelect={onRemove}>
         <Trash />
-        Удалить канал
-      </ContextMenuItem>
-    </ContextMenuContent>
+        Удалить чат
+      </Item>
+    </Content>
   );
 }
 
 /**
- * Строка канала: название и число у правого края; действия — правой кнопкой.
+ * Строка канала: название и число у правого края; действия — правой кнопкой
+ * и тремя точками.
  *
- * ⚠️ ПРАВАЯ КНОПКА, А НЕ ТРИ ТОЧКИ (владелец 17.09, отмена task-059). Прежде
- * решили наоборот: правую кнопку надо знать. Владелец пересмотрел: точки
- * и кнопки при наведении отнимали у строки край, и число стояло не там,
- * где его ищут, — как в Telegram, действия чата живут в меню по правой
- * кнопке. С клавиатуры меню открывают `Shift+F10` и клавиша меню.
+ * ⚠️ ТРИ ТОЧКИ ДОБАВЛЕНЫ К ПРАВОЙ КНОПКЕ (владелец 26.09). Видны при
+ * наведении и фокусе, рядом с числом; оба пути открывают одно меню. С клавиатуры — `Shift+F10`
+ * или Tab до точек.
  *
  * ⚠️ ОБЛАСТЬ МЕНЮ — ВСЯ СТРОКА, А КНОПКА ВНУТРИ ОДНА. Вложенная кнопка —
  * неверная разметка, а меню на одной кнопке не открывалось бы по краю строки.
@@ -212,6 +206,7 @@ export function ChannelRow({
   onPin: (pinned: boolean) => Promise<void>;
   onRemove: () => void;
 }) {
+  const menu = { channel, projects, onPin, onMove, onRemove };
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -246,15 +241,21 @@ export function ChannelRow({
                 мёртвую зону в строке. */}
             <Badges unread={unread} mentions={mentions} />
           </button>
+          <DropdownMenu>
+            {/* ⚠️ ВИДНЫ ПРИ НАВЕДЕНИИ, ФОКУСЕ И ОТКРЫТОМ МЕНЮ. Без последнего
+                точки пропадали бы из-под открытого меню: фокус уходит в него,
+                и строка перестаёт быть «под курсором». */}
+            <DropdownMenuTrigger
+              aria-label={`Настройки чата «${channel.title}»`}
+              className="hidden size-6 shrink-0 place-items-center rounded bg-transparent text-muted hover:bg-selected hover:text-ink group-focus-within/room:grid group-hover/room:grid data-[state=open]:grid"
+            >
+              <DotsThree className="size-4" weight="bold" />
+            </DropdownMenuTrigger>
+            <ChannelMenu kit={dropdownKit} {...menu} />
+          </DropdownMenu>
         </div>
       </ContextMenuTrigger>
-      <ChannelMenu
-        channel={channel}
-        projects={projects}
-        onPin={onPin}
-        onMove={onMove}
-        onRemove={onRemove}
-      />
+      <ChannelMenu kit={contextKit} {...menu} />
     </ContextMenu>
   );
 }

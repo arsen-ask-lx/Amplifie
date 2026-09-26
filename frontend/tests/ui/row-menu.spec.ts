@@ -2,13 +2,16 @@ import { expect, type Page, test } from "@playwright/test";
 import { createChannel, inviteToken, joinVoice, register } from "./fixtures.js";
 
 /**
- * ДЕЙСТВИЯ СТРОКИ ПАНЕЛИ — ПРАВОЙ КНОПКОЙ (task-102). Написан ДО правки
- * и обязан быть красным.
+ * ДЕЙСТВИЯ СТРОКИ ПАНЕЛИ — ПРАВОЙ КНОПКОЙ (task-102) И КНОПКОЙ НАСТРОЕК.
  *
  * Владелец 17.09 отменил своё прежнее решение (task-059): три точки
  * и булавка с корзиной убираются, число непрочитанного встаёт к краю,
  * а «Закрепить / В проект / Удалить» живут в меню по правой кнопке —
  * у любого чата одинаково, у проекта так же.
+ *
+ * ⚠️ 26.09 ВЛАДЕЛЕЦ ВЕРНУЛ КНОПКУ: у чата три точки, у проекта значок
+ * настроек после плюса. Правая кнопка осталась. Кнопка открывает ТО ЖЕ
+ * меню. Точки видны при наведении, рядом с числом; без наведения число у края.
  */
 
 test.describe.configure({ timeout: 120_000 });
@@ -58,7 +61,10 @@ async function project(page: Page, title: string): Promise<string> {
   return made.id;
 }
 
-test("у строк нет точек и кнопок, число — у правого края", async ({ page, playwright }) => {
+test("три точки у чата видны при наведении, число — у правого края", async ({
+  page,
+  playwright,
+}) => {
   await register(page, "Хозяин");
   await createChannel(page, "Смета");
   const room = new URL(page.url()).pathname.split("/")[2] ?? "";
@@ -77,14 +83,15 @@ test("у строк нет точек и кнопок, число — у пра�
   await guest.dispose();
   await expect(row(page, "Смета")).toContainText("1");
 
-  // П-1: ни одной кнопки действий у строк.
+  // П-1: без наведения точек не видно — строка не шумит кнопками.
+  const dots = page.getByRole("button", { name: "Настройки чата «Смета»" });
+  await expect(dots).toBeHidden();
   await row(page, "Смета").hover();
-  await expect(page.getByRole("button", { name: /^Что сделать с/u })).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: /^(Закрепить|Открепить|Удалить) канал/u }),
-  ).toHaveCount(0);
+  await expect(dots).toBeVisible();
 
   // П-2: правый край числа — у правого края строки, а не левее кнопок.
+  await page.mouse.move(0, 0);
+  await expect(dots).toBeHidden();
   const gap = await row(page, "Смета").evaluate((button) => {
     const line = button.parentElement?.getBoundingClientRect();
     // Значки — последний узел кнопки; внутри них подпись для читалки
@@ -106,7 +113,7 @@ test("у любого чата одно меню по правой кнопке,
   // Вне проекта: «В проект» → «Объект».
   await row(page, "Смета").click({ button: "right" });
   await expect(page.getByRole("menuitem", { name: "Закрепить" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Удалить канал" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Удалить чат" })).toBeVisible();
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await expect(row(page, "Объект")).toHaveAttribute("aria-expanded", "true");
@@ -120,7 +127,7 @@ test("у любого чата одно меню по правой кнопке,
   // В проекте — то же меню, с «Убрать из проекта».
   await row(page, "Смета").click({ button: "right" });
   await expect(page.getByRole("menuitem", { name: "Закрепить" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Удалить канал" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Удалить чат" })).toBeVisible();
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await expect(page.getByRole("menuitem", { name: "Убрать из проекта" })).toBeVisible();
   await page.keyboard.press("Escape");
@@ -140,19 +147,33 @@ test("у любого чата одно меню по правой кнопке,
     )
     .toBe(true);
 
-  // Удалить: спрашивает подтверждение.
-  await row(page, "Редкий").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Удалить канал" }).click();
+  // Удалить — через три точки: то же меню, спрашивает подтверждение.
+  await row(page, "Редкий").hover();
+  await page.getByRole("button", { name: "Настройки чата «Редкий»" }).click();
+  await expect(page.getByRole("menuitem", { name: "Закрепить" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Удалить чат" }).click();
   await expect(page.getByRole("dialog")).toContainText("Удалить «Редкий»?");
 });
 
-test("у проекта меню правой кнопкой и с клавиатуры", async ({ page }) => {
+test("у проекта меню правой кнопкой, значком настроек и с клавиатуры", async ({ page }) => {
   await register(page, "Хозяин");
   await project(page, "Объект");
   await page.reload();
 
   await row(page, "Объект").click({ button: "right" });
   const items = page.getByRole("menuitem");
+  await expect(items).toHaveText(["Закрепить", "Редактировать проект", "Убрать проект"]);
+  await page.keyboard.press("Escape");
+
+  // Значок настроек — после плюса и открывает то же меню.
+  await row(page, "Объект").hover();
+  const plus = page.getByRole("button", { name: "Новый чат в проекте «Объект»" });
+  const gear = page.getByRole("button", { name: "Настройки проекта «Объект»" });
+  await expect(gear).toBeVisible();
+  const plusAt = (await plus.boundingBox())?.x ?? 0;
+  const gearAt = (await gear.boundingBox())?.x ?? 0;
+  expect(gearAt, "значок настроек не после плюса").toBeGreaterThan(plusAt);
+  await gear.click();
   await expect(items).toHaveText(["Закрепить", "Редактировать проект", "Убрать проект"]);
   await page.keyboard.press("Escape");
 
