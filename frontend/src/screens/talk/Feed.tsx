@@ -50,10 +50,11 @@ function splitAtLine(rows: Row[], boundary: number | null, hasOlder: boolean) {
   const first = rows[0]?.message.seq;
   const beyond = hasOlder && first !== undefined && boundary !== null && boundary < first - 1;
   if (boundary === null || beyond) return { beforeLine: rows, afterLine: [] as Row[] };
-  return {
-    beforeLine: rows.filter((one) => one.message.seq <= boundary),
-    afterLine: rows.filter((one) => one.message.seq > boundary),
-  };
+  // ⚠️ ЧЕРТА — ПЕРЕД ПЕРВОЙ ЧУЖОЙ НЕПРОЧИТАННОЙ (Д-58): отметка уходит раз в три
+  // секунды и отстаёт от своей свежей реплики. Свои не считает и счётчик панели.
+  const at = rows.findIndex((one) => one.message.seq > boundary && !one.mine);
+  if (at < 0) return { beforeLine: rows, afterLine: [] as Row[] };
+  return { beforeLine: rows.slice(0, at), afterLine: rows.slice(at) };
 }
 
 /**
