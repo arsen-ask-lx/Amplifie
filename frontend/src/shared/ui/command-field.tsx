@@ -21,6 +21,7 @@ export function CommandField({
   placeholder,
   onChange,
   onKeyDown,
+  lined = true,
 }: {
   value: string;
   /** Имя поля словами: окно открывают сочетанием, подписи на экране нет. */
@@ -28,9 +29,15 @@ export function CommandField({
   placeholder: string;
   onChange: (value: string) => void;
   onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  /**
+   * Своя линия под полем. Встроенное в полосу поле (поиск в чате) её не
+   * рисует: линию ведёт полоса во всю ширину, под стрелками и крестиком тоже,
+   * — иначе под полем их было две, а дальше одна (владелец 26.09).
+   */
+  lined?: boolean;
 }) {
   return (
-    <label className="flex items-center gap-2 border-b border-line px-4 py-3">
+    <label className={`flex items-center gap-2 px-4 py-3 ${lined ? "border-b border-line" : ""}`}>
       <MagnifyingGlass className="size-5 shrink-0 text-muted" aria-hidden="true" />
       <input
         type="search"

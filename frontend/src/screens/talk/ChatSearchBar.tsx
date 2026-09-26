@@ -112,6 +112,7 @@ export function ChatSearchBar({
           value={query}
           label="Что искать в чате"
           placeholder="Поиск в этом чате"
+          lined={false}
           onChange={setQuery}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
