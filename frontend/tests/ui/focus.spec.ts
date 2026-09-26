@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
   bubble,
   createChannel,
@@ -10,6 +9,7 @@ import {
   register,
   say,
 } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * ОТКРЫЛ ЧАТ — СРАЗУ ПЕЧАТАЕШЬ (владелец 26.09).

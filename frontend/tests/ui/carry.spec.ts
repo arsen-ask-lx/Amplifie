@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, createChannel, openChannel, register, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * П-6 плана task-085: реплика приезжает самим событием, и вкладка за ней

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { register } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 test("настройки открываются по адресу, показывают профиль и возвращают в приложение", async ({
   page,

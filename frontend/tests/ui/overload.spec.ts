@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { bubble, createChannel, register, say } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * Короткий сбой сервера — повод подождать, а не ошибка до перезагрузки (task-096).

@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { createChannel, field, menu, register, say } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * «ПЕРЕСЛАТЬ» ИЩЕТ ЧАТ (task-117, П-7, П-8).

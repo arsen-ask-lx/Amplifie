@@ -1,4 +1,3 @@
-import { expect, type Page, type Request, test } from "@playwright/test";
 import {
   bubble,
   createChannel,
@@ -9,6 +8,7 @@ import {
   say,
   unreadIn,
 } from "./fixtures.js";
+import { expect, type Page, type Request, test } from "./guard.js";
 
 /**
  * Возврат в дочитанный чат показывает переписку в том же кадре (task-114).

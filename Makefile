@@ -37,6 +37,15 @@ COMPOSE := docker compose -f compose.yml -f compose.dev.yml
 # состояния» — ровно то, что нужно поддержке.
 export AMPLIFIE_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null)
 
+# ⚠️ ИМЕНА ОБРАЗОВ СТЕНДА — ЗДЕСЬ, А НЕ В compose.yml (task-118). Там у них
+# нет значения по умолчанию: `latest` отдавал клиенту что угодно с диска.
+# `?=` — чтобы сборка выпуска могла назвать свои.
+export AMPLIFIE_IMAGE_API ?= amplifie/api:dev
+export AMPLIFIE_IMAGE_WEB ?= amplifie/web:dev
+
+# Тот же Node, что в Dockerfile, — для замка версий (deps-lock).
+NODE_IMAGE := node:26.10.0-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2
+
 help: ## показать этот список
 > @grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
@@ -141,6 +150,14 @@ down: ## остановить стек (данные сохраняются)
 reset: ## остановить и СТЕРЕТЬ данные (дев-база)
 > $(COMPOSE) down -v
 
+# ⚠️ СТАРЫЙ ТОМ CADDY ПРИНАДЛЕЖИТ ROOT, А CADDY ТЕПЕРЬ НЕ ROOT (task-118).
+# Он стартует и отвечает — ошибка видна только в журнале, а проявится
+# в день выхода на домен: сертификат некуда записать. Разово на стенде
+# и на установке, поднятой до task-118; данные не трогаются.
+caddy-volume: ## отдать том Caddy его пользователю (разово, для установок до task-118)
+> MSYS_NO_PATHCONV=1 docker run --rm -v $${CADDY_VOLUME:-amplifie_caddy_data}:/data --user 0 caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b chown -R 10001:10001 /data
+> @echo "том Caddy отдан пользователю 10001"
+
 logs: ## хвост логов всех сервисов
 > $(COMPOSE) logs -f --tail=100
 
@@ -198,7 +215,7 @@ install: ## поставить зависимости локально (для �
 # ⚠️ НЕ `rm package-lock.json && npm install` НА WINDOWS. Это ровно то
 # действие, которое ломает сборку: 26.09 оно стоило трёх прогонов подряд.
 deps-lock: ## пересобрать package-lock.json в Linux — npm/cli#8320
-> MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/work" -w /work >   node:26-bookworm-slim npm install --package-lock-only
+> MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/work" -w /work >   $(NODE_IMAGE) npm install --package-lock-only
 > @echo "замок пересобран в Linux; проверь линуксовые двоичные: make deps-check"
 
 deps-check: ## есть ли в замке двоичные файлы для Linux
@@ -472,4 +489,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
+.PHONY: caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, createChannel, field, register } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * Вставил текст и сразу нажал ввод — реплика уходит (Д-21).

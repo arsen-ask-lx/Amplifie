@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { register } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 test("агенты оставляют две рабочие секции без вступительных пояснений", async ({ page }) => {
   await register(page, "Оператор");

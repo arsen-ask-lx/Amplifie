@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { register, rowMenu } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ОКНА С ЧИСТОГО ЛИСТА И ВИД ПРОЕКТА (task-103). Написан ДО правки и обязан

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, openChannel, register, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * П-1 и П-2 из task-017: владелец зовёт, коллега входит, оба в одном чате.

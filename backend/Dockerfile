@@ -1,5 +1,11 @@
 # Сборка один раз, запуск везде (build once, deploy everywhere)
-FROM node:26-bookworm-slim AS build
+#
+# ⚠️ БАЗОВЫЙ ОБРАЗ — ТОЧНАЯ ВЕРСИЯ И ОТПЕЧАТОК (task-118, Д-36); тот же,
+# что в `frontend/Dockerfile` и `Makefile`. Обновление — правка строки
+# и `make delivery`.
+ARG NODE_IMAGE=node:26.10.0-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2
+
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 COPY package.json package-lock.json* tsconfig.json ./
 COPY tools/tsconfig.base.json tools/
@@ -13,7 +19,8 @@ COPY packages/contract/package.json packages/contract/
 # Мост ЗАПУСКАЕТСЯ на машине человека, но РАЗДАЁТСЯ отсюда: бек отдаёт его
 # одним архивом, и строка с сайта ставит его `npx` из любой папки (task-065).
 COPY bridge/package.json bridge/
-RUN npm ci
+# Пакеты — из кеша сборщика: повторная сборка на той же машине их не качает.
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY packages/model packages/model
 COPY packages/contract packages/contract
 COPY backend backend
@@ -30,7 +37,7 @@ RUN npx tsc --build backend
 COPY bridge bridge
 RUN npm run bridge:pack
 
-FROM node:26-bookworm-slim AS runtime
+FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -51,7 +58,9 @@ COPY package.json package-lock.json* ./
 COPY backend/package.json backend/
 COPY packages/model/package.json packages/model/
 COPY packages/contract/package.json packages/contract/
-RUN npm ci --omit=dev && npm cache clean --force
+# Кеш — в монтировании, в слой он не попадает; `npm cache clean` здесь
+# чистил бы общий кеш сборщика на каждой сборке.
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 COPY --from=build /app/packages/model/dist packages/model/dist
 COPY --from=build /app/packages/contract/dist packages/contract/dist
 COPY --from=build /app/backend/dist backend/dist

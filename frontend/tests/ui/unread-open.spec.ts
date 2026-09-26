@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
   chatWithUnread,
   createChannel,
@@ -8,6 +7,7 @@ import {
   register,
   unreadIn,
 } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * НЕПРОЧИТАННОЕ КАК В TELEGRAM (task-107). Написан ДО кода и обязан быть

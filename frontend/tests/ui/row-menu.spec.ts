@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { createChannel, inviteToken, joinVoice, register } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ДЕЙСТВИЯ СТРОКИ ПАНЕЛИ — ПРАВОЙ КНОПКОЙ (task-102) И КНОПКОЙ НАСТРОЕК.

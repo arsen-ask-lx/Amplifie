@@ -1,4 +1,3 @@
-import { expect, type Page, test } from "@playwright/test";
 import {
   bubble,
   bubbles,
@@ -10,6 +9,7 @@ import {
   say,
   seedHistory,
 } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ПЕРЕХОД К ДАВНЕМУ СООБЩЕНИЮ (task-099, П-4).

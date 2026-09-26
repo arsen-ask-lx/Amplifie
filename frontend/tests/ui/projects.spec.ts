@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { createChannel, invited, openChannel, register, rowMenu, say } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * СЦЕНАРИИ ПРОЕКТОВ (Р-032, task-035).

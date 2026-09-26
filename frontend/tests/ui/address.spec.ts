@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, createChannel, openChannel, register, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * П-3 плана task-067: вкладка чужого разговора не идёт за лентой.

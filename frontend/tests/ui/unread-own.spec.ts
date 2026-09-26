@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { createChannel, register, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * ЧЕРТА «НЕПРОЧИТАННЫЕ» НЕ ВСТАЁТ НАД СВОИМИ РЕПЛИКАМИ (Д-58).

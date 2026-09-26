@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { bubble, createChannel, menu, openChannel, register, say, typeInto } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * РЕПЛИКИ НЕ ТЕРЯЮТСЯ ПРИ ЧАСТОЙ ОТПРАВКЕ (task-111, Д-52). Написан ДО кода

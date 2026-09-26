@@ -9,6 +9,32 @@
 
 :80 {
 	encode gzip
+
+	# Защитные заголовки — на КАЖДЫЙ ответ: страницу, статику, API, здоровье
+	# (task-118, Д-35). Разбор каждой строки — в плане задачи.
+	#
+	# ⚠️ СТИЛИ С 'unsafe-inline', И ЭТО ЦЕНА, А НЕ НЕДОСМОТР. Окна Radix
+	# ставят свой <style> (react-style-singleton, блокировка прокрутки под
+	# окном); без него окна ломаются. Скрипты при этом строго 'self' —
+	# главный путь внедрения закрыт. Шрифт data: — Vite вшивает в CSS один
+	# woff2 (расширенная кириллица Unbounded), без него «ґ» и «₴» падают
+	# на запасной шрифт.
+	#
+	# ⚠️ HSTS ЗДЕСЬ НЕТ: установка слушает HTTP, а по HTTP браузер HSTS
+	# игнорирует. Появится блок с доменом — строка
+	# `Strict-Transport-Security "max-age=31536000"` ставится В НЁМ,
+	# Caddy сам её не добавляет (условие записано в Д-35).
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		# Закрытый контур фирмы: внутреннее имя хоста не уезжает по ссылкам из чата.
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		-Server
+	}
 	# Публичный, но безопасный маркер: `make dev-status` отличает собранную
 	# статику от Vite на том же адресе без догадки по процессам Windows.
 	header X-Amplifie-Frontend "caddy-static"
@@ -30,9 +56,22 @@
 		reverse_proxy api:3000
 	}
 
+	# ⚠️ СОБРАННЫЕ ФАЙЛЫ — НАВСЕГДА, ОТСУТСТВУЮЩИЕ — 404, А НЕ СТРАНИЦА.
+	# Имя файла сборки несёт отпечаток содержимого, поэтому кешируется
+	# на год. А без 404 вкладка, открытая до обновления, просила удалённый
+	# `index-*.js` и получала вместо него HTML — белый экран (task-118).
+	handle /assets/* {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
 	# Всё остальное — статика фронта. try_files отдаёт index.html на
 	# неизвестных путях: маршрутизацию ведёт клиент, а не прокси.
+	# Сама страница — «спроси, не изменилась ли»: иначе после обновления
+	# браузер держит старую со ссылками на старые файлы.
 	handle {
+		header Cache-Control "no-cache"
 		root * /srv
 		try_files {path} /index.html
 		file_server

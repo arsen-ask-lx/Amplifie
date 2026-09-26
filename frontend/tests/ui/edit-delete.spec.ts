@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, createChannel, field, menu, register, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * Изменить и удалить — как в Телеграме (task-061).

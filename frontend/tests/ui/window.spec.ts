@@ -1,4 +1,3 @@
-import { expect, type Page, test } from "@playwright/test";
 import {
   bubbles,
   createChannel,
@@ -9,6 +8,7 @@ import {
   say,
   seedHistory,
 } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ОКНО ЛЕНТЫ (task-016, Р-023): старое вытесняется — но только у того,

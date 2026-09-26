@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { field, skipSetup } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * МАСТЕР ПЕРВОГО ЗАПУСКА (task-023).

@@ -1,5 +1,5 @@
-import { type Browser, expect, type Page, test } from "@playwright/test";
 import { bubble, createChannel, invited, openChannel, register } from "./fixtures.js";
+import { type Browser, expect, type Page, test } from "./guard.js";
 
 /**
  * Вкладка ходит на сервер по делу, а прочитанное остаётся прочитанным (task-097).

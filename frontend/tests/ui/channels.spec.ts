@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, bubbles, createChannel, openChannel, register, rowMenu, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * П-5: переключение каналов не смешивает ленты.

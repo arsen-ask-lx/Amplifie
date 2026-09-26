@@ -1,4 +1,3 @@
-import { expect, type Page, test } from "@playwright/test";
 import {
   createChannel,
   field,
@@ -8,6 +7,7 @@ import {
   register,
   say,
 } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ПЕРЕХОД БЕЗ МИГАНИЯ (task-101). Написан ДО правки и обязан быть красным.

@@ -9,6 +9,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ⚠️ ИМЕНА ОБРАЗОВ СТЕНДА — ДЛЯ ГОЛЫХ `docker compose` В ШАГАХ (task-118).
+# У compose.yml значения по умолчанию больше нет (было `latest`), и шаг
+# журналов при падении падал бы сам. Makefile берёт те же имена (`?=`),
+# сборка выпуска называет свои.
+env:
+  AMPLIFIE_IMAGE_API: amplifie/api:dev
+  AMPLIFIE_IMAGE_WEB: amplifie/web:dev
+
 jobs:
   # Дешёвое первым (fail fast): секунды, без базы и без Docker.
   quality:

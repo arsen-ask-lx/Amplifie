@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, bubbles, createChannel, register, typeInto } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * П-1: первая реплика в новом канале не мерцает.

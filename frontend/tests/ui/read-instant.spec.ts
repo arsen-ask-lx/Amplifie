@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { chatWithUnread, panelRow, unreadIn } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ЧИСЛО НЕПРОЧИТАННОГО НЕ ЖДЁТ СЕРВЕРА (task-108). Написан ДО кода

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { createChannel, menu, register, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * ОТКАЗ В ЗАКРЕПЕ ВИДЕН ЧЕЛОВЕКУ (Р-045).

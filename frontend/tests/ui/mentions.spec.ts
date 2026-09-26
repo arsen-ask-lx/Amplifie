@@ -1,4 +1,3 @@
-import { expect, type Page, test } from "@playwright/test";
 import {
   bubble,
   bubbles,
@@ -9,6 +8,7 @@ import {
   openChannel,
   register,
 } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * СЦЕНАРИИ УПОМИНАНИЯ (Р-031, task-033).

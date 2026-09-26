@@ -1,5 +1,5 @@
-import { type Browser, expect, type Page, test } from "@playwright/test";
 import { bubble, createChannel, login, openChannel, register, say } from "./fixtures.js";
+import { type Browser, expect, type Page, test } from "./guard.js";
 
 /**
  * Поток живых обновлений переживает отказ (task-093, срез 1).

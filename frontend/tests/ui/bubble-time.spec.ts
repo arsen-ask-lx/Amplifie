@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, createChannel, fontsReady, register, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * Время в углу реплики не налезает на её текст — иначе последнее слово

@@ -35,7 +35,7 @@ services:
       dockerfile: backend/Dockerfile
       args:
         AMPLIFIE_VERSION: ${AMPLIFIE_VERSION:-}
-    image: ${AMPLIFIE_IMAGE_API:-amplifie/api:latest}
+    image: ${AMPLIFIE_IMAGE_API:?образ api задаёт Makefile — поднимай стенд через make}
     environment:
       # ⚠️ ЭТО ДЕВ-ЗНАЧЕНИЕ, И ЖИВЁТ ОНО ЗДЕСЬ ИМЕННО ПОЭТОМУ.
       # Продукт — коробка: одна установка, одна компания, все кроме первого
@@ -55,7 +55,7 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         AMPLIFIE_VERSION: ${AMPLIFIE_VERSION:-}
-    image: ${AMPLIFIE_IMAGE_WEB:-amplifie/web:latest}
+    image: ${AMPLIFIE_IMAGE_WEB:?образ web задаёт Makefile — поднимай стенд через make}
 
   # ⚠️ ТОЛЬКО СТЕНД. Коробке клиента Prometheus не достаётся: он объявлен
   # здесь и больше нигде. `docker compose -f compose.yml config` обязан

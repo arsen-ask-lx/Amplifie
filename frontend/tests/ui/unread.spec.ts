@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
   bubble,
   createChannel,
@@ -10,6 +9,7 @@ import {
   say,
   typeInto,
 } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * НЕПРОЧИТАННОЕ ГЛАЗАМИ ЧЕЛОВЕКА (task-024, Р-029).

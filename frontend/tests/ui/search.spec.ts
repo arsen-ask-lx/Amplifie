@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { bubbles, createChannel, register, say, seedHistory } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ПОИСК ПО СООБЩЕНИЯМ (task-100, П-9). Написан ДО окна поиска и обязан

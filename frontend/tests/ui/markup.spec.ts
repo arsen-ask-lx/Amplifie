@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, createChannel, field, menu, register, say, typeInto } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * РАЗМЕТКА ВПЕРЕМЕШКУ И ПЛАШКА О КОПИРОВАНИИ (task-021, Р-028).

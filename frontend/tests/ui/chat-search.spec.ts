@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
 import { bubbles, createChannel, register, say } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ПОИСК ВНУТРИ ЧАТА (task-106). Написан ДО кода и обязан быть красным.
