@@ -880,19 +880,25 @@ export async function pinMessage(
       if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
       await requireVisible(tx, viewer, found.conversationId);
 
-      // Потолок (Р-045) — только для НОВОГО закрепления: повтор места не занимает.
-      // Гонку двух закреплений у сотни снимает замок строки пространства,
-      // который `change` берёт на номер изменения: записи идут по одной.
+      // Повтор — не ошибка: результат тот же.
+      await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
+
+      /**
+       * Потолок (Р-045) — только для НОВОГО закрепления: повтор места не занимает.
+       *
+       * ⚠️ СЧИТАЕМ ПОСЛЕ ЗАПИСИ, А НЕ ДО. Запись берёт замок строки пространства
+       * (номер изменения), и все записи пространства идут по одной. Подсчёт до
+       * записи шёл без замка: четверо одновременно у 99 видели 99 и проходили
+       * все — выходило 103 (найдено ревью open-code-review, Р-046). После записи
+       * подсчёт видит всех, кто прошёл раньше; лишний откатывается целиком.
+       */
       if (
         pinned &&
         found.pinnedAt === null &&
-        (await repo.countPinned(tx, found.conversationId)) >= PIN_LIMIT
+        (await repo.countPinned(tx, found.conversationId)) > PIN_LIMIT
       ) {
         throw new PinLimitError();
       }
-
-      // Повтор — не ошибка: результат тот же.
-      await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
 
       await logMessageEvent(
         tx,

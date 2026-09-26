@@ -132,6 +132,22 @@ describe("закреплённое: потолок и частота", () => {
     expect(await pinnedCount(people[0] as Person, room)).toBe(LIMIT);
   }, 120_000);
 
+  it("четверо закрепляют одновременно у 99 — проходит ровно один", async () => {
+    // ⚠️ НАЙДЕНО РЕВЬЮ open-code-review 26.09 (Р-046): подсчёт шёл ДО замка
+    // пространства, и двое одновременных у 99 оба видели 99 — выходило 101.
+    const owner = people[0] as Person;
+    expect((await unpin(owner, said[0]?.[20] ?? "")).status).toBe(204);
+    expect(await pinnedCount(owner, room)).toBe(LIMIT - 1);
+
+    const racers = [1, 2, 3, 4].map((n) => {
+      const id = n === 2 ? said[2]?.[0] : said[n]?.[20];
+      return pin(people[n] as Person, id ?? "");
+    });
+    const codes = (await Promise.all(racers)).map((one) => one.status).sort();
+    expect(codes, "у сотни прошло не ровно одно закрепление").toEqual([204, 409, 409, 409]);
+    expect(await pinnedCount(owner, room)).toBe(LIMIT);
+  }, 60_000);
+
   it("закреплять чаще, чем может рука, нельзя", async () => {
     // Свежий человек: у пятерых выше счётчик уже потрачен первым сценарием.
     // Одну и ту же реплику — раз за разом: повтор места не занимает, но
