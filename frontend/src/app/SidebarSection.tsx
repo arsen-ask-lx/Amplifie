@@ -67,7 +67,7 @@ export function SidebarSection({
               onClick={onAdd}
               className={[
                 "grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted transition-opacity",
-                "hover:bg-raised hover:text-ink focus-visible:opacity-100",
+                "outline-none hover:bg-raised hover:text-ink focus-visible:bg-raised focus-visible:text-ink focus-visible:opacity-100",
                 addAlwaysVisible
                   ? "opacity-100"
                   : "opacity-0 group-focus-within/section:opacity-100 group-hover/section:opacity-100",

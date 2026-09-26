@@ -149,12 +149,12 @@ export function ProjectRow({
           иначе правая кнопка по чату открыла бы меню проекта. */}
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="group/project flex items-center rounded pr-1 transition-colors hover:bg-raised">
+          <div className="group/project flex items-center rounded pr-1 transition-colors hover:bg-raised has-[button:focus-visible]:bg-raised">
             <button
               type="button"
               aria-expanded={!collapsed}
               onClick={onToggle}
-              className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors hover:text-ink"
+              className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors outline-none hover:text-ink focus-visible:text-ink"
             >
               <ProjectGlyph icon={project.icon} color={project.color} className="size-4" />
               <span className="truncate font-medium">{project.title}</span>
@@ -167,7 +167,7 @@ export function ProjectRow({
               type="button"
               aria-label={`Новый чат в проекте «${project.title}»`}
               onClick={onAddChannel}
-              className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100"
+              className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 outline-none transition-opacity hover:bg-selected hover:text-ink focus-visible:bg-selected focus-visible:text-ink focus-visible:opacity-100 group-hover/project:opacity-100"
             >
               <Plus className="size-3.5" weight="bold" />
             </button>
@@ -175,7 +175,7 @@ export function ProjectRow({
               {/* Как плюс: виден при наведении и фокусе; открытое меню его держит. */}
               <DropdownMenuTrigger
                 aria-label={`Настройки проекта «${project.title}»`}
-                className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100 data-[state=open]:opacity-100"
+                className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 outline-none transition-opacity hover:bg-selected hover:text-ink focus-visible:bg-selected focus-visible:text-ink focus-visible:opacity-100 group-hover/project:opacity-100 data-[state=open]:opacity-100"
               >
                 <Gear className="size-3.5" weight="bold" />
               </DropdownMenuTrigger>
@@ -219,7 +219,7 @@ export function ProjectRow({
                 <button
                   type="button"
                   onClick={onMore}
-                  className="rounded bg-transparent px-2.5 py-1.5 text-left text-aside text-muted transition-colors hover:bg-raised hover:text-ink"
+                  className="rounded bg-transparent px-2.5 py-1.5 text-left text-aside text-muted outline-none transition-colors hover:bg-raised hover:text-ink focus-visible:bg-raised focus-visible:text-ink"
                 >
                   Показать ещё
                 </button>

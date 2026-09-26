@@ -219,7 +219,9 @@ export function ChannelRow({
         <div
           className={[
             "group/room flex items-center rounded transition-colors",
-            current ? "bg-selected" : "bg-transparent hover:bg-raised",
+            current
+              ? "bg-selected"
+              : "bg-transparent hover:bg-raised has-[button:focus-visible]:bg-raised",
           ].join(" ")}
         >
           <button
@@ -227,7 +229,7 @@ export function ChannelRow({
             aria-current={current ? "page" : undefined}
             onClick={() => onSelect(channel.id)}
             className={[
-              "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors",
+              "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors outline-none",
               current ? "font-medium text-ink" : "text-muted group-hover/room:text-ink",
               // Название канала с непрочитанным набрано плотнее: у Телеграма
               // так же, и это второй признак помимо числа — тот, кто читает
@@ -253,7 +255,7 @@ export function ChannelRow({
                 и строка перестаёт быть «под курсором». */}
             <DropdownMenuTrigger
               aria-label={`Настройки чата «${channel.title}»`}
-              className="hidden size-6 shrink-0 place-items-center rounded bg-transparent text-muted hover:bg-selected hover:text-ink group-focus-within/room:grid group-hover/room:grid data-[state=open]:grid"
+              className="hidden size-6 shrink-0 place-items-center rounded bg-transparent text-muted outline-none hover:bg-selected hover:text-ink focus-visible:bg-selected focus-visible:text-ink group-focus-within/room:grid group-hover/room:grid data-[state=open]:grid"
             >
               <DotsThreeVertical className="size-4" weight="bold" />
             </DropdownMenuTrigger>

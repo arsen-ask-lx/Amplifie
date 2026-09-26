@@ -78,7 +78,7 @@ export function Rail({
           <button
             type="button"
             onClick={() => setCreatingFor(null)}
-            className="flex items-center gap-2.5 rounded bg-transparent px-2.5 py-2 text-left text-body text-muted transition-colors hover:bg-raised hover:text-ink"
+            className="flex items-center gap-2.5 rounded bg-transparent px-2.5 py-2 text-left text-body text-muted outline-none transition-colors hover:bg-raised hover:text-ink focus-visible:bg-raised focus-visible:text-ink"
           >
             <NotePencil className="size-4 shrink-0" />
             Новый чат
