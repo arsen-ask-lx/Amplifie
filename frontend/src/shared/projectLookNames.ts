@@ -1,4 +1,4 @@
-import type { ProjectIcon } from "@amplifie/contract";
+import { PROJECT_PRESETS, type ProjectIcon } from "@amplifie/contract";
 
 /**
  * Вид папки словами: как называются цвета и значки (task-038).
@@ -16,16 +16,29 @@ import type { ProjectIcon } from "@amplifie/contract";
  * тому, кто цвета не различает: для него это одинаковые серые точки.
  * Свой цвет из пипетки имени не имеет — там его называет сам человек.
  */
-export const PRESET_LABELS: Record<string, string> = {
-  "#e05a5a": "Красный",
-  "#b86d1e": "Оранжевый",
-  "#98790f": "Жёлтый",
-  "#2e8b58": "Зелёный",
-  "#1f7f78": "Бирюзовый",
-  "#4180d2": "Синий",
-  "#8a6bd2": "Фиолетовый",
-  "#5f6b7a": "Графитовый",
-};
+/**
+ * ⚠️ ИМЕНА ПО ПОРЯДКУ `PROJECT_PRESETS`, А НЕ СВОИМ СПИСКОМ ЦВЕТОВ (Д-66).
+ * Цвета жили здесь вторым списком — сменись палитра в контракте, подписи
+ * молча отстали бы. Что у каждого цвета есть имя — держит `projectLookNames.test.ts`.
+ */
+const PRESET_NAMES = [
+  "Красный",
+  "Оранжевый",
+  "Жёлтый",
+  "Зелёный",
+  "Бирюзовый",
+  "Синий",
+  "Фиолетовый",
+  "Графитовый",
+] as const;
+
+export const PRESET_LABELS: Record<string, string> = Object.fromEntries(
+  PROJECT_PRESETS.map((hex, at) => [hex, PRESET_NAMES[at] ?? hex]),
+);
+
+/** Цвет пипетки, пока свой не выбран, — синий из той же палитры. */
+export const DEFAULT_PICK: string =
+  PROJECT_PRESETS.find((hex) => PRESET_LABELS[hex] === "Синий") ?? PROJECT_PRESETS[0];
 
 /**
  * Имена значков человеку — для чтения с экрана и для подсказки под

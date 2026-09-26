@@ -1,3 +1,4 @@
+import { DEFAULT_PICK } from "../projectLookNames.js";
 /**
  * Пипетка — третье поле продукта: поле формы, строка команды и выбор цвета.
  *
@@ -27,7 +28,7 @@ export function ColorField({
       <span className="sr-only">{label}</span>
       <input
         type="color"
-        value={value ?? "#4180d2"}
+        value={value ?? DEFAULT_PICK}
         aria-label={label}
         onChange={(event) => onChange(event.target.value.toLowerCase())}
         className="size-5 cursor-pointer rounded-pill border-0 bg-transparent p-0"
