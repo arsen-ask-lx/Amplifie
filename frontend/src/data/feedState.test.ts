@@ -49,7 +49,7 @@ describe("команды ленты", () => {
   });
 
   it("arrived: только открытый разговор, окно режет сверху, закреплённое обновляется", () => {
-    const state = withMessages([msg("a", 1), msg("b", 2)]);
+    const state = withMessages([msg("a", 1), msg("b", 2)], { pinnedFor: ROOM });
     const got = feedState(state, {
       type: "arrived",
       lines: [
@@ -60,6 +60,18 @@ describe("команды ленты", () => {
       keep: 2,
     });
     expect([ids(got), got.pinned.map((one) => one.id)]).toEqual([["b", "c"], ["c"]]);
+  });
+
+  it("arrived: в закреплённое чужого чата живое не вливается (Д-59)", () => {
+    // Полоска ещё держит закреплённое покинутого чата — ответ про новый
+    // не приехал. Дополнять чужой список закреплением открытого нельзя.
+    const state = withMessages([msg("a", 1)], { pinned: [msg("чужое", 9)], pinnedFor: OTHER });
+    const got = feedState(state, {
+      type: "arrived",
+      lines: [msg("c", 3, { pinnedAt: "2026-09-17T11:00:00.000Z" })],
+      openId: ROOM,
+    });
+    expect([got.pinned.map((one) => one.id), got.pinnedFor]).toEqual([["чужое"], OTHER]);
   });
 
   it("older: старое вливается без окна, hasOlder из ответа", () => {
@@ -112,9 +124,12 @@ describe("команды ленты", () => {
   it("pinnedLoaded: закреплённое заменяется целиком", () => {
     const got = feedState(withMessages([], { pinned: [msg("старое", 1)] }), {
       type: "pinnedLoaded",
+      conversationId: OTHER,
       items: [msg("новое", 2)],
     });
     expect(got.pinned.map((one) => one.id)).toEqual(["новое"]);
+    // Закреплённое помнит, чьё оно: чужое полоска не покажет (Д-59).
+    expect(got.pinnedFor).toBe(OTHER);
   });
 });
 
@@ -221,6 +236,8 @@ describe("снимок чата", () => {
 
   it("уход из чата кладёт срез целиком, а не одни реплики", () => {
     const state = withMessages([msg("a", 1), msg("b", 2)], {
+      pinned: [msg("a", 1)],
+      pinnedFor: ROOM,
       hasOlder: true,
       hasNewer: false,
       readSeq: 2,
@@ -233,6 +250,8 @@ describe("снимок чата", () => {
     });
     expect(snapshotOf(got, ROOM)).toEqual({
       messages: [msg("a", 1), msg("b", 2)],
+      // Закреплённое уходит в снимок вместе с лентой: возврат покажет своё (Д-59).
+      pinned: [msg("a", 1)],
       hasOlder: true,
       hasNewer: false,
       readSeq: 2,
@@ -282,6 +301,7 @@ describe("снимок чата", () => {
       snapshots: {
         [OTHER]: {
           messages: [msg("чужая", 7, { conversationId: OTHER })],
+          pinned: [],
           hasOlder: false,
           hasNewer: false,
           readSeq: 7,

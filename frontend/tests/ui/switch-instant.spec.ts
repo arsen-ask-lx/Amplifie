@@ -280,3 +280,80 @@ test("П-7 цена не выросла: возврат по снимку сто
     1,
   );
 });
+
+/**
+ * П-8 (Д-59): полоска закреплённого не показывает ЧУЖОЕ ни в одном кадре.
+ *
+ * ⚠️ ОТВЕТ ПРО ЗАКРЕПЛЁННОЕ ДЕРЖИМ ТРИ СЕКУНДЫ НАРОЧНО. Владелец 26.09 поймал
+ * закреплённое из «gbfd» в «123qwe» не на кадр, а надолго: стенд тогда рвал
+ * соединения, ответ опаздывал, и всё это время над чужой лентой висело
+ * закреплённое покинутого чата. Задержка делает этот случай постоянным.
+ */
+test("П-8 закреплённое покинутого чата не видно в новом ни в одном кадре", async ({ page }) => {
+  await register(page, "Закрепляющий");
+  const pinHere = async (text: string): Promise<string> => {
+    await say(page, text);
+    const room = new URL(page.url()).pathname.split("/")[2] ?? "";
+    const page1 = (await (await page.request.get(`/v1/conversations/${room}/messages`)).json()) as {
+      items: Array<{ id: string; body: string }>;
+    };
+    const mine = page1.items.find((one) => one.body === text);
+    const pinned = await page.request.post(`/v1/messages/${mine?.id}/pin`);
+    expect(pinned.ok(), `не закрепилось «${text}»`).toBe(true);
+    return room;
+  };
+  await createChannel(page, "Смета");
+  await pinHere("закреп сметы");
+  await createChannel(page, "Договор");
+  await pinHere("закреп договора");
+
+  const bar = page.getByTitle("Перейти к закреплённому");
+  await openChannel(page, "Смета");
+  await expect(bar).toContainText("закреп сметы");
+
+  await page.route("**/v1/conversations/*/pinned", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await route.continue();
+  });
+
+  /**
+   * Считаем кадры, где НА ЭКРАНЕ уже новый чат (его имя в шапке), а в полоске —
+   * закреплённое покинутого. Это и есть ложь. До щелчка человек честно в старом
+   * чате: первая редакция считала и эти кадры (пять лишних). Счёт по адресу
+   * ловил ещё один — адрес меняется на кадр раньше экрана, и в этом кадре весь
+   * экран ещё старый, вместе с шапкой и лентой: ничего чужого в нём нет.
+   */
+  const watchForeign = (marker: string, room: string) =>
+    page.evaluate(
+      ({ text, target }) => {
+        const seen: boolean[] = [];
+        (window as unknown as { foreign: boolean[] }).foreign = seen;
+        const tick = () => {
+          const shown = document.querySelector('[title="Перейти к закреплённому"]');
+          const there = document.querySelector("h2")?.textContent === target;
+          seen.push(there && (shown?.textContent ?? "").includes(text));
+          (window as unknown as { foreignRaf: number }).foreignRaf = requestAnimationFrame(tick);
+        };
+        tick();
+      },
+      { text: marker, target: room },
+    );
+  const stopForeign = () =>
+    page.evaluate(() => {
+      const w = window as unknown as { foreign: boolean[]; foreignRaf: number };
+      cancelAnimationFrame(w.foreignRaf);
+      return w.foreign.filter(Boolean).length;
+    });
+
+  // Уходим в «Договор»: закреплённого сметы там быть не должно ни кадра.
+  await watchForeign("закреп сметы", "Договор");
+  await openChannel(page, "Договор");
+  await expect(bar).toContainText("закреп договора", { timeout: 10_000 });
+  expect(await stopForeign(), "в «Договоре» висело закреплённое «Сметы»").toBe(0);
+
+  // И обратно: закреплённого договора в «Смете» не должно быть тоже.
+  await watchForeign("закреп договора", "Смета");
+  await openChannel(page, "Смета");
+  await expect(bar).toContainText("закреп сметы", { timeout: 10_000 });
+  expect(await stopForeign(), "в «Смете» висело закреплённое «Договора»").toBe(0);
+});

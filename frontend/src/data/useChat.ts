@@ -97,6 +97,9 @@ export interface Chat extends Omit<MessageActions, "outgoing"> {
  * @param onSessionEnded — сервер перестал узнавать печеньку (401 на потоке
  *   или догоне). Решает не лента, а приложение: ему показывать вход.
  */
+/** Пустое закреплённое одной ссылкой: новый массив на каждую отрисовку перерисовывал бы полоску. */
+const NO_PINS: Message[] = [];
+
 export function useChat(me: Me, onSessionEnded: () => void = () => undefined): Chat {
   /**
    * Лента, закреплённое и «есть ли старше» — одним редьюсером (task-098).
@@ -104,7 +107,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
    * или «черновик ушёл», знает `feedState`, а не каждое место отдельно.
    */
   const [feed, dispatch] = useReducer(feedState, emptyFeed);
-  const { messages, pinned, hasOlder, hasNewer, readSeq } = feed;
+  const { messages, hasOlder, hasNewer, readSeq } = feed;
   /**
    * Срезы чатов — ссылкой: их читает эффект загрузки, а перерисовывать
    * ленту при смене снимков незачем, на экране от этого ничего не меняется.
@@ -435,7 +438,7 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
   /** Закреплённое разговора. Читается отдельной дверью и при каждой смене. */
   useEffect(() => {
     if (!currentId) {
-      dispatch({ type: "pinnedLoaded", items: [] });
+      dispatch({ type: "pinnedLoaded", conversationId: null, items: [] });
       return;
     }
     let cancelled = false;
@@ -443,12 +446,12 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     api
       .pinned(currentId, stop.signal)
       .then(({ items }) => {
-        if (!cancelled) dispatch({ type: "pinnedLoaded", items });
+        if (!cancelled) dispatch({ type: "pinnedLoaded", conversationId: currentId, items });
       })
       .catch(() => {
         // Полоска закреплённого — не то, ради чего стоит ронять экран.
         // Не приехала — её просто нет, разговор читается дальше.
-        if (!cancelled) dispatch({ type: "pinnedLoaded", items: [] });
+        if (!cancelled) dispatch({ type: "pinnedLoaded", conversationId: currentId, items: [] });
       });
     return () => {
       cancelled = true;
@@ -515,7 +518,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
     panel,
     boundary: readSeq,
     seen: reading.seen,
-    pinned,
+    // Только своё: закреплённое покинутого чата над новой лентой — ложь (Д-59).
+    pinned: feed.pinnedFor === currentId ? feed.pinned : NO_PINS,
     messages: visible,
     hasOlder,
     hasNewer,

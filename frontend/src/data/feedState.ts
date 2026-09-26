@@ -18,8 +18,17 @@ export interface FeedState {
    * при каждой загрузке, а черновик терять нельзя.
    */
   messages: Message[];
-  /** Закреплённое открытого разговора, свежее сверху. */
+  /** Закреплённое, свежее сверху. Чьё оно — в `pinnedFor`. */
   pinned: Message[];
+  /**
+   * Чьё закреплённое лежит в `pinned` (Д-59).
+   *
+   * ⚠️ БЕЗ ХОЗЯИНА ПОЛОСКА ВРАЛА. Закреплённое одно на вкладку, и при переходе
+   * над новой лентой висело закреплённое покинутого чата — пока не приедет
+   * ответ. На стенде, рвавшем соединения, ответ опаздывал, и владелец видел
+   * закреплённое «gbfd» в «123qwe» надолго. Показывается только своё.
+   */
+  pinnedFor: string | null;
   hasOlder: boolean;
   /**
    * За верхним краем есть незагруженное — лента открыта не в конце
@@ -56,6 +65,8 @@ export interface FeedState {
 /** Что помним про чат, из которого ушли. Все четыре поля ленты, не только её. */
 export interface Snapshot {
   messages: Message[];
+  /** Закреплённое этого чата — возврат показывает его сразу, своё (Д-59). */
+  pinned: Message[];
   hasOlder: boolean;
   hasNewer: boolean;
   readSeq: number | null;
@@ -76,6 +87,7 @@ const SNAPSHOT = 50;
 export const emptyFeed: FeedState = {
   messages: [],
   pinned: [],
+  pinnedFor: null,
   hasOlder: false,
   hasNewer: false,
   readSeq: null,
@@ -113,7 +125,7 @@ export type FeedCommand =
   | { type: "pinMarked"; messageId: string; pinnedAt: string | null }
   | { type: "edited"; message: Message }
   | { type: "removed"; messageId: string }
-  | { type: "pinnedLoaded"; items: Message[] };
+  | { type: "pinnedLoaded"; conversationId: string | null; items: Message[] };
 
 export function feedState(state: FeedState, command: FeedCommand): FeedState {
   switch (command.type) {
@@ -165,6 +177,8 @@ export function feedState(state: FeedState, command: FeedCommand): FeedState {
       return {
         ...state,
         messages: kept.messages,
+        pinned: kept.pinned,
+        pinnedFor: command.conversationId,
         hasOlder: kept.hasOlder,
         hasNewer: kept.hasNewer,
         readSeq: kept.readSeq,
@@ -182,7 +196,12 @@ export function feedState(state: FeedState, command: FeedCommand): FeedState {
           // а резать отрезок, который человек читает, — терять его.
           state.hasNewer ? undefined : command.keep,
         ),
-        pinned: mergePinned(state.pinned, command.lines, command.openId),
+        // Живое вливается только в закреплённое открытого чата: чужой список
+        // дополнять нечем, его сменит ответ сервера.
+        pinned:
+          state.pinnedFor === command.openId
+            ? mergePinned(state.pinned, command.lines, command.openId)
+            : state.pinned,
       };
     case "older":
       return {
@@ -240,7 +259,7 @@ function ownChange(state: FeedState, command: FeedCommand): FeedState {
         pinned: state.pinned.filter((one) => one.id !== command.messageId),
       };
     case "pinnedLoaded":
-      return { ...state, pinned: command.items };
+      return { ...state, pinned: command.items, pinnedFor: command.conversationId };
     default:
       return state;
   }
@@ -283,6 +302,7 @@ function remembered(state: FeedState, arriving: string): Record<string, Snapshot
     ...rest,
     [leaving]: {
       messages: kept,
+      pinned: state.pinnedFor === leaving ? state.pinned : [],
       hasOlder: state.hasOlder,
       hasNewer: state.hasNewer,
       /**
