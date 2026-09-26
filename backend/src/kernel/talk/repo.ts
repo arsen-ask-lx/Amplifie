@@ -222,6 +222,8 @@ export function listConversationsFor(
     rootOnly?: boolean;
     limit?: number;
     after?: PanelCursor;
+    /** Поиск по названию (task-117): шаблон LIKE, уже экранированный, без регистра и ё. */
+    titleLike?: { anywhere: string; start: string };
   } = {},
 ) {
   // Подзапросом, а не соединением: список разговоров не должен размножаться.
@@ -247,6 +249,7 @@ export function listConversationsFor(
     ), ${conversation.createdAt})
   )`;
 
+  const titled = options.titleLike && sql`replace(lower(${conversation.title}), 'ё', 'е')`;
   const after = options.after
     ? sql`(
         ${pinned} < ${options.after.pinned}
@@ -296,6 +299,7 @@ export function listConversationsFor(
         options.projectId === undefined ? undefined : eq(conversation.projectId, options.projectId),
         options.loose ? isNull(conversation.projectId) : undefined,
         options.onlyId === undefined ? undefined : eq(conversation.id, options.onlyId),
+        titled ? sql`${titled} LIKE ${options.titleLike?.anywhere}` : undefined,
         after,
       ),
     )
@@ -305,7 +309,14 @@ export function listConversationsFor(
      * реплике — и только доказав её непрерывность номером. Разрыв — берёт
      * панель отсюда заново. Разбор: Р-037, правка 16.09.2026.
      */
-    .orderBy(desc(pinned), desc(lastAt), desc(conversation.id));
+    // Поиск — по названию: подсчёты свежести тогда идут только для строк
+    // выдачи, а не для каждого чата пространства (замер в task-117).
+    .orderBy(
+      ...(titled
+        ? [desc(sql`${titled} LIKE ${options.titleLike?.start}`), asc(conversation.title)]
+        : [desc(pinned), desc(lastAt)]),
+      desc(conversation.id),
+    );
 
   return options.limit === undefined ? query : query.limit(options.limit);
 }

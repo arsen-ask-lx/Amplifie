@@ -1,6 +1,8 @@
 import {
   askBody,
   channelBody,
+  chatSearchBody,
+  chatsFound,
   conversationsPage,
   createdConversation,
   createdThread,
@@ -8,6 +10,7 @@ import {
   editBody,
   idOnly,
   idParams,
+  limitQuery,
   mentionAt,
   messagesPage,
   messageView,
@@ -51,6 +54,7 @@ import {
   pinMessage,
   removeProject,
   renameProject,
+  searchChats,
   searchMessages,
   sendMessage,
   setConversationPin,
@@ -73,6 +77,8 @@ const MAX_PAGE = 200;
 const DEFAULT_PAGE = 50;
 /** Страница поиска: столько строк помещается в окне поиска без прокрутки. */
 const DEFAULT_SEARCH_PAGE = 20;
+/** Старая дверь списка — первые сто (Д-15): все тесты и оснастка укладываются. */
+const MAX_LIST = 100;
 
 /** Размер страницы из адреса: мусор — значение по умолчанию, не ошибка. */
 function pageSize(raw: string | undefined): number {
@@ -126,8 +132,14 @@ const PIN_DOORS: ReadonlyArray<
 export function registerChatRoutes(scope: FastifyInstance): void {
   const app = scope.withTypeProvider<ZodTypeProvider>();
 
-  app.get("/v1/conversations", { schema: { response: { 200: panelView } } }, (request) =>
-    listConversations(actorOf(request)),
+  app.get(
+    "/v1/conversations",
+    { schema: { querystring: limitQuery, response: { 200: panelView } } },
+    (request) => {
+      const asked = Number(request.query.limit);
+      const limit = Number.isInteger(asked) && asked > 0 ? Math.min(asked, MAX_LIST) : MAX_LIST;
+      return listConversations(actorOf(request), limit);
+    },
   );
 
   /**
@@ -368,6 +380,20 @@ export function registerChatRoutes(scope: FastifyInstance): void {
         request.body.before,
         request.body.conversationId,
       ),
+  );
+
+  /**
+   * Поиск чата по названию — окно «Переслать» (task-117). `POST` и порог
+   * поиска по той же причине, что у поиска по сообщениям.
+   */
+  app.post(
+    "/v1/search/chats",
+    {
+      config: { rateLimit: SEARCH },
+      schema: { body: chatSearchBody, response: { 200: chatsFound } },
+    },
+    (request) =>
+      searchChats(actorOf(request), request.body.q, request.body.limit ?? DEFAULT_SEARCH_PAGE),
   );
 
   /**

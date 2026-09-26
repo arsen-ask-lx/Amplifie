@@ -52,10 +52,10 @@ export const conversationView = z.object({
 });
 
 /**
- * Все видимые разговоры одним ответом. Панель этим больше не пользуется
- * (с task-064 у неё `panelSnapshot` и курсорные двери) — форма осталась
- * у `/v1/conversations`, которую зовёт окно пересылки. Без предела
- * и страниц: это Д-41/Д-15, и чинится поиском, а не обрезкой.
+ * Первые сто видимых разговоров в порядке панели — `/v1/conversations`.
+ * Интерфейс этим больше не пользуется: панель берёт `panelSnapshot`
+ * и курсорные двери (task-064), окно пересылки — поиск чата (task-117).
+ * Зовут тесты и оснастка; предел закрыл Д-15.
  */
 export const panelView = z.object({
   items: z.array(conversationView),
@@ -264,6 +264,18 @@ export const searchBody = z.object({
   conversationId: id.optional(),
 });
 
+/**
+ * Поиск чата по названию — окно «Переслать» (task-117). Текст в теле, как у
+ * `searchBody`: названия приватных чатов — тоже переписка людей.
+ */
+export const chatSearchBody = z.object({
+  q: z.string().trim().min(1, "пустой запрос").max(100, "запрос длиннее 100 символов"),
+  limit: z.int().min(1).max(50).optional(),
+});
+
+/** Найденные чаты: только корневые и только видимые. */
+export const chatsFound = z.object({ items: z.array(conversationView) });
+
 export const readBody = z.object({ seq: z.int().min(0, "номер не бывает отрицательным") });
 
 export const channelBody = z.object({
@@ -331,6 +343,7 @@ export const pageQuery = z
     message: "«вокруг непрочитанного» не сочетается с курсором страницы",
   });
 export const cursorQuery = z.object({ cursor: z.string().optional() });
+export const limitQuery = z.object({ limit: z.string().optional() });
 
 /** Какой чат открыт в этой вкладке: его строка нужна ленте. */
 export const openQuery = z.object({ open: id.optional() });

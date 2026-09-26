@@ -1,4 +1,5 @@
 export { audienceFor, ConversationNotVisibleError, type Viewer } from "./access.js";
+export { searchChats } from "./chatSearch.js";
 export { MentionNotAllowedError, peopleToMention, whereMentioned } from "./mentions.js";
 export {
   deleteMessage,

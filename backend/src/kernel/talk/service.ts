@@ -9,7 +9,9 @@ import { mentionedWhoSee, setMentions } from "./mentions.js";
 import { listProjectsFor, requireProject, requireVisibleProject } from "./projects.js";
 import * as repo from "./repo.js";
 
-function presentConversation(row: Awaited<ReturnType<typeof repo.listConversationsFor>>[number]) {
+export function presentConversation(
+  row: Awaited<ReturnType<typeof repo.listConversationsFor>>[number],
+) {
   return {
     id: row.id,
     kind: row.kind,
@@ -99,9 +101,10 @@ function isDuplicateClientMsgId(error: unknown): boolean {
  * Панель целиком: разговоры и проекты одним ответом — её перечитывают
  * на каждый звонок потока (Р-006), и второй обмен удвоил бы самый частый.
  */
-export async function listConversations(viewer: Viewer) {
+/** Первые `limit` видимых разговоров в порядке панели (Д-15: без предела было 1,4 МБ). */
+export async function listConversations(viewer: Viewer, limit: number) {
   const [rows, projects] = await Promise.all([
-    repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId),
+    repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, { limit }),
     listProjectsFor(db, viewer.participantId, viewer.workspaceId),
   ]);
   return {
