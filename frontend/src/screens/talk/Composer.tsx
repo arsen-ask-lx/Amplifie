@@ -2,6 +2,7 @@ import { PaperPlaneRight } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { Message, Quote as QuoteData } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
+import { focusAfterClose, registerField } from "../../shared/ui/focusAfterClose.js";
 import { Above } from "./Above.js";
 import { FieldMenu } from "./FieldMenu.js";
 import { type FieldApi, RichField } from "./RichField.js";
@@ -92,17 +93,36 @@ export function Composer({
   }, [editing?.id]);
 
   /**
-   * Взяли реплику в ответ — курсор сразу в поле.
+   * Курсор в поле — сразу и ещё раз, когда меню или окно отпустят фокус.
    *
-   * ⚠️ НЕ СРАЗУ, А ТРЕМЯ ПОПЫТКАМИ. Меню по правой кнопке доигрывает
-   * закрытие ПОСЛЕ обработчика пункта и уводит фокус — не одним действием,
-   * а цепочкой отложенных. Замер показывал `BODY` даже через 400 мс.
+   * ⚠️ ЗАЯВКА ВМЕСТО ТРЁХ ТАЙМЕРОВ (владелец 26.09). Меню «Ответить» и окно
+   * «Новый чат» закрываются дольше, чем ждали таймеры в 0, 60 и 150 мс,
+   * и забирают фокус себе — «Ответить» в первый раз оставляло курсор
+   * в никуда. Теперь окно само отдаёт фокус полю в миг закрытия
+   * (`focusAfterClose`).
    */
+  const takeFocus = () => {
+    field.current?.focus();
+    focusAfterClose(() => field.current?.focus());
+  };
+
+  /**
+   * Открыл чат — сразу печатаешь (владелец 26.09: «нужно ткнуть в строку
+   * ввода и только потом печатать — жутко неудобно»). Так в Telegram:
+   * выбрал чат — курсор уже в поле.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: фокус по смене чата, а не по ссылке на поле
+  useEffect(() => {
+    if (conversationId) takeFocus();
+  }, [conversationId]);
+
+  // Щелчок по уже открытому чату в панели тоже возвращает курсор сюда.
+  useEffect(() => registerField(() => field.current?.focus()), []);
+
+  /** Взяли реплику в ответ — курсор сразу в поле. */
   // biome-ignore lint/correctness/useExhaustiveDependencies: важен факт появления цитаты, а не её поля
   useEffect(() => {
-    if (!replying) return;
-    const timers = [0, 60, 150].map((delay) => setTimeout(() => field.current?.focus(), delay));
-    return () => timers.forEach(clearTimeout);
+    if (replying) takeFocus();
   }, [replying?.id]);
 
   /**

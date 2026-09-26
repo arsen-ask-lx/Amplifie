@@ -2,6 +2,7 @@ import { CaretRight } from "@phosphor-icons/react";
 import { ContextMenu as Menu } from "radix-ui";
 import type * as React from "react";
 import { cn } from "@/shared/utils";
+import { claimFocus } from "./focusAfterClose.js";
 
 /**
  * Меню по правой кнопке.
@@ -34,7 +35,10 @@ function ContextMenuContent({ className, ...props }: React.ComponentProps<typeof
            и тут же его теряло. Человек нажимал «Ответить», начинал
            печатать — и текст уходил в никуда. Найдено владельцем дважды,
            прежде чем нашлась настоящая причина. */
-        onCloseAutoFocus={(event: Event) => event.preventDefault()}
+        onCloseAutoFocus={(event: Event) => {
+          event.preventDefault();
+          claimFocus();
+        }}
         /* ⚠️ СНИЗУ ОТСТУП БОЛЬШОЙ, И ЭТО НЕ КРАСОТА. Меню по правой
            кнопке Radix ставит СБОКУ от курсора — сторону у него менять
            нельзя, тип это прямо запрещает. Значит единственный рычаг —

@@ -1,6 +1,7 @@
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "@/shared/utils";
+import { claimFocus } from "./focusAfterClose.js";
 
 /**
  * Модальное окно — ОДНО на всё приложение.
@@ -67,6 +68,7 @@ function DialogOverlay({
 function DialogContent({
   className,
   children,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content>) {
   return (
@@ -79,6 +81,12 @@ function DialogContent({
           className,
         )}
         {...props}
+        // Кто-то ждал фокус после закрытия (новый чат ставит курсор в поле) —
+        // отдаём ему, а не кнопке, открывшей окно. Иначе — как у Radix.
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          if (!event.defaultPrevented && claimFocus()) event.preventDefault();
+        }}
       >
         {children}
       </DialogPrimitive.Content>

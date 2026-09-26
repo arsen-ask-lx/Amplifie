@@ -8,6 +8,7 @@ import {
 import type { Conversation, Project } from "../data/api.js";
 import { ContextMenu, ContextMenuTrigger } from "../shared/ui/context-menu.js";
 import { DropdownMenu, DropdownMenuTrigger } from "../shared/ui/dropdown-menu.js";
+import { focusField } from "../shared/ui/focusAfterClose.js";
 import { contextKit, dropdownKit, type MenuKit } from "../shared/ui/menuKit.js";
 import { rowState, SpokenCounts, StatusMark } from "./RowStatus.js";
 
@@ -165,7 +166,12 @@ export function ChannelRow({
           <button
             type="button"
             aria-current={current ? "page" : undefined}
-            onClick={() => onSelect(channel.id)}
+            onClick={() => {
+              onSelect(channel.id);
+              // Уже открытый чат: адрес не меняется, и курсор в поле
+              // возвращаем сами — «включил чат — печатаешь».
+              if (current) focusField();
+            }}
             className={[
               "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors outline-none",
               current ? "font-medium text-ink" : "text-muted group-hover/room:text-ink",

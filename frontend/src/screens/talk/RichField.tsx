@@ -191,7 +191,17 @@ export function RichField({
           onReady={(editor) =>
             onReady({
               read: () => markupNow(editor),
-              focus: () => editor.focus(),
+              /**
+               * ⚠️ СНАЧАЛА САМ ЭЛЕМЕНТ, ПОТОМ КУРСОР. `editor.focus()` у Lexical
+               * фокус не ставит — он лишь кладёт курсор в редактор, а фокус
+               * приходит, когда курсор ляжет на страницу. У только что
+               * рождённого поля (оно пересоздаётся на каждый чат) этого не
+               * случалось вовсе, и «открыл чат — печатаешь» не работало.
+               */
+              focus: () => {
+                editor.getRootElement()?.focus({ preventScroll: true });
+                editor.focus();
+              },
               clear: () =>
                 editor.update(() => {
                   $getRoot().clear();
