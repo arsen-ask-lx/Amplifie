@@ -25,6 +25,7 @@
     "favicon": "node tools/checks/check-favicon.mjs",
     "map": "node tools/checks/check-map.mjs",
     "map:check": "node --test tools/checks/map-rule.test.mjs",
+    "arch:check": "node --test tools/checks/arch-rules.test.mjs",
     "env:check": "node --test tools/ops/*.test.mjs",
     "openspec": "node tools/checks/check-openspec.mjs",
     "model": "node tools/checks/check-model.mjs",
