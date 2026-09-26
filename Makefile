@@ -66,7 +66,7 @@ env-check: ## проверки самого генератора настрое�
 # `core.hooksPath`. Настройка местная, в git не хранится: на новой машине
 # её надо поставить заново, и делает это `make env`, то есть первый же
 # `make up`. Иначе хук был бы обещанием, которое не исполняется.
-hooks: ## включить хуки git из .githooks (карта проекта на коммите)
+hooks: ## включить хуки git из .githooks (карта проекта и цикл на коммите)
 > @if [ -d .git ]; then git config core.hooksPath .githooks && echo "хуки включены: .githooks"; else echo "не репозиторий git — хуки не включены"; fi
 
 wait-api:
@@ -276,6 +276,15 @@ map: ## карта проекта обновлена вместе с комми�
 map-check: ## проверки самого правила карты (подсаженное нарушение)
 > npm run map:check
 
+# ⚠️ ВСЯ ИСТОРИЯ ПРАВИЛА, А НЕ ПОСЛЕДНИЙ КОММИТ (task-116). Конвейер рабочую
+# ветку не видит, а последний коммит легко оказывается коммитом документов
+# после кода, сделанного мимо хука.
+cycle: ## план, тест, спека и ревью названы в каждом коммите продукта с появления правила
+> npm run cycle
+
+cycle-check: ## проверки самого правила цикла (подсадки, в том числе коммиты Р-044 и Р-045)
+> npm run cycle:check
+
 # ⚠️ ЧИТАЕТ ДЕРЕВО, А НЕ ЗОВЁТ CLI. Инструмент стоит глобально, а в конвейере
 # его нет: гейт, зависящий от чужой глобальной установки, краснеет там,
 # где код исправен.
@@ -463,4 +472,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
+.PHONY: trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
