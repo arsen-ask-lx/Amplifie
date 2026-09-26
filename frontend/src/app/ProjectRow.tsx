@@ -48,7 +48,7 @@ function Summary({ unread, mentions }: { unread: number; mentions: number }) {
  * иначе человеку пришлось бы помнить, где какие действия.
  */
 function ProjectMenu({
-  kit: { Content, Item, Separator },
+  kit: { Content, Item },
   project,
   onPin,
   onRename,
@@ -66,12 +66,10 @@ function ProjectMenu({
         {project.pinned ? <PushPinSlash /> : <PushPin />}
         {project.pinned ? "Открепить" : "Закрепить"}
       </Item>
-      <Separator />
       <Item onSelect={onRename}>
         <Gear />
         Редактировать проект
       </Item>
-      <Separator />
       <Item variant="destructive" onSelect={onRemove}>
         Убрать проект
       </Item>

@@ -95,16 +95,14 @@ function ChannelMenu({
   onMove: (conversationId: string, projectId: string | null) => Promise<void>;
   onRemove: () => void;
 }) {
-  const { Content, Item, Separator } = kit;
+  const { Content, Item } = kit;
   return (
     <Content className="w-52">
       <Item onSelect={() => void onPin(!channel.pinned)}>
         {channel.pinned ? <PushPinSlash /> : <PushPin />}
         {channel.pinned ? "Открепить" : "Закрепить"}
       </Item>
-      <Separator />
       <ToProject kit={kit} channel={channel} projects={projects} onMove={onMove} />
-      <Separator />
       {/* «Чат», а не «канал»: так его называет панель и сам человек (владелец 26.09). */}
       <Item variant="destructive" onSelect={onRemove}>
         <Trash />

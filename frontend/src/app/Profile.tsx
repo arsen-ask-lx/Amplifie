@@ -6,7 +6,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../shared/ui/dropdown-menu.js";
 import { InviteDialog } from "./InviteDialog.js";
@@ -69,16 +68,13 @@ export function Profile({ me, onLeave }: { me: Me; onLeave: () => void }) {
           Пригласить в пространство
         </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
-
+        {/* Разделителей в меню нет (владелец 26.09): три пункта читаются и так. */}
         <DropdownMenuItem asChild>
           <Link to="/settings/appearance">
             <Gear />
             Настройки
           </Link>
         </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
 
         <DropdownMenuItem variant="destructive" onSelect={onLeave}>
           <SignOut />
