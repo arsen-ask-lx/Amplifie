@@ -37,10 +37,10 @@ export function StatusMark({ state }: { state: RowState }) {
       className="grid size-4 shrink-0 place-items-center"
     >
       {state === "mention" ? <At className="size-4 text-accent" weight="bold" /> : null}
-      {state === "unread" ? <span className="size-[7px] rounded-pill bg-ink" /> : null}
+      {state === "unread" ? <span className="size-2 rounded-pill bg-ink" /> : null}
       {state === "pinned" ? <PushPin className="size-3.5 opacity-60" weight="fill" /> : null}
       {state === "none" ? (
-        <span className="size-[7px] rounded-pill border-[1.5px] border-line" />
+        <span className="size-2 rounded-pill border-[1.5px] border-muted" />
       ) : null}
     </span>
   );

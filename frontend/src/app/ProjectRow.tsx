@@ -208,7 +208,7 @@ export function ProjectRow({
           className="project-chats"
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="flex flex-col gap-0.5 pl-3">
+            <div className="flex flex-col gap-0.5">
               {channels.map((channel) => renderChannel(channel))}
               {/* ⚠️ ЯВНАЯ СТРОКА, А НЕ ДОГРУЗКА ПО ПРОКРУТКЕ (Р-037). Папка
                   живёт внутри общего списка: подгружай она себя сама,

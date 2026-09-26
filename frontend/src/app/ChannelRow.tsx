@@ -173,7 +173,7 @@ export function ChannelRow({
               if (current) focusField();
             }}
             className={[
-              "flex min-w-0 flex-1 items-center gap-2 rounded bg-transparent px-2.5 py-1.5 text-left text-body transition-colors outline-none",
+              "flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body transition-colors outline-none",
               current ? "font-medium text-ink" : "text-muted group-hover/room:text-ink",
               // Жирное название — главный признак нового (Р-044, как в Slack):
               // панель читают по диагонали, и вес заметен раньше значка.
