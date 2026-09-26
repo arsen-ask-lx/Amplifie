@@ -1,4 +1,10 @@
-import { DotsThree, FolderSimple, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
+import {
+  DotsThreeVertical,
+  FolderSimple,
+  PushPin,
+  PushPinSlash,
+  Trash,
+} from "@phosphor-icons/react";
 import type { Conversation, Project } from "../data/api.js";
 import { ContextMenu, ContextMenuTrigger } from "../shared/ui/context-menu.js";
 import { DropdownMenu, DropdownMenuTrigger } from "../shared/ui/dropdown-menu.js";
@@ -249,7 +255,7 @@ export function ChannelRow({
               aria-label={`Настройки чата «${channel.title}»`}
               className="hidden size-6 shrink-0 place-items-center rounded bg-transparent text-muted hover:bg-selected hover:text-ink group-focus-within/room:grid group-hover/room:grid data-[state=open]:grid"
             >
-              <DotsThree className="size-4" weight="bold" />
+              <DotsThreeVertical className="size-4" weight="bold" />
             </DropdownMenuTrigger>
             <ChannelMenu kit={dropdownKit} {...menu} />
           </DropdownMenu>

@@ -1,4 +1,4 @@
-import { Gear, Plus, PushPin, PushPinSlash, Sliders } from "@phosphor-icons/react";
+import { Gear, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { Conversation } from "../data/api.js";
 import type { PanelProject } from "../data/useRooms.js";
@@ -177,7 +177,7 @@ export function ProjectRow({
                 aria-label={`Настройки проекта «${project.title}»`}
                 className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100 data-[state=open]:opacity-100"
               >
-                <Sliders className="size-3.5" weight="bold" />
+                <Gear className="size-3.5" weight="bold" />
               </DropdownMenuTrigger>
               <ProjectMenu kit={dropdownKit} {...menu} />
             </DropdownMenu>

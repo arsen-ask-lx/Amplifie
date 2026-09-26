@@ -47,9 +47,31 @@ export const contextKit: MenuKit = {
   SubContent: ContextMenuSubContent,
 };
 
+/**
+ * Чем человек действовал последним — клавиатурой или указателем.
+ *
+ * ⚠️ ФОКУС ВОЗВРАЩАЕТСЯ НА КНОПКУ ТОЛЬКО ПОСЛЕ КЛАВИАТУРЫ. Radix после
+ * закрытия меню ставит фокус на кнопку программно, и браузер рисует на ней
+ * обводку даже после щелчка мышью — владелец увидел её на каждом закрытии.
+ * Тому, кто идёт Tab-ом, возврат нужен: иначе он теряет место в панели.
+ */
+let byKeyboard = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", () => (byKeyboard = true), true);
+  window.addEventListener("pointerdown", () => (byKeyboard = false), true);
+}
+
 /** Кнопка настроек стоит у правого края строки — меню ровняется по нему же. */
 function DropdownAtEnd(props: { className?: string; children: ReactNode }) {
-  return <DropdownMenuContent align="end" {...props} />;
+  return (
+    <DropdownMenuContent
+      align="end"
+      onCloseAutoFocus={(event) => {
+        if (!byKeyboard) event.preventDefault();
+      }}
+      {...props}
+    />
+  );
 }
 
 export const dropdownKit: MenuKit = {
