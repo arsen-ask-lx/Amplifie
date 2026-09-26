@@ -334,3 +334,36 @@ describe("что не проверяется", () => {
     assert.equal(merge.needed, false);
   });
 });
+
+describe("мелочь — ускоренный путь (владелец 27.09: «цвет кнопки — план и ревью, это глупо»)", () => {
+  const small = "fix(вид): цвет кнопки\n\nмелочь: сменён цвет одной кнопки, поведение то же";
+
+  it("одна строка вместо четырёх на маленькой правке", () => {
+    const got = check([M("frontend/src/app/ChannelRow.tsx")], small);
+    assert.equal(got.ok, true);
+    assert.match(got.note, /мелочь/u);
+  });
+
+  it("причина короче десяти знаков — не мелочь", () => {
+    const got = check([M("frontend/src/app/ChannelRow.tsx")], "fix(вид): цвет\nмелочь: цвет");
+    assert.equal(got.ok, false);
+  });
+
+  for (const [name, changes, subject] of [
+    ["feat", [M("frontend/src/app/ChannelRow.tsx")], "feat(вид): новое"],
+    ["четыре файла кода", ["a", "b", "c", "d"].map((n) => M(`frontend/src/${n}.ts`)), "fix(x): y"],
+    ["миграция", [A("backend/migrations/0031_x.sql")], "fix(x): y"],
+    ["общий договор", [M("packages/contract/src/api.ts")], "fix(x): y"],
+    ["новая дверь", [A("backend/src/surface/http/routes/files.ts")], "fix(x): y"],
+    ["сторож", [M("tools/checks/cycle-rule.mjs")], "fix(x): y"],
+    ["гейт AQK", [M("tools/gates/dead-code/check.sh")], "fix(x): y"],
+    ["хук git", [M(".githooks/commit-msg")], "fix(x): y"],
+  ]) {
+    it(`мелочь недопустима: ${name}`, () => {
+      const message = `${subject}\n\nмелочь: будто бы совсем маленькая правка`;
+      const got = check(changes, message);
+      assert.equal(got.ok, false, name);
+      assert.match(got.problems[0].why, /мелочь недопустима/u);
+    });
+  }
+});

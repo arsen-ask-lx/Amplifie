@@ -168,6 +168,36 @@ function reviewProblem(text) {
 
 const REVERT = /^This reverts commit [0-9a-f]{7,40}/mu;
 
+/** Сторожа и хуки: ослабить их «мелочью» значит пройти мимо проверки проверок. */
+const GUARDS = /^(tools\/checks\/|tools\/gates\/|\.githooks\/)/u;
+const SMALL_MAX = 3;
+
+/**
+ * Ускоренный путь (владелец 27.09: «даже просто цвет кнопки поменять —
+ * план и ревью, это же очень глупо»). Строка `мелочь: причина` заменяет
+ * все четыре ступени, но только там, где правка правда мала: порог тот же,
+ * что у отказа от плана, плюс не больше трёх файлов кода и не сторожа.
+ */
+function smallVerdict(base, value, changes, code, text) {
+  const note = "мелочь — ускоренный путь";
+  const refused = (why) => ({
+    ...base,
+    ok: false,
+    needed: true,
+    note,
+    problems: [{ step: "мелочь", why: `мелочь недопустима: ${why}` }],
+  });
+  const reason = value.trim();
+  if (reason.length < REASON_MIN) return refused(`причина короче ${REASON_MIN} знаков`);
+  const guard = code.find((one) => GUARDS.test(one.path));
+  if (guard) return refused(`правка сторожа — ${guard.path}`);
+  if (code.length > SMALL_MAX) return refused(`файлов кода ${code.length} — больше ${SMALL_MAX}`);
+  const product = code.filter((one) => kindOf(one.path) === "product");
+  const required = planRequiredBecause(changes, product, text.split("\n")[0] ?? "");
+  if (required) return refused(required);
+  return { ...base, ok: true, needed: true, note: `${note}: ${reason}` };
+}
+
 /**
  * Вердикт по одному коммиту.
  *
@@ -196,6 +226,9 @@ export function verdict(commit, planOf) {
       note: "ни продукта, ни поставки — ступени не нужны",
     };
   }
+
+  const small = lineOf(text, "мелочь");
+  if (small !== null) return smallVerdict(base, small, changes, [...product, ...delivery], text);
 
   const checks =
     product.length > 0
