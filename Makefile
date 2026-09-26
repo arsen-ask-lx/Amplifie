@@ -182,6 +182,28 @@ psql: ## консоль базы
 install: ## поставить зависимости локально (для типов и линтера)
 > npm install
 
+# ⚠️ ЗАМОК ВЕРСИЙ СОБИРАЕТСЯ В LINUX, А НЕ НА МАШИНЕ ЧЕЛОВЕКА.
+#
+# У npm известная ошибка (npm/cli#8320, воспроизводится на 10.9, 11.4 и 11.13):
+# платформенные необязательные зависимости попадают в замок ТОЛЬКО для той
+# платформы, где он собран. Замок, пересобранный на Windows, не содержит
+# линуксовых двоичных файлов — и образ падает на `Cannot find module
+# '../rolldown-binding.linux-x64-gnu.node'`. Починки от сопровождающих нет;
+# названный ими путь один: собирать замок там, где потом ставят.
+#
+# Ставят его в двух местах, и оба линуксовые: образы (`npm ci` в Dockerfile)
+# и конвейер (`npm ci` на ubuntu). На машине человека идёт `npm install`
+# — он прощает отсутствие своей платформы и дописывает её сам.
+#
+# ⚠️ НЕ `rm package-lock.json && npm install` НА WINDOWS. Это ровно то
+# действие, которое ломает сборку: 26.09 оно стоило трёх прогонов подряд.
+deps-lock: ## пересобрать package-lock.json в Linux — npm/cli#8320
+> MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/work" -w /work >   node:26-bookworm-slim npm install --package-lock-only
+> @echo "замок пересобран в Linux; проверь линуксовые двоичные: make deps-check"
+
+deps-check: ## есть ли в замке двоичные файлы для Linux
+> @node tools/checks/check-lock-platforms.mjs
+
 # ⚠️ ТЕМ ЖЕ СПОСОБОМ, ЧТО У КЛИЕНТА, А НЕ СВОИМ (Р-030 ③).
 #
 # Было: `npx drizzle-kit migrate` с хоста. Три беды разом. Инструмент —
@@ -291,7 +313,7 @@ plan-review: ## план с task-109 не одобрен без «Прочита
 # `AQK_PROBE=0` — быстрая проверка остаётся быстрой: подсадку дефектов
 # (минуты) AQK запускает раз в сто коммитов, это делает конвейер.
 gates: ## все проверки из .aqk.yml одним прогоном AQK (без стенда)
-> AQK_PROBE=0 npx --yes agent-quality-kit@0.16.0 doctor --run
+> AQK_PROBE=0 npx --yes agent-quality-kit@0.17.0 doctor --run
 
 arbiter-check: ## проверки самого счётчика согласия (числа посчитаны руками)
 > npm run arbiter:check
@@ -303,35 +325,35 @@ label: ## выпустить лист второй разметки К2 (пра�
 > npm run label
 
 aqk: ## ступень соответствия AQK и что до следующей
-> npx --yes agent-quality-kit@0.16.0 doctor
+> npx --yes agent-quality-kit@0.17.0 doctor
 
 aqk-baseline: ## обязательный минимум проекта по AQK (диагностика)
-> npx --yes agent-quality-kit@0.16.0 doctor --baseline
+> npx --yes agent-quality-kit@0.17.0 doctor --baseline
 
 aqk-vitals: ## подключённость инструментов, хуков и свежесть AQK
-> npx --yes agent-quality-kit@0.16.0 vitals
+> npx --yes agent-quality-kit@0.17.0 vitals
 
 aqk-context: ## компактное состояние репозитория для агента
-> npx --yes agent-quality-kit@0.16.0 context
+> npx --yes agent-quality-kit@0.17.0 context
 
 aqk-report: ## отчёт AQK о последнем диагностическом прогоне
-> npx --yes agent-quality-kit@0.16.0 report
+> npx --yes agent-quality-kit@0.17.0 report
 
 aqk-prompt: ## готовое задание агенту по актуальным находкам AQK
-> npx --yes agent-quality-kit@0.16.0 prompt
+> npx --yes agent-quality-kit@0.17.0 prompt
 
 aqk-learn: ## кандидаты в правила из локальной истории (ничего не пишет)
-> npx --yes agent-quality-kit@0.16.0 learn
+> npx --yes agent-quality-kit@0.17.0 learn
 
 aqk-prove: ## доказать гейты красными и зелёными образцами
-> npx --yes agent-quality-kit@0.16.0 prove
+> npx --yes agent-quality-kit@0.17.0 prove
 
 aqk-probe: ## найти классы брака, которые не ловят текущие гейты
-> npx --yes agent-quality-kit@0.16.0 probe
+> npx --yes agent-quality-kit@0.17.0 probe
 
 aqk-why: ## объяснить одну рекомендацию AQK (AQK_RULE=<имя>)
 > @test -n "$(AQK_RULE)" || (echo "нужен AQK_RULE, например: make aqk-why AQK_RULE=ci-not-hijackable" && exit 2)
-> npx --yes agent-quality-kit@0.16.0 why "$(AQK_RULE)"
+> npx --yes agent-quality-kit@0.17.0 why "$(AQK_RULE)"
 
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test

@@ -1,5 +1,5 @@
 # Сборка один раз, запуск везде (build once, deploy everywhere)
-FROM node:24-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json* tsconfig.json ./
 COPY tools/tsconfig.base.json tools/
@@ -30,7 +30,7 @@ RUN npx tsc --build backend
 COPY bridge bridge
 RUN npm run bridge:pack
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 

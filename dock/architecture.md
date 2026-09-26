@@ -106,17 +106,25 @@ API-ключ способен работать с сервера; фраза «�
 
 | Слой | Выбор | Источник |
 |---|---|---|
-| Язык и серверный runtime | TypeScript ^6.0.3; образы Node 24 | [package.json](../package.json), Dockerfile |
-| HTTP | Fastify 5.12.3, Zod 4.5.4 | [backend/package.json](../backend/package.json) |
-| База | PostgreSQL 18, Drizzle 0.45.2, pg ^8.23.0 | compose и backend/package.json |
-| Пароли / частота | @node-rs/argon2 2.2.0; @fastify/rate-limit 11.2.0 | backend/package.json |
-| UI | React ^19.2.8, Vite ^8.2.2, react-router ^8.3.1 | [frontend/package.json](../frontend/package.json) |
+| Язык и серверный runtime | TypeScript ^7.0.2; образы Node 26 | [package.json](../package.json), Dockerfile |
+| HTTP | Fastify 5.12.5, Zod 4.6.5 | [backend/package.json](../backend/package.json) |
+| База | PostgreSQL 18, Drizzle 0.45.3, pg ^8.23.0 | compose и backend/package.json |
+| Пароли / частота | @node-rs/argon2 2.2.1; @fastify/rate-limit 11.2.0 | backend/package.json |
+| UI | React ^19.3.0, Vite ^8.3.1, react-router ^8.4.0 | [frontend/package.json](../frontend/package.json) |
 | Стили и компоненты | Tailwind ^4.3.3, shadcn/ui-код, Radix ^1.6.7 | frontend/package.json и shared/ui |
-| Ввод | Lexical ^0.50.0 | frontend/package.json |
-| Проверки | Vitest ^5.0.0, Playwright 1.63.0, Biome ^2.5.12, dependency-cruiser ^18.2.0 | корневой package.json |
+| Ввод | Lexical ^0.51.0 | frontend/package.json |
+| Проверки | Vitest ^5.0.2, Playwright 1.63.0, Biome ^2.5.14, dependency-cruiser ^18.4.0 | корневой package.json |
 | Прокси | caddy:2-alpine | [frontend/Dockerfile](../frontend/Dockerfile) |
 
-Node 24 выбран действующей основой. Смена языка не доказана необходимой текущими
+**Обновление 26.09.2026 по слову владельца «фул обнову делаем»:** весь набор
+поднят до свежего, TypeScript переведён на 7, образы — на Node 26.
+⚠️ Названо вслух: **Node 26 станет LTS только в октябре**, то есть на день
+правки это «текущая», а не «долгоподдерживаемая» версия. Для коробки
+на чужом сервере это осознанный риск, принятый владельцем; Node 24 (Krypton)
+на тот же день оставался действующим LTS. PostgreSQL 18 не трогали —
+19-я существует только в бете.
+
+Node 26 выбран действующей основой. Смена языка не доказана необходимой текущими
 замерами. Тяжёлые CPU-задачи нельзя помещать на обработку каждого запроса;
 при появлении ML-задачи Python-сервис рассматривается отдельно по измерению,
 а не потому, что пример из энциклопедии написан на Python.

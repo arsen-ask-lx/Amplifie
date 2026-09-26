@@ -39,12 +39,15 @@
     "bridge:pack": "node bridge/pack.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.12",
+    "@biomejs/biome": "^2.5.14",
     "@playwright/test": "1.63.0",
-    "@types/react": "^19.2.18",
-    "dependency-cruiser": "^18.2.0",
-    "drizzle-kit": "0.31.10",
-    "typescript": "^6.0.3",
-    "vitest": "^5.0.0"
+    "@types/react": "^19.3.0",
+    "dependency-cruiser": "^18.4.0",
+    "drizzle-kit": "0.31.11",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  },
+  "overrides": {
+    "fastify": "5.12.5"
   }
 }

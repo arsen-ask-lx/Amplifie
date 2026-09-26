@@ -12,14 +12,29 @@
 import { execFileSync, execSync } from "node:child_process";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { build } from "esbuild";
 
 const OUT = "bridge/package";
 const NAME = "amplifie-bridge";
 const VERSION = "1.0.0";
 
-const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
+/**
+ * ⚠️ ИЩЕМ TSC ОТ КОРНЯ ПАКЕТА, А НЕ ПО ПРЯМОМУ ПУТИ `typescript/bin/tsc`.
+ *
+ * TypeScript 7 убрал `./bin/tsc` из списка `exports`, и прямое обращение
+ * падает с `ERR_PACKAGE_PATH_NOT_EXPORTED`. Сам файл на диске остался —
+ * это по-прежнему двухстрочная обёртка на Node. `./package.json` пакет
+ * отдаёт всегда, поэтому от него и считаем.
+ *
+ * Поймано сборкой образа 26.09, а не проверкой типов: тот, кто зовёт
+ * упаковку моста, — только Dockerfile.
+ */
+const tsc = join(
+  dirname(createRequire(import.meta.url).resolve("typescript/package.json")),
+  "bin",
+  "tsc",
+);
 execFileSync(process.execPath, [tsc, "--build", "bridge"], { stdio: "inherit" });
 
 rmSync(OUT, { recursive: true, force: true });
@@ -31,7 +46,7 @@ await build({
   bundle: true,
   platform: "node",
   format: "esm",
-  // Не наш Node 24, а тот, что стоит у человека: `fetch` есть с двадцатого.
+  // Не наш Node 26, а тот, что стоит у человека: `fetch` есть с двадцатого.
   target: "node20",
   banner: { js: "#!/usr/bin/env node" },
   logLevel: "warning",
