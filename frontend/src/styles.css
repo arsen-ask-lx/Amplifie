@@ -627,6 +627,14 @@
     }
   }
 
+  /* Найденное слово в реплике — подсветкой браузера (`highlightWords.ts`),
+     тем же тоном, что у слова в выдаче окна поиска. Держится, пока открыта
+     полоса поиска: полоса гаснет, слово — нет. */
+  ::highlight(search-found) {
+    background-color: color-mix(in oklab, var(--accent) 22%, transparent);
+    color: inherit;
+  }
+
   /* Кому движение мешает — тому ровная заливка, которую снимет таймер. */
   @media (prefers-reduced-motion: reduce) {
     .msg-found {

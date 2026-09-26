@@ -169,10 +169,12 @@ export function ChatScreen({
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <button
               type="button"
-              onClick={() => setFindingHere(true)}
+              // Второе нажатие закрывает — лупа переключатель, как у Telegram.
+              onClick={() => setFindingHere((open) => !open)}
+              aria-pressed={findingHere}
               aria-label="Поиск в этом чате"
               title="Поиск в этом чате (Ctrl+F) · по всем чатам — Ctrl+K"
-              className="grid size-9 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
+              className="grid size-9 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink"
             >
               <MagnifyingGlass className="size-[18px]" />
             </button>

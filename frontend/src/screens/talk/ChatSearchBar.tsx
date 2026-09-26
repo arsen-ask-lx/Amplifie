@@ -2,6 +2,7 @@ import { SEARCH_TOTAL_CAP } from "@amplifie/contract";
 import { CaretDown, CaretUp, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useSearch } from "../../data/useSearch.js";
+import { clearHighlight, highlightWords } from "../../shared/highlightWords.js";
 import { CommandField } from "../../shared/ui/command-field.js";
 
 /**
@@ -28,7 +29,7 @@ export function ChatSearchBar({
   onOpen: (seq: number) => void;
   onClose: () => void;
 }) {
-  const { query, setQuery, state, loadMore } = useSearch(room);
+  const { query, setQuery, words, state, loadMore } = useSearch(room);
   /** Какое попадание показано. Ноль — первое. */
   const [at, setAt] = useState(0);
 
@@ -45,6 +46,32 @@ export function ChatSearchBar({
   useEffect(() => {
     if (current) onOpen(current.seq);
   }, [current, onOpen]);
+
+  /**
+   * Подсветить слово в показанной реплике (владелец 26.09).
+   *
+   * ⚠️ ЖДЁМ, ПОКА РЕПЛИКА НАРИСУЕТСЯ. Переход к давнему попаданию
+   * догружает окно ленты — строки ещё нет в миг выбора. Смотрим раз
+   * в кадр, но не дольше трёх секунд.
+   */
+  const seq = current?.seq;
+  const said = words.join(" ");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: слова несёт `said`
+  useEffect(() => {
+    if (seq === undefined || said === "") return clearHighlight();
+    let frame = 0;
+    const until = performance.now() + 3000;
+    const look = () => {
+      const body = document.querySelector(`[data-seq="${seq}"] [data-body]`);
+      if (body) highlightWords(body, words);
+      else if (performance.now() < until) frame = requestAnimationFrame(look);
+    };
+    look();
+    return () => cancelAnimationFrame(frame);
+  }, [seq, said]);
+
+  // Полоса закрылась — подсветка уходит вместе с ней.
+  useEffect(() => clearHighlight, []);
 
   /**
    * Escape закрывает полосу, где бы ни был фокус.

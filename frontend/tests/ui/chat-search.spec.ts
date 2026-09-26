@@ -92,3 +92,41 @@ test("ход по попаданиям в окне ленты не переза�
   const flashes = (await seen(page)).flashes;
   expect(flashes, "вспышек не по одной на шаг").toBe(3);
 });
+
+test("лупа — переключатель: второе нажатие закрывает поиск (владелец 26.09)", async ({ page }) => {
+  await register(page, "Переключающий");
+  await createChannel(page, "Лупа");
+  const lens = page.getByRole("button", { name: "Поиск в этом чате" });
+
+  await lens.click();
+  await expect(bar(page)).toBeVisible();
+  await expect(lens).toHaveAttribute("aria-pressed", "true");
+
+  await lens.click();
+  await expect(bar(page), "второе нажатие на лупу не закрыло поиск").toHaveCount(0);
+  await expect(lens).toHaveAttribute("aria-pressed", "false");
+});
+
+test("найденное слово подсвечено в реплике, полоса закрылась — подсветки нет (владелец 26.09)", async ({
+  page,
+}) => {
+  await register(page, "Ищущий слово");
+  await createChannel(page, "Подсветка");
+  await say(page, "подписали Договоры с поставщиком");
+  await say(page, "просто текст");
+
+  await page.getByRole("button", { name: "Поиск в этом чате" }).click();
+  await bar(page).getByRole("searchbox").fill("договор");
+  await expect(bar(page)).toContainText("1 из 1");
+
+  // Подсветка браузера — не разметка: смотрим, ЧТО именно она красит.
+  const lit = () =>
+    page.evaluate(() => {
+      const found = CSS.highlights.get("search-found");
+      return found ? [...found].map((range) => range.toString()) : [];
+    });
+  await expect.poll(lit, { message: "найденное слово не подсвечено" }).toEqual(["Договор"]);
+
+  await page.keyboard.press("Escape");
+  await expect.poll(lit, { message: "полоса закрылась, а подсветка осталась" }).toEqual([]);
+});

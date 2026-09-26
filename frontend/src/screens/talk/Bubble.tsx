@@ -193,7 +193,7 @@ export function Bubble({
             />
           ) : null}
 
-          <span className="block text-body leading-snug break-words whitespace-pre-wrap">
+          <span data-body className="block text-body leading-snug break-words whitespace-pre-wrap">
             <RichText body={forDisplay(row.message.body)} />
             {/* Распорка под время. Для чтения вслух её нет. */}
             <Spacer row={row} />
