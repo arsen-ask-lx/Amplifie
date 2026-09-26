@@ -8,6 +8,7 @@ import {
   menu,
   openChannel,
   register,
+  say,
 } from "./fixtures.js";
 
 /**
@@ -82,4 +83,71 @@ test("«Ответить» на свежую чужую реплику став�
     await page.keyboard.press("Backspace");
   }
   await guest.dispose();
+});
+
+/**
+ * КАК В TELEGRAM: ПЕЧАТАЕШЬ — БУКВЫ ИДУТ В ПОЛЕ, КУДА БЫ НИ ЩЁЛКНУЛ ДО ЭТОГО.
+ *
+ * Владелец 26.09: «нажал на закреплённое — и опять не могу сразу печатать,
+ * курсор снова на поле ставить». Щелчок по закреплённому, по ленте, по
+ * заголовку уводит фокус из поля, и набранное терялось. Telegram Desktop
+ * отправляет печатный знак в поле, если фокус не в другом поле ввода.
+ */
+/**
+ * Печать как с русской раскладки: настоящие нажатия клавиш.
+ *
+ * ⚠️ `keyboard.type` ДЛЯ КИРИЛЛИЦЫ НАЖАТИЙ НЕ ШЛЁТ — он вставляет текст
+ * напрямую, мимо `keydown`, и `press("п")` отвечает «Unknown key». Живая
+ * клавиатура на русской раскладке нажатия шлёт, и перенос букв в поле
+ * держится ровно на них. Без этой эмуляции сценарий краснел на исправном
+ * коде (проба 26.09: латиница проходила, кириллица — нет).
+ */
+async function typeRussian(page: import("@playwright/test").Page, text: string): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  for (const ch of text) {
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: ch,
+      text: ch,
+      unmodifiedText: ch,
+    });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: ch });
+  }
+  await cdp.detach();
+}
+
+test("щёлкнул по закреплённому или по ленте — печатаешь сразу", async ({ page }) => {
+  await register(page, "Щёлкающий");
+  await createChannel(page, "Смета");
+  await say(page, "срок 15 октября");
+  const room = new URL(page.url()).pathname.split("/")[2] ?? "";
+  const list = (await (await page.request.get(`/v1/conversations/${room}/messages`)).json()) as {
+    items: Array<{ id: string; body: string }>;
+  };
+  const target = list.items.find((one) => one.body === "срок 15 октября");
+  expect((await page.request.post(`/v1/messages/${target?.id}/pin`)).ok()).toBe(true);
+
+  const bar = page.getByTitle("Перейти к закреплённому");
+  await expect(bar).toBeVisible();
+  await bar.click();
+  // Как в Telegram: щелчок по закреплённому ведёт к реплике и возвращает
+  // курсор в поле — на кнопке полоски он не остаётся (и рамки на ней нет).
+  await expect(field(page)).toBeFocused();
+  await typeRussian(page, "после закрепа");
+  await expect(field(page)).toHaveText("после закрепа");
+
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Backspace");
+  await page.getByRole("log").click({ position: { x: 5, y: 5 } });
+  await expect(field(page)).not.toBeFocused();
+  await typeRussian(page, "после ленты");
+  await expect(field(page)).toHaveText("после ленты");
+});
+
+test("в другом поле ввода буквы остаются там, а не уходят в сообщение", async ({ page }) => {
+  await register(page, "Ищущий");
+  await createChannel(page, "Смета");
+  await page.getByRole("button", { name: "Поиск в этом чате" }).click();
+  await typeRussian(page, "смета");
+  await expect(field(page)).toHaveText("");
 });

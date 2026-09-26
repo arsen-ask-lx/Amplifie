@@ -27,6 +27,20 @@ import { type FieldApi, RichField } from "./RichField.js";
  * читалась плашкой, приклеенной снизу: у Телеграма низ экрана — то же
  * полотно, что и переписка.
  */
+/**
+ * Печатный знак, который сейчас никуда не попадёт: фокус не в поле ввода,
+ * не в окне и не в меню. Такой знак полоса ввода забирает себе.
+ */
+function typedIntoNowhere(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
+  if (event.key.length !== 1 || event.key === " ") return false;
+  const active = document.activeElement;
+  const typing =
+    active instanceof HTMLElement &&
+    (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/u.test(active.tagName));
+  return !typing && document.querySelector("[role=dialog], [role=menu]") === null;
+}
+
 export function Composer({
   conversationId,
   onSend,
@@ -118,6 +132,26 @@ export function Composer({
 
   // Щелчок по уже открытому чату в панели тоже возвращает курсор сюда.
   useEffect(() => registerField(() => field.current?.focus()), []);
+
+  /**
+   * Печатаешь — буквы идут в поле, куда бы ни щёлкнул до этого (как в Telegram
+   * Desktop). Владелец 26.09: щелчок по закреплённому или по ленте уводил
+   * фокус, и набранное уходило в никуда.
+   *
+   * ⚠️ ТОЛЬКО ПЕЧАТНЫЙ ЗНАК И ТОЛЬКО ВНЕ ДРУГОГО ПОЛЯ. Сочетания (Ctrl+C,
+   * Shift+F10) и стрелки остаются тем, чем были. Пробел — ленте: им листают.
+   * Открыто окно или меню — буквы принадлежат ему.
+   *
+   * Фокус меняется ДО того, как браузер вставит знак, поэтому знак ложится
+   * уже в поле: ловить и повторять его руками не нужно.
+   */
+  useEffect(() => {
+    const redirect = (event: KeyboardEvent) => {
+      if (typedIntoNowhere(event)) field.current?.focus();
+    };
+    window.addEventListener("keydown", redirect, true);
+    return () => window.removeEventListener("keydown", redirect, true);
+  }, []);
 
   /** Взяли реплику в ответ — курсор сразу в поле. */
   // biome-ignore lint/correctness/useExhaustiveDependencies: важен факт появления цитаты, а не её поля
