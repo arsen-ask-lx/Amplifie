@@ -2,12 +2,7 @@
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
-      "args": [
-        "-y",
-        "chrome-devtools-mcp@1.9.0",
-        "--isolated",
-        "--no-usage-statistics"
-      ],
+      "args": ["-y", "chrome-devtools-mcp@1.9.0", "--isolated", "--no-usage-statistics"],
       "env": {}
     },
     "prometheus": {

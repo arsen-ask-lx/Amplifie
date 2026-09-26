@@ -48,4 +48,3 @@ test("время в углу реплики не налезает на посл�
 
   expect(await page.evaluate(gapBeforeTime, text)).toBeGreaterThan(0);
 });
-

@@ -43,19 +43,22 @@ function codeLines(text) {
   const lines = [];
   let inBlock = false;
   for (const [at, raw] of text.split("\n").entries()) {
-    const line = raw.trim();
-    if (inBlock) {
-      if (line.includes("*/")) inBlock = false;
-      continue;
-    }
-    if (line.startsWith("/*")) {
-      if (!line.includes("*/")) inBlock = true;
-      continue;
-    }
-    if (line.startsWith("*") || line.startsWith("//") || line.startsWith("{/*")) continue;
-    lines.push([at + 1, raw]);
+    const step = commentStep(raw.trim(), inBlock);
+    inBlock = step.inBlock;
+    if (!step.comment) lines.push([at + 1, raw]);
   }
   return lines;
+}
+
+/**
+ * Строка — комментарий или код, и открыт ли после неё блочный комментарий.
+ * Вынесено из `codeLines` ради предела сложности линтера (Д-64), поведение прежнее.
+ */
+function commentStep(line, inBlock) {
+  if (inBlock) return { comment: true, inBlock: !line.includes("*/") };
+  if (line.startsWith("/*")) return { comment: true, inBlock: !line.includes("*/") };
+  const comment = line.startsWith("*") || line.startsWith("//") || line.startsWith("{/*");
+  return { comment, inBlock: false };
 }
 
 const problems = [];
