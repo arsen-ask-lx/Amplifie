@@ -61,46 +61,104 @@ async function project(page: Page, title: string): Promise<string> {
   return made.id;
 }
 
-test("три точки у чата видны при наведении, число — у правого края", async ({
+/** Состояние строки — значок слева (Р-044): none · unread · mention · pinned. */
+function status(page: Page, title: string) {
+  return row(page, title).locator("[data-status]");
+}
+
+/** Видимые глазу числа в строке: подпись для читалки сюда не входит. */
+async function shownDigits(page: Page, title: string): Promise<string[]> {
+  return row(page, title).evaluate((button) =>
+    [...button.querySelectorAll("*")]
+      .filter((one) => !one.closest(".sr-only") && one.children.length === 0)
+      .map((one) => (one.textContent ?? "").trim())
+      .filter((text) => /^@?\d+\+?$/u.test(text)),
+  );
+}
+
+test("состояние чата — значком слева, без чисел; наведение ничего не сдвигает", async ({
   page,
   playwright,
 }) => {
-  await register(page, "Хозяин");
+  /**
+   * ⚠️ Р-044 (владелец 26.09): плашки с числами справа «очень плохо
+   * смотрятся», а точки при наведении сдвигали их — строка прыгала.
+   */
+  const me = await register(page, "Хозяин");
   await createChannel(page, "Смета");
-  const room = new URL(page.url()).pathname.split("/")[2] ?? "";
+  const smeta = new URL(page.url()).pathname.split("/")[2] ?? "";
+  await createChannel(page, "Зов");
+  const call = new URL(page.url()).pathname.split("/")[2] ?? "";
   // Открыт другой чат: реплика в открытом сразу стала бы прочитанной.
   await createChannel(page, "Другой");
   const folder = await project(page, "Объект");
-  await page.request.post("/v1/conversations", { data: { title: "Внутри", projectId: folder } });
+  const inside = (await (
+    await page.request.post("/v1/conversations", { data: { title: "Внутри", projectId: folder } })
+  ).json()) as { id: string };
   await page.reload();
-  await row(page, "Объект").click();
 
-  // Чужая реплика в «Смете» — у неё число непрочитанного.
   const guest = await joinVoice(playwright.request, await inviteToken(page), "Сосед");
-  await guest.post(`/v1/conversations/${room}/messages`, {
-    data: { body: "посмотри смету", clientMsgId: crypto.randomUUID() },
-  });
+  const say = async (room: string, body: string) => {
+    const said = await guest.post(`/v1/conversations/${room}/messages`, {
+      data: { body, clientMsgId: crypto.randomUUID() },
+    });
+    expect(said.ok(), `реплика «${body}» не ушла: ${said.status()}`).toBe(true);
+  };
+  await say(smeta, "посмотри смету");
+  await say(smeta, "и ещё строку");
+  const people = (await (await guest.get(`/v1/conversations/${call}/people`)).json()) as {
+    items: Array<{ id: string; name: string }>;
+  };
+  const owner = people.items.find((one) => one.name === me.name)?.id ?? "";
+  await say(call, `[${me.name}](@${owner}) глянь`);
+  await say(inside.id, "в папке тоже новое");
   await guest.dispose();
-  await expect(row(page, "Смета")).toContainText("1");
 
-  // П-1: без наведения точек не видно — строка не шумит кнопками.
+  // П-1: новое — точка слева и жирное название; число не видно глазу,
+  // но осталось для читалки.
+  await expect(status(page, "Смета")).toHaveAttribute("data-status", "unread");
+  await expect(row(page, "Смета")).toContainText("непрочитанных: 2");
+  expect(await shownDigits(page, "Смета"), "в строке видно число").toEqual([]);
+  const weight = await row(page, "Смета")
+    .locator("span.truncate")
+    .evaluate((one) => Number(getComputedStyle(one).fontWeight));
+  expect(weight, "название с новым не жирное").toBeGreaterThanOrEqual(500);
+
+  // П-2: позвали — знак зова слева; нет нового — пустой кружок.
+  await expect(status(page, "Зов")).toHaveAttribute("data-status", "mention");
+  await expect(status(page, "Другой")).toHaveAttribute("data-status", "none");
+
+  // П-3: свёрнутая папка с новым внутри — тоже без чисел.
+  // ⚠️ С ПЕРЕЗАГРУЗКОЙ: живьём число папки, чьи чаты ни разу не раскрывали,
+  // не приезжает вовсе — это Д-65, старый разрыв, а не вид. Здесь проверяется вид.
+  await page.reload();
+  await expect(row(page, "Объект")).toHaveAttribute("aria-expanded", "false");
+  expect(await shownDigits(page, "Объект"), "у папки видно число").toEqual([]);
+  await expect(row(page, "Объект").locator("[data-status]")).toHaveAttribute(
+    "data-status",
+    "unread",
+  );
+
+  // П-4: наведение ничего не сдвигает — ни название, ни значок слева,
+  // а точки появляются в уже отведённом месте.
   const dots = page.getByRole("button", { name: "Настройки чата «Смета»" });
   await expect(dots).toBeHidden();
+  const place = async () => ({
+    title: await row(page, "Смета").locator("span.truncate").boundingBox(),
+    mark: await status(page, "Смета").boundingBox(),
+    // Скрытая кнопка не входит в дерево доступности — мерим с учётом скрытых.
+    dots: await page
+      .getByRole("button", { name: "Настройки чата «Смета»", includeHidden: true })
+      .boundingBox(),
+  });
+  const before = await place();
   await row(page, "Смета").hover();
   await expect(dots).toBeVisible();
-
-  // П-2: правый край числа — у правого края строки, а не левее кнопок.
-  await page.mouse.move(0, 0);
-  await expect(dots).toBeHidden();
-  const gap = await row(page, "Смета").evaluate((button) => {
-    const line = button.parentElement?.getBoundingClientRect();
-    // Значки — последний узел кнопки; внутри них подпись для читалки
-    // стоит абсолютно в 1 px, и мерить её значило бы мерить не то.
-    const badge = button.lastElementChild?.getBoundingClientRect();
-    return line && badge ? Math.round(line.right - badge.right) : -1;
-  });
-  expect(gap, "число стоит не у края строки").toBeGreaterThanOrEqual(0);
-  expect(gap, "число стоит не у края строки").toBeLessThanOrEqual(12);
+  const after = await place();
+  expect(after.title?.x, "название сдвинулось").toBe(before.title?.x);
+  expect(after.title?.width, "название сжалось").toBe(before.title?.width);
+  expect(after.mark?.x, "значок сдвинулся").toBe(before.mark?.x);
+  expect(after.dots?.x, "точки встали не на своё место").toBe(before.dots?.x);
 });
 
 test("у любого чата одно меню по правой кнопке, и пункты работают", async ({ page }) => {

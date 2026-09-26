@@ -6,6 +6,7 @@ import { ProjectGlyph } from "../shared/projectLook.js";
 import { ContextMenu, ContextMenuTrigger } from "../shared/ui/context-menu.js";
 import { DropdownMenu, DropdownMenuTrigger } from "../shared/ui/dropdown-menu.js";
 import { contextKit, dropdownKit, type MenuKit } from "../shared/ui/menuKit.js";
+import { rowState, SpokenCounts, StatusMark } from "./RowStatus.js";
 
 /**
  * Проект в боковой панели: заголовок и его чаты (Р-032).
@@ -23,28 +24,19 @@ import { contextKit, dropdownKit, type MenuKit } from "../shared/ui/menuKit.js";
 /**
  * Что показывает свёрнутый проект.
  *
- * ⚠️ СУММА, А НЕ ПРИЗНАК. Свёрнутая папка обязана сказать, сколько внутри
- * нового и звали ли тебя, — иначе сворачивать её никто не станет: свернул
- * и ослеп. Числа складываются по тем же правилам, что у канала, и берутся
- * у тех же счётчиков — второго способа считать непрочитанное здесь нет.
+ * ⚠️ СВОДКА, А НЕ ПРИЗНАК. Свёрнутая папка обязана сказать, есть ли внутри
+ * новое и звали ли тебя, — иначе сворачивать её никто не станет: свернул
+ * и ослеп. Правило то же, что у чата (`RowStatus`), числа — только для
+ * читалки (Р-044): плашка «5» посреди строки владельцу не понравилась.
  */
 function Summary({ unread, mentions }: { unread: number; mentions: number }) {
-  if (mentions <= 0 && unread <= 0) return null;
+  const state = rowState({ unread, mentions });
+  if (state === "none") return null;
   return (
-    <span className="ml-auto flex shrink-0 items-center gap-1">
-      {mentions > 0 ? (
-        <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
-          <span className="sr-only">упоминаний: {mentions}</span>
-          <span aria-hidden="true">@</span>
-        </span>
-      ) : null}
-      {unread > 0 ? (
-        <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
-          <span className="sr-only">непрочитанных: </span>
-          {unread > 999 ? "999+" : unread}
-        </span>
-      ) : null}
-    </span>
+    <>
+      <StatusMark state={state} />
+      <SpokenCounts unread={unread} mentions={mentions} />
+    </>
   );
 }
 
@@ -157,7 +149,14 @@ export function ProjectRow({
               className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors outline-none hover:text-ink focus-visible:text-ink"
             >
               <ProjectGlyph icon={project.icon} color={project.color} className="size-4" />
-              <span className="truncate font-medium">{project.title}</span>
+              <span
+                className={[
+                  "truncate font-medium",
+                  collapsed && project.unread > 0 ? "text-ink" : "",
+                ].join(" ")}
+              >
+                {project.title}
+              </span>
               {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
                 на самих чатах, и повторять их сверху значит сказать дважды. */}
               {collapsed ? <Summary unread={project.unread} mentions={project.mentions} /> : null}
