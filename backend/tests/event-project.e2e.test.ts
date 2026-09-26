@@ -24,6 +24,13 @@ async function say(person: Person, where: string, body: string): Promise<void> {
   expect(response.status).toBe(201);
 }
 
+/** Первый звонок о нужном разговоре: звонки о заводке чатов пропускаем. */
+async function callAbout(calls: Awaited<ReturnType<typeof listenCalls>>, where: string) {
+  let seen = await calls.next();
+  while (seen && seen.conversation !== where) seen = await calls.next();
+  return seen;
+}
+
 describe("событие о реплике несёт папку", () => {
   beforeAll(requireStand);
 
@@ -43,8 +50,7 @@ describe("событие о реплике несёт папку", () => {
         [branch, "в ветке"],
       ] as const) {
         await say(owner, where, text);
-        let seen = await calls.next();
-        while (seen && seen.conversation !== where) seen = await calls.next();
+        const seen = await callAbout(calls, where);
         expect(seen, `нет звонка о реплике «${text}»`).not.toBeNull();
         if (where === inside) expect(seen?.project).toBe(folder);
         else expect(seen && "project" in seen, `у «${text}» папки быть не должно`).toBe(false);
