@@ -14,7 +14,7 @@
 // Сколько раз какой сценарий шёл — tmp/dev-profiles/imitation-log.json.
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { request } from "playwright";
+import { request } from "@playwright/test";
 
 const BASE = process.env.STAND ?? "http://localhost:8477";
 const SECRET = "tmp/dev-profiles/secret";

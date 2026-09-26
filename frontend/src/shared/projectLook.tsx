@@ -213,7 +213,7 @@ export { PROJECT_ICONS };
  * и приезжает из базы как `#rrggbb`; токен темы подставить сюда нельзя —
  * он меняется вместе с темой, а цвет проекта у всех один.
  */
-export function labelColor(color: string | null | undefined): string | undefined {
+function labelColor(color: string | null | undefined): string | undefined {
   return color ?? undefined;
 }
 
@@ -246,7 +246,7 @@ export function ProjectGlyph({
   const tint = labelColor(color);
   return (
     <span
-      className="grid shrink-0 place-items-center rounded-[5px] p-0.5"
+      className="grid shrink-0 place-items-center rounded-sm p-0.5"
       style={tint ? { backgroundColor: tint, color: inkOn(tint) } : undefined}
     >
       <Glyph className={className ?? "size-4"} />

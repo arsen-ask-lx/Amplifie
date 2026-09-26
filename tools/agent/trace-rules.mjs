@@ -16,7 +16,7 @@
  */
 
 /** Путь к файлу — от корня репозитория, прямыми косыми. */
-export function normPath(raw, root = "Amplifie") {
+function normPath(raw, root = "Amplifie") {
   const path = String(raw)
     .replace(/^["']|["']$/gu, "")
     .replace(/\\/gu, "/");
@@ -107,7 +107,7 @@ const READERS = { cat: catReads, head: headReads, sed: sedReads, "Get-Content": 
  * `[с, по]` или `"all"`. Читает файл только ПЕРВОЕ звено конвейера —
  * дальше идёт уже его вывод.
  */
-export function shellReads(command) {
+function shellReads(command) {
   return command.split(/\s*(?:&&|\|\||;|\n)\s*/u).flatMap((chain) => {
     const stages = chain.split(/\s*\|\s*/u);
     const tokens = words(stages[0] ?? "");

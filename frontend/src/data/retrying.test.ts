@@ -14,6 +14,15 @@ const settle = async () => {
   for (let n = 0; n < 10; n++) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
+/** Что догон сообщает наружу — одной записью на событие. */
+function reporting(log: string[]) {
+  return {
+    onFailures: (n: number) => log.push(`fail:${n}`),
+    onRecovered: () => log.push("ok"),
+    onSessionEnded: () => log.push("401"),
+  };
+}
+
 function harness(outcomes: Array<"ok" | number>) {
   const timers: Array<{ ms: number; run: () => void; cleared: boolean }> = [];
   const log: string[] = [];
@@ -24,11 +33,7 @@ function harness(outcomes: Array<"ok" | number>) {
       calls += 1;
       if (outcome !== "ok") throw new ApiError(outcome, { error: "отказ" });
     },
-    {
-      onFailures: (n) => log.push(`fail:${n}`),
-      onRecovered: () => log.push("ok"),
-      onSessionEnded: () => log.push("401"),
-    },
+    reporting(log),
     {
       random: () => 0.999,
       setTimeout: (run, ms) => {
@@ -108,11 +113,7 @@ describe("догон, который не сдаётся", () => {
         });
         return running;
       },
-      {
-        onFailures: (n) => log.push(`fail:${n}`),
-        onRecovered: () => log.push("ok"),
-        onSessionEnded: () => log.push("401"),
-      },
+      reporting(log),
       {
         random: () => 0,
         setTimeout: () => {
@@ -142,11 +143,7 @@ describe("догон, который не сдаётся", () => {
         new Promise<void>((resolve) => {
           succeed = resolve;
         }),
-      {
-        onFailures: (n) => log.push(`fail:${n}`),
-        onRecovered: () => log.push("ok"),
-        onSessionEnded: () => log.push("401"),
-      },
+      reporting(log),
     );
     control.kick();
     control.stop();

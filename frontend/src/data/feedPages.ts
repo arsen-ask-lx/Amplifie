@@ -86,19 +86,13 @@ export async function pageAround(
   };
 }
 
-/** Последняя страница — лента в конце. */
-export async function pageLatest(conversationId: string, signal: AbortSignal): Promise<FeedWindow> {
-  const page = await api.messages(conversationId, { limit: FEED_PAGE, signal });
-  return { items: page.items, hasOlder: page.hasMore, hasNewer: false, head: page.head };
-}
-
 /**
  * Лента так, как её открывает человек: на первом непрочитанном (task-107).
  *
  * ⚠️ РЕШАЕТ СЕРВЕР, А НЕ КЛИЕНТ. Клиенту пришлось бы сперва спросить отметку
  * прочтения, потом ленту — лишний круг на каждое открытие чата, — и правило
  * «первое непрочитанное» жило бы в двух местах. Непрочитанного нет — ответ
- * тот же, что у `pageLatest`.
+ * тот же, что у прежней последней страницы.
  *
  * `readSeq` приходит вместе со страницей: черту рисует лента, а не строка
  * панели, которой у чата вне первой порции может ещё не быть (Д-51).
