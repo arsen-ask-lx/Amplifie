@@ -55,29 +55,57 @@ function openedAt(node: HTMLDivElement, boundary: number | null): boolean {
 }
 
 /**
- * Наибольший номер, который человек видел ЦЕЛИКОМ (task-107).
+ * Наибольший номер, который человек видел ДО КОНЦА (task-107).
  *
- * ⚠️ НАБЛЮДАТЕЛЬ, А НЕ ОБРАБОТЧИК ПРОКРУТКИ. Обработчик считал бы размеры
- * на каждый пиксель движения; наблюдатель будит нас ровно тогда, когда
- * реплика показалась целиком. Половина реплики под краем экрана
- * прочитанной не считается — порог 1.
+ * ⚠️ «ДО КОНЦА» — ЭТО НИЖНИЙ КРАЙ НА ЭКРАНЕ, А НЕ ВСЯ РЕПЛИКА ЦЕЛИКОМ.
+ * Первая редакция ждала реплику целиком (порог 1), и реплика выше экрана
+ * не помещалась никогда: отметка застревала перед ней навсегда, и чат,
+ * дочитанный до последней строки, горел числом (владелец, 26.09).
+ * Половина реплики под краем экрана по-прежнему не считается.
+ *
+ * ⚠️ НАБЛЮДАТЕЛЬ ПЛЮС ПРОКРУТКА ТОЛЬКО ПО ВЫСОКИМ. Наблюдатель будит
+ * на входе и выходе реплики, но нижний край высокой приезжает на экран
+ * без пересечения порога. Поэтому показавшиеся, но не целиком, реплики
+ * держим в наборе и на прокрутке меряем только их — одну-две, а не ленту.
  */
 function watchSeen(node: HTMLDivElement, onSeen: (seq: number) => void): () => void {
   if (typeof IntersectionObserver === "undefined") return () => undefined;
   let top = 0;
+  const partial = new Set<Element>();
+
+  // ⚠️ ЗОВЁМ И БЕЗ РОСТА НОМЕРА. `seen` молча отбрасывает увиденное в окне
+  // без фокуса, и сообщи мы номер один раз — он не дошёл бы никогда.
+  const note = (seq: number) => {
+    if (Number.isInteger(seq)) top = Math.max(top, seq);
+    if (top > 0) onSeen(top);
+  };
+  const bottomShown = (one: Element) =>
+    one.getBoundingClientRect().bottom <= node.getBoundingClientRect().bottom + 1;
+  const checkPartial = () => {
+    for (const one of partial) {
+      if (bottomShown(one)) note(Number(one.getAttribute("data-seq")));
+    }
+  };
+
   const watch = new IntersectionObserver(
     (entries) => {
-      const shown = entries
-        .filter((one) => one.isIntersecting)
-        .map((one) => Number(one.target.getAttribute("data-seq")))
-        .filter((seq) => Number.isInteger(seq));
-      top = Math.max(top, ...shown);
-      if (top > 0) onSeen(top);
+      for (const one of entries) {
+        if (!one.isIntersecting) partial.delete(one.target);
+        else if (one.intersectionRatio >= 1) {
+          partial.delete(one.target);
+          note(Number(one.target.getAttribute("data-seq")));
+        } else partial.add(one.target);
+      }
+      checkPartial();
     },
-    { root: node, threshold: 1 },
+    { root: node, threshold: [0, 1] },
   );
   for (const one of node.querySelectorAll("[data-seq]")) watch.observe(one);
-  return () => watch.disconnect();
+  node.addEventListener("scroll", checkPartial, { passive: true });
+  return () => {
+    watch.disconnect();
+    node.removeEventListener("scroll", checkPartial);
+  };
 }
 
 export interface FeedScroll {

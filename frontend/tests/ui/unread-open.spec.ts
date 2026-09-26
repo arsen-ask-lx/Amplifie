@@ -1,5 +1,13 @@
 import { expect, test } from "@playwright/test";
-import { chatWithUnread, panelRow, unreadIn } from "./fixtures.js";
+import {
+  chatWithUnread,
+  createChannel,
+  inviteToken,
+  joinVoice,
+  panelRow,
+  register,
+  unreadIn,
+} from "./fixtures.js";
 
 /**
  * НЕПРОЧИТАННОЕ КАК В TELEGRAM (task-107). Написан ДО кода и обязан быть
@@ -92,4 +100,53 @@ test("число убывает по мере чтения, а не гаснет
     zeroTooEarly === -1 || zeroTooEarly > lastPositive,
     "число показывало ноль, пока непрочитанное ещё было",
   ).toBe(true);
+});
+
+test("реплика выше экрана становится прочитанной, когда долистал до её конца", async ({
+  page,
+  playwright,
+}) => {
+  /**
+   * ⚠️ ПОЙМАНО ВЛАДЕЛЬЦЕМ 26.09: «прочитал всё, а горит 8». Реплика считалась
+   * увиденной, только когда видна ЦЕЛИКОМ, а длинная целиком не помещается
+   * на экран никогда — отметка застревала перед первой такой навсегда.
+   */
+  await page.setViewportSize({ width: 900, height: 500 });
+  await register(page);
+  await createChannel(page, "Простыня");
+  const room = new URL(page.url()).pathname.split("/")[2] ?? "";
+  await createChannel(page, "Другой");
+
+  const guest = await joinVoice(playwright.request, await inviteToken(page), "Сосед");
+  const Long = 3;
+  for (let n = 1; n <= Long; n += 1) {
+    const said = await guest.post(`/v1/conversations/${room}/messages`, {
+      data: { body: `простыня ${n} ${"слово ".repeat(500)}`, clientMsgId: crypto.randomUUID() },
+    });
+    expect(said.ok(), `реплика ${n} не ушла`).toBe(true);
+  }
+  await guest.dispose();
+  await expect.poll(async () => await unreadIn(page, "Простыня")).toBe(Long);
+
+  await panelRow(page, "Простыня").click();
+
+  // Сервер, а не значок: значок склеен ещё и с отметками в памяти вкладки.
+  const serverUnread = async () => {
+    const list = (await page.evaluate(() =>
+      fetch("/v1/conversations", { credentials: "include" }).then((r) => r.json()),
+    )) as { items: Array<{ title: string; unread: number }> };
+    return list.items.find((one) => one.title === "Простыня")?.unread;
+  };
+
+  await expect
+    .poll(
+      async () => {
+        await page.getByRole("log").evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        return await serverUnread();
+      },
+      { timeout: 20_000, message: "дочитанные длинные реплики остались непрочитанными" },
+    )
+    .toBe(0);
 });
