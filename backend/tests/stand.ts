@@ -136,6 +136,8 @@ export async function listen(person: Person): Promise<(timeoutMs?: number) => Pr
  */
 export interface CallSeen {
   conversation: string | null;
+  /** Папка разговора с репликой (task-119). Чат вне папок — поля нет. */
+  project?: string;
   /**
    * Сама реплика, если сервер сумел описать изменение точно (task-085).
    *
@@ -162,11 +164,13 @@ function callOf(frame: string): CallSeen | null {
     conversation?: string | null;
     line?: unknown;
     mentions?: string[];
+    project?: string;
   };
   return {
     conversation: parsed.conversation ?? null,
     ...(parsed.line === undefined ? {} : { line: parsed.line }),
     ...(parsed.mentions === undefined ? {} : { mentions: parsed.mentions }),
+    ...(parsed.project === undefined ? {} : { project: parsed.project }),
   };
 }
 

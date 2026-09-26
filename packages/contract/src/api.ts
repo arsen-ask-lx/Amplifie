@@ -159,6 +159,13 @@ export const changeEvent = z.object({
    * состоит, им и так отвечает `/v1/conversations/:id/people` (Р-031).
    */
   mentions: z.array(id).optional(),
+  /**
+   * Папка разговора с репликой (task-119, Д-65): свёрнутая папка, чьих
+   * чатов вкладка не загружала, считает новое сама, без запроса. Папка —
+   * `projectId` самого разговора, как у серверного счёта папки
+   * (`projectCountsFor`), а не его корня. Нет поля — чат вне папок.
+   */
+  project: id.optional(),
 });
 
 export const messagesPage = z.object({

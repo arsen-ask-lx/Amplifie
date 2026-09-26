@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { feedTroubleOf } from "../shared/trouble.js";
 import { api, type Conversation, type Message, type Project } from "./api.js";
-import { bumped, readApplied, type Who } from "./bumped.js";
+import { bumped, folderBumped, readApplied, type Who } from "./bumped.js";
 import { coalesced } from "./coalesced.js";
 import type { Address } from "./useAddress.js";
 import { type PanelActions, usePanelActions } from "./usePanelActions.js";
@@ -84,7 +84,7 @@ export interface Rooms extends PanelActions {
    * единственное, что не даёт приращению копить ошибку: правило Телеграма
    * «номер идёт сразу за курсором, иначе разрыв».
    */
-  applied: (line: Message, mentioned: string[]) => void;
+  applied: (line: Message, mentioned: string[], project?: string) => void;
   /**
    * Сервер подтвердил отметку «прочитано» и назвал остаток — поставить его
    * в строку (task-097). Число после отметки серверное, а не вычтенное
@@ -386,9 +386,16 @@ export function useRooms(where: Address, me: string): Rooms {
 
   /** Поправить строку самим по приехавшей реплике (task-092). */
   const applied = useCallback(
-    (line: Message, mentioned: string[]) => {
+    (line: Message, mentioned: string[], project?: string) => {
       const who: Who = { me, openId: currentIdRef.current, mentioned };
       everywhere((rows) => bumped(rows, line, who));
+      // ⚠️ ПАПКА — ВСЕГДА, ЗНАЕТ ПАНЕЛЬ ЧАТ ИЛИ НЕТ (task-119, Д-65). Свёрнутая
+      // папка рисует своё число, а не сумму строк; строки же могут быть
+      // не загружены вовсе. Свои реплики и открытый чат не считаются —
+      // то же правило, что у строки (`bumped`) и у сервера.
+      if (!project || line.author.id === me || line.conversationId === currentIdRef.current) return;
+      const called = mentioned.includes(me) ? 1 : 0;
+      setProjects((before) => folderBumped(before, project, 1, called));
     },
     [me, currentIdRef, everywhere],
   );
@@ -396,6 +403,13 @@ export function useRooms(where: Address, me: string): Rooms {
   /** Ответ на отметку «прочитано» — серверный остаток в строку (task-097). */
   const onRead = useCallback(
     (conversationId: string, seq: number, unread: number) => {
+      // Прочтение уменьшает и папку — на ту же разницу, что у строки.
+      const row = itemsRef.current.find((one) => one.id === conversationId);
+      if (row?.projectId && seq >= row.readSeq && row.unread > unread) {
+        const called = unread === 0 ? -row.mentions : 0;
+        const project = row.projectId;
+        setProjects((before) => folderBumped(before, project, unread - row.unread, called));
+      }
       everywhere((rows) => readApplied(rows, conversationId, seq, unread));
     },
     [everywhere],

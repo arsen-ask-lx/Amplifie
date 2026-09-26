@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Conversation, Message } from "./api.js";
-import { bumped, readApplied } from "./bumped.js";
+import { bumped, folderBumped, readApplied } from "./bumped.js";
 
 /**
  * ТОЧЕЧНЫЕ ПРОВЕРКИ ПРАВИЛА «СТРОКА ПАНЕЛИ ПОСЛЕ ПРИЕХАВШЕЙ РЕПЛИКИ»
@@ -160,5 +160,45 @@ describe("строка панели после ответа на отметку 
   it("строки нет среди загруженных — ничего", () => {
     const items = [room()];
     expect(readApplied(items, "другой", 20, 0)).toBe(items);
+  });
+});
+
+describe("счётчик папки по приехавшей реплике и по прочтению (task-119, Д-65)", () => {
+  const folder = (id: string, unread: number, mentions = 0) => ({
+    id,
+    title: id,
+    icon: null,
+    color: null,
+    pinned: false,
+    unread,
+    mentions,
+  });
+
+  it("реплика в папке — +1, остальные папки той же ссылкой", () => {
+    const other = folder("B", 5);
+    const before = [folder("A", 0), other];
+    const after = folderBumped(before, "A", 1, 0);
+    expect(after[0]?.unread).toBe(1);
+    expect(after[1]).toBe(other);
+  });
+
+  it("зов — ещё и упоминание", () => {
+    expect(folderBumped([folder("A", 2, 0)], "A", 1, 1)[0]).toMatchObject({
+      unread: 3,
+      mentions: 1,
+    });
+  });
+
+  it("прочтение — минус, но не ниже нуля", () => {
+    expect(folderBumped([folder("A", 1, 1)], "A", -3, -1)[0]).toMatchObject({
+      unread: 0,
+      mentions: 0,
+    });
+  });
+
+  it("папки нет у человека или сдвига нет — тот же массив", () => {
+    const before = [folder("A", 1)];
+    expect(folderBumped(before, "Z", 1, 0)).toBe(before);
+    expect(folderBumped(before, "A", 0, 0)).toBe(before);
   });
 });

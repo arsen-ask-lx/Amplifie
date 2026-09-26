@@ -107,3 +107,39 @@ export function readApplied(
   };
   return next;
 }
+
+/** Папка со счётчиками — то, что панель рисует у свёрнутой папки. */
+interface Counted {
+  id: string;
+  unread: number;
+  mentions: number;
+}
+
+/**
+ * Счётчик папки — по приехавшей реплике или по прочтению (task-119, Д-65).
+ *
+ * ⚠️ ПАПКА СЧИТАЕТСЯ САМА, А НЕ ИЗ СТРОК. Свёрнутая папка рисует число
+ * сервера из сводного ответа, а строки её чатов могут быть не загружены
+ * вовсе — прежде она молчала о новом до перезагрузки.
+ *
+ * ⚠️ МЕНЯЕТСЯ ТОЛЬКО ОДНА ПАПКА. Остальные — той же ссылкой, а сдвига
+ * нет — тот же массив: на сотне папок и чужой реплике в секунду это
+ * разница между живой панелью и перерисовкой её целиком.
+ */
+export function folderBumped<T extends Counted>(
+  projects: T[],
+  projectId: string,
+  unread: number,
+  mentions: number,
+): T[] {
+  const at = projects.findIndex((one) => one.id === projectId);
+  const was = projects[at];
+  if (!was || (unread === 0 && mentions === 0)) return projects;
+  const next = [...projects];
+  next[at] = {
+    ...was,
+    unread: Math.max(0, was.unread + unread),
+    mentions: Math.max(0, was.mentions + mentions),
+  };
+  return next;
+}

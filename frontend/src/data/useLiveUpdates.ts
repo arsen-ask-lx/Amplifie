@@ -54,6 +54,8 @@ function changeOf(data: string): ChangeEvent {
       // Кого позвали (task-092): разбирать текст здесь — вторая разметка
       // рядом с серверной (Р-020).
       ...(Array.isArray(parsed.mentions) ? { mentions: parsed.mentions } : {}),
+      // Папка чата (task-119): без неё свёрнутая папка молчит о новом.
+      ...(typeof parsed.project === "string" ? { project: parsed.project } : {}),
     };
   } catch {
     return { conversation: null };
@@ -117,14 +119,14 @@ export function useLiveUpdates(options: {
      * реплике, не только своего чата: иначе следующая в моём чате
      * выглядела бы разрывом.
      */
-    const applyCarried = (line: Message, mentioned: string[]): Carried => {
+    const applyCarried = (line: Message, mentioned: string[], project?: string): Carried => {
       const what = carried(line.seq, cursor.current);
       if (what === "применить") {
         cursor.current = line.seq;
         accept([line]);
         // И панель — тем же событием, без запроса (task-092): непрерывность
         // уже доказана номером строкой выше.
-        rooms.applied(line, mentioned);
+        rooms.applied(line, mentioned, project);
         return what;
       }
       if (what === "догнать") asked();
@@ -150,7 +152,9 @@ export function useLiveUpdates(options: {
           described(changed);
           return;
         }
-        if (applyCarried(changed.line, changed.mentions ?? []) === "догнать") rooms.refresh();
+        const where = changed.project;
+        if (applyCarried(changed.line, changed.mentions ?? [], where) === "догнать")
+          rooms.refresh();
       },
       /**
        * ⚠️ ПОСЛЕ ПОДКЛЮЧЕНИЯ — ДОГОН: всё, что случилось, пока потока не было,

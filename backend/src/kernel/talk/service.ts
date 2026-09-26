@@ -395,6 +395,7 @@ async function told(
   conversationId: string,
   line: MessageView,
   mentioned: string[],
+  projectId: string | null,
 ) {
   const audience = await audienceFor(conversationId);
   remember(workspaceId, { seq: line.seq, audience, line });
@@ -432,6 +433,8 @@ async function told(
       conversation: conversationId,
       line,
       ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
+      // Папка — чтобы свёрнутая папка узнала о новом без запроса (task-119).
+      ...(projectId ? { project: projectId } : {}),
     },
     audience,
   );
@@ -457,7 +460,7 @@ export async function sendMessage(
 
       const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
       // Повтор не звонит, поэтому и позванных ему знать незачем.
-      if (already) return { replayed: true, id: already.id, mentioned: [] };
+      if (already) return { replayed: true, id: already.id, mentioned: [], projectId: null };
 
       // Цитата показывает текст, а её номер пришёл от клиента: без проверки
       // видимости по нему вытаскивался бы кусок чужого разговора.
@@ -473,7 +476,12 @@ export async function sendMessage(
         forwardedFromId,
       });
 
-      return { replayed: false, id: made.id, mentioned: made.mentioned };
+      return {
+        replayed: false,
+        id: made.id,
+        mentioned: made.mentioned,
+        projectId: target.projectId,
+      };
     });
 
     /**
@@ -492,7 +500,7 @@ export async function sendMessage(
     // Звонок после фиксации (Р-006); повтор не звонит — ничего не изменилось.
     // Адрес — этот разговор: вкладки других разговоров не поднимаются (task-067).
     if (!written.replayed) {
-      await told(viewer.workspaceId, conversationId, message, written.mentioned);
+      await told(viewer.workspaceId, conversationId, message, written.mentioned, written.projectId);
     }
     return { replayed: written.replayed, message };
   } catch (error) {
@@ -522,7 +530,7 @@ export async function sendAsAgent(
 
     // Ключ выведен из обращения: двойной зов — один ответ.
     const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
-    if (already) return { fresh: false, id: already.id, mentioned: [] };
+    if (already) return { fresh: false, id: already.id, mentioned: [], projectId: null };
 
     const made = await writeMessage(tx, target, {
       conversationId,
@@ -533,7 +541,7 @@ export async function sendAsAgent(
       trust: "untrusted",
     });
 
-    return { fresh: true, id: made.id, mentioned: made.mentioned };
+    return { fresh: true, id: made.id, mentioned: made.mentioned, projectId: target.projectId };
   });
 
   // Вид — после фиксации, по той же причине, что у отправки человека.
@@ -541,7 +549,13 @@ export async function sendAsAgent(
 
   // Звонок только после фиксации (Р-006), и только если что-то изменилось.
   if (written.fresh) {
-    await told(onBehalfOf.workspaceId, conversationId, message, written.mentioned);
+    await told(
+      onBehalfOf.workspaceId,
+      conversationId,
+      message,
+      written.mentioned,
+      written.projectId,
+    );
   }
   return message;
 }

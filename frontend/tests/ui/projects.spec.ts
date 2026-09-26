@@ -579,3 +579,42 @@ test("«Недавние» догружаются, когда панель до�
     .poll(async () => await rows.count(), { message: "низ показался, а порция не приехала" })
     .toBeGreaterThan(25);
 });
+
+/**
+ * Д-65: папка, чьих чатов вкладка НИ РАЗУ не загружала, тоже узнаёт о новом
+ * живьём. Прежде звонок о реплике применялся только к строкам, которые
+ * панель знает, — а чат свёрнутой с загрузки папки она не знает, и папка
+ * молчала до перезагрузки: ровно тогда, ради чего её и сворачивают.
+ */
+test("свёрнутая с загрузки папка узнаёт о новом без перезагрузки", async ({ page, browser }) => {
+  await register(page, "Хозяин");
+  await createProject(page, "Объект");
+  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
+  await page.getByLabel("Название нового чата").fill("Смета");
+  await page.getByLabel("Название нового чата").press("Enter");
+
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Коллега");
+  await openChannel(otherPage, "Общий");
+  // Свернуть и перезагрузить: свёрнутую папку панель не загружает вовсе.
+  const folder = folderRow(otherPage, "Объект");
+  if ((await folder.getAttribute("aria-expanded")) === "true") await folder.click();
+  await expect(folder).toHaveAttribute("aria-expanded", "false");
+  await otherPage.reload();
+  await expect(folderRow(otherPage, "Объект")).toHaveAttribute("aria-expanded", "false");
+
+  await openChannel(page, "Смета");
+  // П-2 (task-119): число папки растёт из события, а не из перечитывания
+  // панели — иначе это откат task-092 на каждой чужой реплике.
+  const panelAsks: string[] = [];
+  otherPage.on("request", (request) => {
+    if (request.url().includes("/v1/panel")) panelAsks.push(request.url());
+  });
+  await say(page, "новое в свёрнутой папке");
+
+  await expect(
+    folderRow(otherPage, "Объект"),
+    "свёрнутая с загрузки папка молчит о новом до перезагрузки",
+  ).toHaveAccessibleName(/непрочитанных: 1/u);
+  expect(panelAsks, "папка узнала о новом перечитыванием, а не событием").toEqual([]);
+});

@@ -52,6 +52,8 @@ export interface Change {
    * не знает, что возит. Форма — в общем контракте (`changeEvent`).
    */
   mentions?: unknown;
+  /** Папка разговора (task-119) — `unknown` по той же причине, что и `line`. */
+  project?: unknown;
 }
 
 type Listener = (change: Change) => void;
