@@ -60,6 +60,17 @@ export interface FeedState {
    * подтверждённых сессий на сервере: отдельного поля с временем не нужно.
    */
   snapshots: Record<string, Snapshot>;
+  /**
+   * Закреплённое чатов, где уже были — отдельно от снимков ленты.
+   *
+   * ⚠️ СНИМОК ЛЕНТЫ ПОКАЗЫВАЕТСЯ НЕ ВСЕГДА, А ЗАКРЕПЛЁННОЕ — ВСЕГДА. Снимок
+   * ленты берётся только у дочитанного чата (task-114); у чата с новым
+   * лента едет с сервера, и закреплённое ехало вместе с ней — полоска
+   * выскакивала позже самого чата (владелец 26.09: «мерцает при
+   * переключении»). Закреплённое меняется редко: показать прежнее до ответа
+   * честно, ответ его заменит.
+   */
+  pinnedSeen: Record<string, Message[]>;
 }
 
 /** Что помним про чат, из которого ушли. Все четыре поля ленты, не только её. */
@@ -84,6 +95,16 @@ const SNAPSHOTS = 8;
  */
 const SNAPSHOT = 50;
 
+/** Сколько чатов помнит закреплённое: список короткий, память дешёвая. */
+const PINNED_SEEN = 16;
+
+/** Запомнить закреплённое чата; самый давний вытесняется. Порядок ключей — свежесть. */
+function pinnedRemembered(seen: Record<string, Message[]>, id: string, items: Message[]) {
+  const { [id]: _was, ...rest } = seen;
+  const kept = Object.entries(rest).slice(-(PINNED_SEEN - 1));
+  return { ...Object.fromEntries(kept), [id]: items };
+}
+
 export const emptyFeed: FeedState = {
   messages: [],
   pinned: [],
@@ -92,6 +113,7 @@ export const emptyFeed: FeedState = {
   hasNewer: false,
   readSeq: null,
   snapshots: {},
+  pinnedSeen: {},
 };
 
 const edgesOf = (state: FeedState): Edges => ({ older: state.hasOlder, newer: state.hasNewer });
@@ -125,7 +147,9 @@ export type FeedCommand =
   | { type: "pinMarked"; messageId: string; pinnedAt: string | null }
   | { type: "edited"; message: Message }
   | { type: "removed"; messageId: string }
-  | { type: "pinnedLoaded"; conversationId: string | null; items: Message[] };
+  | { type: "pinnedLoaded"; conversationId: string | null; items: Message[] }
+  /** Перешли в чат: показать его закреплённое из памяти до ответа сервера. */
+  | { type: "pinnedRecalled"; conversationId: string };
 
 export function feedState(state: FeedState, command: FeedCommand): FeedState {
   switch (command.type) {
@@ -254,7 +278,28 @@ function ownChange(state: FeedState, command: FeedCommand): FeedState {
         pinned: state.pinned.filter((one) => one.id !== command.messageId),
       };
     case "pinnedLoaded":
-      return { ...state, pinned: command.items, pinnedFor: command.conversationId };
+      return {
+        ...state,
+        pinned: command.items,
+        pinnedFor: command.conversationId,
+        pinnedSeen:
+          command.conversationId === null
+            ? state.pinnedSeen
+            : pinnedRemembered(state.pinnedSeen, command.conversationId, command.items),
+      };
+    case "pinnedRecalled": {
+      // ⚠️ УХОДЯ, ЗАПОМНИТЬ ТО, ЧТО НА ЭКРАНЕ, А НЕ ТО, ЧТО ПРИШЛО ОТВЕТОМ.
+      // Закрепили при открытом чате — пришло событием, ответа сервера
+      // не было: в памяти остался бы пустой список (поймано сценарием).
+      const seen =
+        state.pinnedFor === null
+          ? state.pinnedSeen
+          : pinnedRemembered(state.pinnedSeen, state.pinnedFor, state.pinned);
+      const known = seen[command.conversationId];
+      return known
+        ? { ...state, pinned: known, pinnedFor: command.conversationId, pinnedSeen: seen }
+        : { ...state, pinnedSeen: seen };
+    }
     default:
       return state;
   }

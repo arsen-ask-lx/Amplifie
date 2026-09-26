@@ -441,6 +441,8 @@ export function useChat(me: Me, onSessionEnded: () => void = () => undefined): C
       dispatch({ type: "pinnedLoaded", conversationId: null, items: [] });
       return;
     }
+    // Были здесь — полоска сразу, до ответа; ответ её заменит.
+    dispatch({ type: "pinnedRecalled", conversationId: currentId });
     let cancelled = false;
     const stop = new AbortController();
     api

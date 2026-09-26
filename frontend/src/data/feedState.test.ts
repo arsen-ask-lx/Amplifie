@@ -341,3 +341,48 @@ describe("снимок чата", () => {
     ]);
   });
 });
+
+describe("память закреплённого (закреплённое запаздывало при переходе)", () => {
+  const pin = msg("p1", 5, { pinnedAt: "2026-09-27T10:00:00.000Z" });
+
+  it("переход в чат, где уже были, показывает его закреплённое сразу — даже без снимка ленты", () => {
+    let state = feedState(emptyFeed, { type: "pinnedLoaded", conversationId: "A", items: [pin] });
+    state = feedState(state, { type: "pinnedLoaded", conversationId: "B", items: [] });
+    state = feedState(state, { type: "pinnedRecalled", conversationId: "A" });
+    expect(state.pinnedFor).toBe("A");
+    expect(state.pinned).toEqual([pin]);
+  });
+
+  it("в чате ещё не были — вспоминать нечего, прежнее не показывается чужим", () => {
+    let state = feedState(emptyFeed, { type: "pinnedLoaded", conversationId: "A", items: [pin] });
+    state = feedState(state, { type: "pinnedRecalled", conversationId: "Z" });
+    expect(state.pinnedFor).toBe("A");
+  });
+
+  it("память ограничена: самый давний чат вытесняется", () => {
+    let state = emptyFeed;
+    for (let n = 0; n < 20; n++) {
+      state = feedState(state, { type: "pinnedLoaded", conversationId: `C${n}`, items: [pin] });
+    }
+    state = feedState(state, { type: "pinnedLoaded", conversationId: "X", items: [] });
+    // Недавний помнится…
+    state = feedState(state, { type: "pinnedRecalled", conversationId: "C10" });
+    expect(state.pinnedFor).toBe("C10");
+    // …а самый давний вытеснен: вспоминать нечего, остаётся текущее.
+    state = feedState(state, { type: "pinnedRecalled", conversationId: "C0" });
+    expect(state.pinnedFor).toBe("C10");
+  });
+});
+
+describe("память закреплённого — закрепили событием, при открытом чате", () => {
+  it("уходя из чата, запоминается то, что на экране", () => {
+    const pin = msg("p2", 7, { pinnedAt: "2026-09-27T11:00:00.000Z" });
+    let state = feedState(emptyFeed, { type: "pinnedLoaded", conversationId: "A", items: [] });
+    // Закрепили живьём: ответа сервера не было, полоска обновилась на экране.
+    state = { ...state, pinned: [pin] };
+    state = feedState(state, { type: "pinnedRecalled", conversationId: "B" });
+    state = feedState(state, { type: "pinnedLoaded", conversationId: "B", items: [] });
+    state = feedState(state, { type: "pinnedRecalled", conversationId: "A" });
+    expect(state.pinned).toEqual([pin]);
+  });
+});
