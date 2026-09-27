@@ -26,6 +26,29 @@ function readMarksOf(page: Page): { seq: number; at: number }[] {
   return seen;
 }
 
+/** Номер последней реплики чата — по записи сервера. */
+async function lastSeqOf(page: Page, room: string): Promise<number> {
+  const answer = await page.request.get(`/v1/conversations/${room}/messages`);
+  expect(answer.status(), "лента чата не прочиталась").toBe(200);
+  const { items } = (await answer.json()) as { items: { seq: number }[] };
+  const last = items.at(-1)?.seq;
+  if (last === undefined) throw new Error("в чате нет реплик — сценарий доказывает не то");
+  return last;
+}
+
+/**
+ * Дождаться, что ушла отметка на последнюю реплику. Это признак, что окно
+ * в 3 с прошло и отложенного не осталось, — вместо сна «на окно с запасом».
+ */
+async function lastMarkSent(marks: { seq: number }[], last: number): Promise<void> {
+  await expect
+    .poll(() => Math.max(0, ...marks.map((one) => one.seq)), {
+      timeout: 10_000,
+      message: "отметка на последнюю реплику не ушла",
+    })
+    .toBe(last);
+}
+
 /** Долистать ленту до конца, догружая, пока число не погаснет. */
 async function readToEnd(page: Page, title: string): Promise<void> {
   await expect
@@ -62,16 +85,16 @@ test("число убывает сразу, хотя ответ на отмет�
 });
 
 test("оборванная отметка уходит снова тем же номером", async ({ page, playwright }) => {
-  await chatWithUnread(page, playwright.request, "Смета", SENT);
+  const room = await chatWithUnread(page, playwright.request, "Смета", SENT);
+  const last = await lastSeqOf(page, room);
   const marks = readMarksOf(page);
 
   // Все отметки обрываются, пока человек дочитывает до конца.
   await page.route("**/v1/conversations/*/read", (route) => route.abort());
   await panelRow(page, "Смета").click();
   await readToEnd(page, "Смета");
-  // Окно в 3 с: последняя, самая дальняя отметка успевает уйти и оборваться.
-  await page.waitForTimeout(3500);
-  const last = Math.max(...marks.map((one) => one.seq));
+  // Окно в 3 с: последняя, самая дальняя отметка уходит и обрывается.
+  await lastMarkSent(marks, last);
 
   // Сеть вернулась. Человек чуть сдвинул ленту в пределах уже увиденного:
   // нового номера нет — уйти обязан тот же, иначе отметка потеряна навсегда.
@@ -100,9 +123,14 @@ test("число покинутого чата не загорается сно�
   await panelRow(page, "Смета").click();
   await expect(page.getByText("Непрочитанные сообщения")).toBeVisible();
 
-  // Ответы придержаны: число на экране — только наша поправка.
+  // Ответы придержаны: число на экране — только наша поправка. Перед тем
+  // как отпустить первый ответ, страница узнаёт, что окно «в пути» кончилось:
+  // дальше наблюдатель не пишет — вопрос теста только про время в пути.
   await page.route("**/v1/conversations/*/read", async (route) => {
     await new Promise((done) => setTimeout(done, 5000));
+    await page.evaluate(() => {
+      (window as unknown as { answerLanded: boolean }).answerLanded = true;
+    });
     await route.continue();
   });
   await page.getByRole("log").evaluate((node) => {
@@ -116,6 +144,7 @@ test("число покинутого чата не загорается сно�
     const seen: number[] = [];
     (window as unknown as { leftCounts: number[] }).leftCounts = seen;
     new MutationObserver(() => {
+      if ((window as unknown as { answerLanded?: boolean }).answerLanded) return;
       const row = [...document.querySelectorAll("button")].find((one) =>
         (one.textContent ?? "").startsWith("Смета"),
       );
@@ -124,7 +153,16 @@ test("число покинутого чата не загорается сно�
     }).observe(document.body, { subtree: true, childList: true, characterData: true });
   });
   await panelRow(page, "Другой").click();
-  await page.waitForTimeout(2000);
+  // Признак конца окна — первый придержанный ответ отпущен (см. `route` выше).
+  await expect
+    .poll(
+      () => page.evaluate(() => (window as unknown as { answerLanded?: boolean }).answerLanded),
+      {
+        timeout: 15_000,
+        message: "придержанная отметка так и не ушла",
+      },
+    )
+    .toBe(true);
 
   const counts = await page.evaluate(
     () => (window as unknown as { leftCounts: number[] }).leftCounts,
@@ -133,24 +171,29 @@ test("число покинутого чата не загорается сно�
     Math.max(0, ...counts),
     "число покинутого чата выросло после перехода",
   ).toBeLessThanOrEqual(shown);
+  // Ещё придержанные ответы не должны дёргать закрывающуюся страницу.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
 test("отметки — пачкой: между соседними не меньше 3 с, номера растут", async ({
   page,
   playwright,
 }) => {
-  await chatWithUnread(page, playwright.request, "Смета", SENT);
+  const room = await chatWithUnread(page, playwright.request, "Смета", SENT);
+  const last = await lastSeqOf(page, room);
   const marks = readMarksOf(page);
 
   await panelRow(page, "Смета").click();
   await readToEnd(page, "Смета");
-  await page.waitForTimeout(3500);
+  await lastMarkSent(marks, last);
 
   expect(marks.length, "ни одной отметки — отправка сломана").toBeGreaterThan(1);
   for (let at = 1; at < marks.length; at += 1) {
     const gap = (marks[at]?.at ?? 0) - (marks[at - 1]?.at ?? 0);
-    // Допуск на таймеры браузера: окно 3000 мс, меряем снаружи.
-    expect(gap, "отметки чаще раза в 3 с").toBeGreaterThanOrEqual(2700);
+    // Окно — 3000 мс литералом из Р-029, а не `READ_WINDOW_MS` из кода:
+    // тест обязан покраснеть, если окно в коде сузят. 300 мс — допуск
+    // на таймеры браузера: меряем снаружи, временем прихода запроса.
+    expect(gap, "отметки чаще раза в 3 с").toBeGreaterThanOrEqual(3000 - 300);
     expect(marks[at]?.seq ?? 0, "номера отметок не растут").toBeGreaterThan(
       marks[at - 1]?.seq ?? 0,
     );

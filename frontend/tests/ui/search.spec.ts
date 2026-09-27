@@ -88,12 +88,29 @@ test("найденное в начале длинной истории откр�
 });
 
 test("короткий запрос не ищет и подсказывает", async ({ page }) => {
+  // Часы подделаны, чтобы пропустить паузу набора без сна: до прыжка идут как настоящие.
+  await page.clock.install();
   await register(page);
   await openSearch(page);
-  const searches = countSearches(page);
+  const asked: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/v1/search/messages")) {
+      asked.push(String((request.postDataJSON() as { q: string }).q));
+    }
+  });
   await dialog(page).getByRole("searchbox").pressSequentially("я", { delay: 40 });
   await expect(dialog(page).getByText("Введите хотя бы два знака")).toBeVisible();
-  expect(searches()).toBe(0);
+
+  // ⚠️ «ЗАПРОСА НЕ БЫЛО» — ПОСЛЕ ПРИЗНАКА, ЧТО ПАУЗА ПРОШЛА И ПОИСК ЖИВ.
+  // Прыжок часов дальше паузы набора (0,4 с): отложенный запрос по одной «я»,
+  // будь он, ушёл бы здесь. Затем второй знак обязан дать запрос — и запрос
+  // по «я» стоял бы в списке раньше него. Прежняя проверка «ноль» шла сразу
+  // за подсказкой, до конца паузы, и прошла бы и на сломанном коде.
+  await page.clock.fastForward(1_000);
+  const searched = page.waitForRequest((request) => request.url().includes("/v1/search/messages"));
+  await dialog(page).getByRole("searchbox").pressSequentially("а", { delay: 40 });
+  await searched;
+  expect(asked, "короткий запрос ушёл на сервер").toEqual(["яа"]);
 
   await page.keyboard.press("Escape");
   await expect(dialog(page)).toHaveCount(0);

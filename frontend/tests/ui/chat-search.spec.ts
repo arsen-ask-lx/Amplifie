@@ -18,19 +18,45 @@ function bar(page: Page) {
   return page.getByRole("search", { name: "Поиск в чате" });
 }
 
-/** Сколько реплик подсветилось вспышкой — считаем запуски анимации. */
+/**
+ * Сколько реплик подсветилось вспышкой — считаем запуски анимации.
+ *
+ * ⚠️ ИМЯ АНИМАЦИИ `found` — ПРИВЯЗКА К РАЗМЕТКЕ, И ОНА ОСОЗНАННАЯ. Дефект —
+ * «вспыхнуло дважды»: второй запуск той же анимации на той же реплике.
+ * Видимого человеку признака без неё нет — роль и текст реплики при вспышке
+ * не меняются, а цвет заливки — CSS. Переименуют анимацию — тест покраснеет
+ * на `flashes = 0`, а не пройдёт молча.
+ *
+ * `running` — вспышки, которые ещё горят: конец окна наблюдения — когда
+ * последняя догорела, а не когда истекли миллисекунды.
+ */
 async function watchFlashes(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const seen = { flashes: 0, feedPages: 0 };
+    const running = new Set<EventTarget>();
+    const seen = { flashes: 0, running };
     (window as unknown as { seen: typeof seen }).seen = seen;
     document.addEventListener("animationstart", (event) => {
-      if (event.animationName === "found") seen.flashes += 1;
+      if (event.animationName !== "found") return;
+      seen.flashes += 1;
+      if (event.target) running.add(event.target);
     });
+    for (const done of ["animationend", "animationcancel"] as const) {
+      document.addEventListener(done, (event) => {
+        if (event.animationName === "found" && event.target) running.delete(event.target);
+      });
+    }
   });
 }
 
+/** Сколько вспышек было и сколько ещё горит (снятая со страницы реплика не горит). */
 function seen(page: Page) {
-  return page.evaluate(() => (window as unknown as { seen: { flashes: number } }).seen);
+  return page.evaluate(() => {
+    const { flashes, running } = (
+      window as unknown as { seen: { flashes: number; running: Set<EventTarget> } }
+    ).seen;
+    const burning = [...running].filter((one) => one instanceof Node && one.isConnected).length;
+    return { flashes, burning };
+  });
 }
 
 test("Ctrl+F ищет в открытом чате: счётчик, стрелки, Escape", async ({ page }) => {
@@ -84,7 +110,18 @@ test("ход по попаданиям в окне ленты не переза�
   const next = bar(page).getByRole("button", { name: "Следующее совпадение" });
   for (let step = 0; step < 3; step += 1) await next.click();
   await expect(bar(page)).toContainText("4 из 12");
-  await page.waitForTimeout(1500);
+  // Окно наблюдения кончается признаком: три вспышки случились и все догорели.
+  // Лишняя загрузка ленты или повторная вспышка приходят раньше конца
+  // последней вспышки — она живёт секунду.
+  await expect
+    .poll(
+      async () => {
+        const now = await seen(page);
+        return now.flashes >= 3 && now.burning === 0;
+      },
+      { message: "три вспышки не случились или не догорели" },
+    )
+    .toBe(true);
 
   // ⚠️ ГЛАВНОЕ УТВЕРЖДЕНИЕ СРЕЗА. Все двенадцать реплик уже в окне ленты,
   // значит стрелка — это прокрутка и подсветка, а не новая загрузка.

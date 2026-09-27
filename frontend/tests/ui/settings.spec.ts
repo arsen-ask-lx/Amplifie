@@ -51,6 +51,9 @@ test("системная тема не предлагается в подроб�
   await register(page, "Явный выбор");
   await page.goto("/settings/appearance");
 
+  // Сперва — что выбор нарисован: иначе «кнопки нет» проходит и на пустом
+  // экране, до того как страница вообще отрисовалась.
+  await expect(page.getByRole("button", { name: "Бумага" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Как в системе" })).toHaveCount(0);
 });
 

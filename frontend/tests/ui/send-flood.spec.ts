@@ -118,20 +118,39 @@ test("40 реплик подряд — дошли все, ни одного «!�
   await expect(bubble(page, text(36))).not.toContainText(text(1));
 });
 
+/** Сколько попыток отправки оборвалось в сети — у каждой свой `requestfailed`. */
+function countCutSends(page: Page): { count: number } {
+  const cut = { count: 0 };
+  page.on("requestfailed", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/messages")) cut.count += 1;
+  });
+  return cut;
+}
+
 test("сеть пропала надолго — у реплики «!», щелчок отправляет её один раз", async ({
   page,
   context,
 }) => {
+  // ⚠️ ЧАСЫ СТРАНИЦЫ ПОДДЕЛАНЫ, ЧТОБЫ НЕ СПАТЬ 33 С. До прыжка они идут
+  // как настоящие; прыжок — «закрыл крышку ноутбука на 33 секунды».
+  await page.clock.install();
   await register(page);
   await createChannel(page, "Соседний");
   await createChannel(page, "Обрыв");
+  const cut = countCutSends(page);
 
   await context.setOffline(true);
   await typeInto(page, "долгий обрыв", "Отправить");
+  await expect.poll(() => cut.count, "первая попытка оборвалась").toBeGreaterThanOrEqual(1);
   await openChannel(page, "Соседний");
-  // Терпение отправки — 30 с (`PATIENCE_MS`): отказ случается, пока
-  // человек в другом чате, и лента «Обрыва» его не видит.
-  await page.waitForTimeout(33_000);
+
+  // Терпение отправки — 30 с (`PATIENCE_MS`) от первого обрыва: отказ
+  // случается, пока человек в другом чате, и лента «Обрыва» его не видит.
+  // После прыжка на 33 с первая же оборванная попытка — последняя: срок
+  // вышел, очередь ставит «!». Её обрыв и есть признак, что окно прошло.
+  const before = cut.count;
+  await page.clock.fastForward(33_000);
+  await expect.poll(() => cut.count, "попытка после срока терпения").toBeGreaterThan(before);
   await context.setOffline(false);
   await openChannel(page, "Обрыв");
 

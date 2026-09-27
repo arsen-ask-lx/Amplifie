@@ -64,7 +64,30 @@ async function guestOf(browser: Browser, owner: Page): Promise<Page> {
   return guest;
 }
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Номер последней реплики чата — по записи сервера. */
+async function lastSeqOf(page: Page, conversationId: string): Promise<number> {
+  const { items } = await call<{ items: { seq: number }[] }>(
+    page,
+    "GET",
+    `/v1/conversations/${conversationId}/messages`,
+  );
+  const last = items.at(-1)?.seq;
+  if (last === undefined) throw new Error("в чате нет реплик — сценарий доказывает не то");
+  return last;
+}
+
+/**
+ * Ответ на отметку «прочитано» этого чата. Не дождались за 15 с — отметка
+ * потерялась: это и есть поломка, которую ловят сценарии ниже.
+ */
+function markLanded(page: Page, conversationId: string) {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith(`/v1/conversations/${conversationId}/read`),
+    { timeout: 15_000 },
+  );
+}
 
 test("пачка реплик в смотримом чате — не пачка отметок «прочитано»", async ({ page, browser }) => {
   test.setTimeout(60_000);
@@ -85,16 +108,19 @@ test("пачка реплик в смотримом чате — не пачка
    */
   await page.route("**/v1/panel*", (route) => route.abort());
 
+  // Все отметки — с номером и временем ухода; первая — от открытия чата.
+  const marks: { seq: number; at: number }[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/read")) {
+      marks.push({ seq: Number((request.postDataJSON() as { seq: number }).seq), at: Date.now() });
+    }
+  });
   const firstMark = page.waitForResponse(
     (response) => response.url().endsWith("/read") && response.request().method() === "POST",
   );
   await openChannel(page, "Живой");
   await firstMark;
-
-  const marks: string[] = [];
-  page.on("request", (request) => {
-    if (request.method() === "POST" && request.url().endsWith("/read")) marks.push(request.url());
-  });
+  const opened = marks.length;
 
   await guest.evaluate(
     async ({ id }) => {
@@ -112,9 +138,27 @@ test("пачка реплик в смотримом чате — не пачка
     { id: live.id },
   );
   await expect(page.locator("article").filter({ hasText: /^пачка/ })).toHaveCount(8);
-  await wait(1500);
 
-  expect(marks.length, "на каждую реплику уходит своя отметка «прочитано»").toBeLessThanOrEqual(1);
+  // ⚠️ СЧИТАЕМ ПОСЛЕ ПРИЗНАКА, А НЕ ПОСЛЕ СНА: ушла отметка на последнюю
+  // реплику пачки — значит, всё, что вкладка хотела сказать о пачке, сказано.
+  const last = await lastSeqOf(guest, live.id);
+  await expect
+    .poll(() => Math.max(0, ...marks.map((one) => one.seq)), {
+      timeout: 10_000,
+      message: "отметка на последнюю реплику пачки не ушла",
+    })
+    .toBe(last);
+
+  const batch = marks.slice(opened);
+  // Одна отметка на пачку — прежний порог. Чистка task-125 предлагала «не больше
+  // двух» (пачка на краю окна), но без наблюдённого случая: ожидание меняется только
+  // с доказательством, что неправ тест. Покраснеет на краю окна — это и будет оно.
+  expect(batch.length, "на каждую реплику уходит своя отметка «прочитано»").toBeLessThanOrEqual(1);
+  for (let at = opened; at < marks.length; at += 1) {
+    const gap = (marks[at]?.at ?? 0) - (marks[at - 1]?.at ?? 0);
+    // Окно — 3000 мс (Р-029) литералом; 300 мс — допуск на таймеры браузера.
+    expect(gap, "отметки чаще раза в 3 с").toBeGreaterThanOrEqual(3000 - 300);
+  }
   await guest.close();
 });
 
@@ -130,12 +174,17 @@ test("число прочитанного чата не загорается с�
   await post(guest, second.id, "ждёт во втором");
 
   await openChannel(page, "Первый");
+  // Реплик в «Первом» до этой не было: первый ответ на отметку «Первого» —
+  // ответ на отметку именно её, когда бы она ни ушла.
+  const firstRead = markLanded(page, first.id);
   await post(guest, first.id, "увидел в первом");
   await expect(bubble(page, "увидел в первом")).toBeVisible();
 
   // Меньше чем через три секунды — пока отметка «Первого» ещё ждёт окна.
   await openChannel(page, "Второй");
-  await wait(4000);
+  // Признак вместо сна: сервер подтвердил отметку — дальше число строки
+  // ставит его ответ, и загореться снова ему не из чего.
+  await firstRead;
 
   await expect(
     channelRow(page, "Первый"),
@@ -176,15 +225,23 @@ test("после отказа догона пачка реплик не торо
   await expect.poll(() => syncs.length, { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
 
   const before = syncs.length;
+  // Реплики — по одной, каждая дожидается записи: звонки приходят
+  // порознь, без прежней паузы в 80 мс между ними.
   for (let n = 1; n <= 8; n++) {
     await post(guest, room.id, `в сбое ${n}`);
-    await wait(80);
   }
 
   expect(
     syncs.length - before,
     "каждая реплика после отказа отменяет паузу и шлёт догон сразу",
   ).toBe(0);
+
+  // Положительный контроль: вкладка жива и повторяет — но выждав паузу.
+  // Пауза после третьего отказа — 4 с (разброс прижат к верху окна);
+  // 500 мс — допуск на время прихода запроса, меряем снаружи.
+  await expect.poll(() => syncs.length, { timeout: 15_000 }).toBeGreaterThan(before);
+  const pause = (syncs[before] ?? 0) - (syncs[before - 1] ?? 0);
+  expect(pause, "повтор догона не выждал паузу").toBeGreaterThanOrEqual(4000 - 500);
   await guest.close();
 });
 
@@ -196,13 +253,16 @@ test("уход в настройки не теряет отметку «проч
   const guest = await guestOf(browser, page);
   const room = await rowOf(guest, "Перед уходом");
   await openChannel(page, "Перед уходом");
+  // Реплика в чате одна: первый ответ на отметку чата — ответ на отметку её.
+  const landed = markLanded(page, room.id);
   await post(guest, room.id, "последнее перед уходом");
   await expect(bubble(page, "последнее перед уходом")).toBeVisible();
 
   await page.getByLabel("Профиль и настройки").click();
   await page.getByRole("menuitem", { name: "Настройки" }).click();
   await expect(page).toHaveURL(/\/settings/);
-  await wait(4000);
+  // Признак вместо сна в 4 с: отметка дошла до сервера и он ответил.
+  await landed;
 
   expect((await rowOf(page, "Перед уходом")).unread, "отметка ушла вместе с экраном чата").toBe(0);
   await guest.close();

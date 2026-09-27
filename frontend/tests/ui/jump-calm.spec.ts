@@ -23,7 +23,9 @@ import { expect, type Page, test } from "./guard.js";
  *
  * ⚠️ ПОДСВЕТКУ СЧИТАЕМ ПО ЗАПУСКУ АНИМАЦИИ `found`, А НЕ ПО КЛАССУ. Человек
  * видит именно вспышку: пересозданная лента запускает её заново, и это
- * ровно то «потухло и опять загорелось».
+ * ровно то «потухло и опять загорелось». Имя анимации — привязка к разметке,
+ * осознанная: видимого признака «вспыхнуло второй раз» без неё нет. Переименуют
+ * анимацию — тест покраснеет на `flashes = 0`, а не пройдёт молча.
  */
 
 test.describe.configure({ timeout: 180_000 });
@@ -55,11 +57,19 @@ async function channels(page: Page, count: number): Promise<string[]> {
  */
 async function watch(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const seen = { flashes: 0, feeds: 0, loadingText: 0, emptyText: 0, fieldGone: 0 };
+    const running = new Set<EventTarget>();
+    const seen = { flashes: 0, feeds: 0, loadingText: 0, emptyText: 0, fieldGone: 0, running };
     (window as unknown as { seen: typeof seen }).seen = seen;
     document.addEventListener("animationstart", (event) => {
-      if (event.animationName === "found") seen.flashes += 1;
+      if (event.animationName !== "found") return;
+      seen.flashes += 1;
+      if (event.target) running.add(event.target);
     });
+    for (const done of ["animationend", "animationcancel"] as const) {
+      document.addEventListener(done, (event) => {
+        if (event.animationName === "found" && event.target) running.delete(event.target);
+      });
+    }
     const feedNow = () => document.querySelector('[role="log"]');
     const fieldNow = () => document.querySelector('[aria-label="Текст сообщения"]') !== null;
     let feed = feedNow();
@@ -79,14 +89,26 @@ async function watch(page: Page): Promise<void> {
   });
 }
 
-function seen(page: Page) {
+type Counters = Record<"flashes" | "feeds" | "loadingText" | "emptyText" | "fieldGone", number>;
+
+/** Счётчики наблюдателя и сколько вспышек ещё горит (снятая со страницы реплика не горит). */
+function seen(page: Page): Promise<Counters & { burning: number }> {
+  return page.evaluate(() => {
+    const { running, ...counters } = (
+      window as unknown as { seen: Counters & { running: Set<EventTarget> } }
+    ).seen;
+    const burning = [...running].filter((one) => one instanceof Node && one.isConnected).length;
+    return { ...counters, burning };
+  });
+}
+
+/** Два кадра браузера: отрисовка после пришедшего ответа успела случиться. */
+function twoFrames(page: Page): Promise<void> {
   return page.evaluate(
     () =>
-      (
-        window as unknown as {
-          seen: Record<"flashes" | "feeds" | "loadingText" | "emptyText" | "fieldGone", number>;
-        }
-      ).seen,
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
   );
 }
 
@@ -133,6 +155,9 @@ test("переход из поиска: страница на месте, одн
     await route.continue();
   });
   await watch(page);
+  // Отложенный ответ панели — то, что пересоздавало ленту (П-2): окно
+  // наблюдения не может кончиться раньше него.
+  const panelAnswered = page.waitForResponse((response) => response.url().includes("/v1/panel"));
   await page.getByRole("heading", { level: 2 }).click();
   await page.keyboard.press("ControlOrMeta+k");
   const dialog = page.getByRole("dialog", { name: "Поиск по сообщениям" });
@@ -141,8 +166,21 @@ test("переход из поиска: страница на месте, одн
 
   await expect(page.locator("article").filter({ hasText: TARGET })).toBeInViewport();
   await expect(page.getByRole("heading", { level: 2, name: "Давний" })).toBeVisible();
-  // Вспышка длится около секунды; повторная прежде приходила через десятки мс.
-  await page.waitForTimeout(3000);
+  // Окно наблюдения кончается признаком, а не временем: отложенная панель
+  // ответила, её отрисовка прошла, и все вспышки догорели. Повторная вспышка
+  // прежде приходила через десятки мс после ответа панели — раньше, чем
+  // догорала первая (она живёт секунду).
+  await panelAnswered;
+  await expect
+    .poll(
+      async () => {
+        await twoFrames(page);
+        const now = await seen(page);
+        return now.flashes >= 1 && now.burning === 0;
+      },
+      { message: "вспышка не случилась или не догорела" },
+    )
+    .toBe(true);
 
   const afterJump = await seen(page);
   // П-1 после перехода: шапка на экране, документ не сдвинут.

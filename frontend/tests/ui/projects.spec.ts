@@ -16,6 +16,12 @@ import { expect, type Page, test } from "./guard.js";
  * Бьёт по собранному образу. Перед запуском: make up
  */
 
+/**
+ * Номер проекта в ответе сервера. Без этой проверки «чат в проекте» проходил
+ * бы и тогда, когда проекта нет вовсе: `null` у чата равен `null` у проекта.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+
 function channelRow(page: Page, title: string) {
   return page.getByRole("button", { name: new RegExp(`^${title}`) });
 }
@@ -121,6 +127,7 @@ test("чат без проекта можно отнести в проект", a
     const project = response.projects.find((one: { title: string }) => one.title === "Объект");
     return { channel: channel?.projectId ?? null, project: project?.id ?? null };
   });
+  expect(belonging.project, "проекта нет в ответе сервера").toMatch(UUID);
   expect(belonging.channel, "чат не оказался внутри выбранного проекта").toBe(belonging.project);
   await expect(channelRow(page, "Смета"), "чат внутри проекта пропал из панели").toBeVisible();
 });
@@ -271,7 +278,14 @@ test("чат можно отнести в проект из рабочего м�
   await createChannel(page, "Смета");
   await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
+  // Ждём ответ на перенос, а не спрашиваем сервер вдогонку щелчку: та же
+  // гонка, что починена в «чат без проекта можно отнести в проект» (task-098).
+  const moved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PATCH" && response.url().includes("/v1/conversations/"),
+  );
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
+  await moved;
 
   await expect(channelRow(page, "Смета")).toBeVisible();
 
@@ -288,6 +302,7 @@ test("чат можно отнести в проект из рабочего м�
     const project = response.projects.find((one: { title: string }) => one.title === "Объект");
     return { chat: chat?.projectId ?? null, project: project?.id ?? null };
   });
+  expect(membership.project, "проекта нет в ответе сервера").toMatch(UUID);
   expect(membership.chat, "чат завели внутри проекта, а он оказался снаружи").toBe(
     membership.project,
   );
@@ -352,6 +367,7 @@ test("плюс проекта создаёт и открывает чат сра
     const project = response.projects.find((one: { title: string }) => one.title === "Объект");
     return { channel: channel?.projectId ?? null, project: project?.id ?? null };
   });
+  expect(belonging.project, "проекта нет в ответе сервера").toMatch(UUID);
   expect(belonging.channel, "плюс завёл чат вне проекта").toBe(belonging.project);
 });
 
@@ -567,13 +583,11 @@ test("«Недавние» догружаются, когда панель до�
     .poll(async () => await rows.count(), { message: "первая порция не ограничена" })
     .toBe(25);
 
-  // Листаем панель вниз — ровно то, что делает человек.
-  await page
-    .locator("div.hide-scroll.overflow-y-auto")
-    .first()
-    .evaluate((box) => {
-      box.scrollTop = box.scrollHeight;
-    });
+  // Листаем панель вниз колесом над её строкой — ровно то, что делает человек.
+  // ⚠️ НЕ ПО КЛАССУ ОБЛАСТИ ПРОКРУТКИ: у неё нет ни роли, ни подписи, а класс —
+  // разметка вида; колесо само находит прокручиваемого предка под курсором.
+  await rows.first().hover();
+  await page.mouse.wheel(0, 100_000);
 
   await expect
     .poll(async () => await rows.count(), { message: "низ показался, а порция не приехала" })

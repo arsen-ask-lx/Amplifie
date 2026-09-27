@@ -144,8 +144,9 @@ test("окно ключа помещается в узкий экран с по�
   await page.setViewportSize({ width: 390, height: 844 });
   const { dialog, provider, key, scope, save } = await openKeyDialog(page);
 
+  // Нет геометрии — окно не нарисовано: падение с причиной, а точные
+  // проверки ниже — поля по 16 точек с обеих сторон узкого экрана.
   const box = await dialog.boundingBox();
-  expect(box).not.toBeNull();
   if (!box) throw new Error("Модальное окно не имеет измеримой геометрии");
   expect(box.x).toBeGreaterThanOrEqual(16);
   expect(390 - (box.x + box.width)).toBeGreaterThanOrEqual(16);

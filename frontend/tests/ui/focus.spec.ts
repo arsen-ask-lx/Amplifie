@@ -148,6 +148,11 @@ test("в другом поле ввода буквы остаются там, а
   await register(page, "Ищущий");
   await createChannel(page, "Смета");
   await page.getByRole("button", { name: "Поиск в этом чате" }).click();
+  const search = page.getByRole("search", { name: "Поиск в чате" }).getByRole("searchbox");
+  await expect(search).toBeFocused();
   await typeRussian(page, "смета");
+  // Сначала положительное: буквы дошли туда, где стоял фокус. Одно «поле
+  // сообщения пусто» проходило бы и тогда, когда нажатия не дошли никуда.
+  await expect(search).toHaveValue("смета");
   await expect(field(page)).toHaveText("");
 });

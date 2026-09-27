@@ -142,9 +142,26 @@ test("сбой порции раскрытой папки — её чаты ос
   await page.route("**/v1/projects/*/conversations*", (route) =>
     route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"сбой"}' }),
   );
+  // Признак, что перечитывание со сбоем порции ДОШЛО ДО ЭКРАНА: чат, заведённый
+  // мимо экрана, появится в панели только из того же ответа, что и порция
+  // папки, — панель применяет «Недавние» и папки одним разом.
+  const failedFolder = page.waitForResponse((response) =>
+    /\/v1\/projects\/[^/]+\/conversations/u.test(response.url()),
+  );
+  const made = await page.evaluate(async () => {
+    const response = await fetch("/v1/conversations", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Пришедший" }),
+    });
+    return response.status;
+  });
+  expect(made, "чат-признак не завёлся").toBe(201);
   // Возврат во вкладку перечитывает панель — тот же путь, что после разрыва.
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-  await page.waitForTimeout(3000);
+  expect((await failedFolder).status(), "порция папки не получила подставленный сбой").toBe(500);
+  await expect(page.getByRole("button", { name: /^Пришедший/u })).toBeVisible();
 
   await expect(row, "чаты папки пропали из-за сбоя одной порции").toBeVisible();
 });

@@ -82,6 +82,8 @@ test("связь вернулась, в чате тишина — пропуще
 });
 
 test("сессии больше нет — вкладка показывает вход, а не крутит попытки", async ({ page }) => {
+  // Часы подделаны, чтобы проверить тишину без сна: до прыжка идут как настоящие.
+  await page.clock.install();
   await register(page);
   // Лента обязана встать на курсор: догон до её загрузки не ходит нарочно.
   await createChannel(page, "Выход");
@@ -103,6 +105,16 @@ test("сессии больше нет — вкладка показывает �
   await expect(page.getByRole("button", { name: /Войти|Создать/u })).toBeVisible();
 
   const seen = attempts;
-  await page.waitForTimeout(3_000);
+  // ⚠️ ТИШИНА — ПОСЛЕ ПРИЗНАКА, ЧТО ОКНО ПРОШЛО, А НЕ ПОСЛЕ СНА. Прыжок часов
+  // за самую долгую паузу переподключения (30 с, `RECONNECT.capMs`):
+  // отложенная попытка, будь она, сработала бы в нём. Затем свой запрос-метка:
+  // запросы приходят по порядку, и всё, что вкладка начала до метки, уже
+  // посчитано. Прежний сон в 3 с не покрывал и паузы после третьей попытки.
+  await page.clock.fastForward(31_000);
+  const probe = page.waitForRequest((request) => request.url().includes("probe=reconnect"));
+  await page.evaluate(async () => {
+    await fetch("/v1/me?probe=reconnect", { credentials: "include" });
+  });
+  await probe;
   expect(attempts, "после 401 вкладка продолжила ломиться в поток").toBe(seen);
 });

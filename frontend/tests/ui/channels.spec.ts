@@ -39,13 +39,19 @@ test("удалённый канал уходит из панели вместе 
   await createChannel(page, "Черновик");
   await say(page, "это временный канал");
 
+  // ⚠️ СТРОКА ИЩЕТСЯ ПО НАЧАЛУ ИМЕНИ, И ПОЛОЖИТЕЛЬНО — ДО УДАЛЕНИЯ. Точное
+  // «Черновик» не нашло бы строку, у которой имя обросло числом или меткой,
+  // и «строки нет» проходило бы при живой строке.
+  const row = page.getByRole("button", { name: /^Черновик/u });
+  await expect(row).toHaveCount(1);
+
   await rowMenu(page, "Черновик");
   await page.getByRole("menuitem", { name: "Удалить чат" }).click();
   // Спрашиваем перед необратимым — и подтверждение обязано быть отдельным
   // шагом, а не тем же нажатием.
   await page.getByRole("button", { name: "Удалить", exact: true }).click();
 
-  await expect(page.getByRole("button", { name: "Черновик", exact: true })).toHaveCount(0);
+  await expect(row).toHaveCount(0);
   await expect(bubble(page, "это временный канал")).toHaveCount(0);
 });
 
@@ -60,8 +66,13 @@ test("адрес несуществующего чата открывает жи
 
   await page.goto("/c/01a09049-0000-7000-8000-000000000000");
 
-  await expect(page.getByText("Не удалось загрузить сообщения")).toHaveCount(0);
+  // ⚠️ СНАЧАЛА ПОЛОЖИТЕЛЬНОЕ: ушли с мёртвого адреса и открыт настоящий чат.
+  // Проверка «текста ошибки нет» сразу после перехода проходила бы и до
+  // того, как лента вообще успела спросить сервер.
   await expect
     .poll(async () => new URL(page.url()).pathname, { message: "остались на мёртвом адресе" })
     .not.toBe("/c/01a09049-0000-7000-8000-000000000000");
+  await expect(page.getByRole("heading", { level: 2 })).toBeVisible();
+  await expect(page.getByLabel("Текст сообщения")).toBeVisible();
+  await expect(page.getByText("Не удалось загрузить сообщения")).toHaveCount(0);
 });
