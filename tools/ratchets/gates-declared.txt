@@ -13,6 +13,8 @@ biome-rules-check
 # run biome-rules-check: npm run biome-rules:check
 ci-actually-fails
 # run ci-actually-fails: bash tools/gates/ci-actually-fails/check.sh .
+ci-red-check
+# run ci-red-check: npm run ci-red:check
 ci-not-hijackable
 # run ci-not-hijackable: bash tools/gates/ci-not-hijackable/check.sh .
 color-from-token
@@ -91,6 +93,10 @@ protection-not-removed
 # run protection-not-removed: bash tools/gates/protection-not-removed/check.sh .
 rhythm
 # run rhythm: node tools/checks/check-rhythm.mjs
+rules-paths
+# run rules-paths: npm run rules-paths
+rules-paths-check
+# run rules-paths-check: npm run rules-paths:check
 secrets-not-in-code
 # run secrets-not-in-code: bash tools/gates/secrets-not-in-code/check.sh .
 test-has-assertion

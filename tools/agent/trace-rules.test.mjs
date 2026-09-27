@@ -422,7 +422,18 @@ describe("было ли ревью (task-124): правила ocr по файл�
   const files = ["tools/a.mjs", "tools/b.mjs"];
   const rules = (paths) => bash(`ocr delegate rule ${paths.join(" ")}`);
   const reviewer = (prompt = `ревью: ${files.join(", ")}`) =>
-    call("Agent", { subagent_type: "general-purpose", prompt }, {});
+    call("Agent", { subagent_type: "reviewer", prompt }, {});
+
+  it("произвольный подагент со словом «ревью» и путями — не ревьюер (task-126)", () => {
+    // До task-126 засчитывался любой: новое поведение (агент reviewer на своей модели)
+    // было бы неотличимо от старого — разбор критика плана.
+    const adHoc = call(
+      "Agent",
+      { subagent_type: "general-purpose", prompt: `ревью: ${files.join(", ")}` },
+      {},
+    );
+    assert.equal(reviewRan([...rules(files), ...adHoc], files, null).subagent, false);
+  });
 
   it("подагент «ревью» без путей или пути без «ревью» — не ревьюер (ревью task-124)", () => {
     assert.equal(reviewRan([...rules(files), ...reviewer("ревью")], files, null).subagent, false);

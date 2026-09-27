@@ -4,7 +4,8 @@
 `ocr` не выполнялся и отчёта не было — проверить сказанное было нечем. С коммита,
 добавившего этот файл, сторож цикла (`tools/checks/cycle-rule.mjs`, `STRICT_SINCE`)
 требует у коммита продукта и поставки отчёт **в этом же коммите**, называющий каждый
-его файл. Порядок — `.claude/commands/delegate-review.md`.
+его файл. Порядок — скилл `.claude/skills/delegate-review/SKILL.md` (до 27.09 — команда
+`.claude/commands/delegate-review.md`); ревьюер — агент `.claude/agents/reviewer.md` (task-126).
 
 Имя — `<дата>-<тема>.md`. Строка коммита:
 `ревью: ocr — замечаний N, принято M (dock/reviews/<дата>-<тема>.md)`.

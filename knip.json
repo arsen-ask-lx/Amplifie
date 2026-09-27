@@ -9,6 +9,7 @@
         "tools/load/*.mjs",
         "tools/agent/trace-audit.mjs",
         "tools/agent/review-audit.mjs",
+        "tools/agent/ci-red-audit.mjs",
         ".claude/hooks/*.mjs"
       ],
       "project": ["tools/**/*.{mjs,ts,cjs}"],

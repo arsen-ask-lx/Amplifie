@@ -422,11 +422,17 @@ function rulesCommand(block) {
 }
 
 /**
- * Подагент, позванный ревьюить: задание называет и ревью, и хотя бы один из файлов —
- * поиск «где вызывается tools/a.mjs» ревьюером не считается (ревью task-124).
+ * Подагент, позванный ревьюить: агент `reviewer`, и задание называет и ревью, и хотя бы
+ * один из файлов — поиск «где вызывается tools/a.mjs» ревьюером не считается (ревью
+ * task-124).
+ *
+ * ⚠️ ТОЛЬКО АГЕНТ `reviewer` (task-126). У него своя модель, усилие и только чтение;
+ * засчитай любой подагент со словом «ревью» — и новое поведение не отличить от прежнего
+ * ревью «по случаю» (разбор критика плана task-126).
  */
 function isReviewer(block, paths) {
   if (block.type !== "tool_use" || block.name !== "Agent") return false;
+  if (block.input?.subagent_type !== "reviewer") return false;
   const prompt = String(block.input?.prompt ?? "");
   return /ревью|review/iu.test(prompt) && paths.some((one) => prompt.includes(one));
 }

@@ -334,6 +334,20 @@ weak-asserts-check: ## проверки правила «не пусто» (по
 biome-rules-check: ## правила Biome для тестов срабатывают (подсаженный сон в спеке, task-125)
 > npm run biome-rules:check
 
+rules-paths: ## правила .claude/rules находят файлы и называют существующие скиллы (task-126)
+> npm run rules-paths
+
+rules-paths-check: ## проверки сторожа правил по путям (подсаженные нарушения)
+> npm run rules-paths:check
+
+# ⚠️ САМ СТОРОЖ CI — В ХУКЕ `commit-msg`, А НЕ В `make check`: CI не может сверять
+# сам себя. Здесь — ручной запуск и подсадки правила (они в `make check`).
+ci-red: ## последний прогон CI ветки красный только на известном — или есть разбор (task-126)
+> node tools/agent/ci-red-audit.mjs
+
+ci-red-check: ## проверки правила сторожа CI (подсаженные журналы и разборы)
+> npm run ci-red:check
+
 plan-review: ## план с task-109 не одобрен без «Прочитано», «Варианты» и «Разбор критика»
 > node --test tools/checks/plan-review-rule.test.mjs
 > node tools/checks/check-plan-review.mjs
@@ -536,4 +550,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: openapi api-fuzz weak-asserts weak-asserts-check biome-rules-check caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
+.PHONY: openapi api-fuzz weak-asserts weak-asserts-check biome-rules-check rules-paths rules-paths-check ci-red ci-red-check caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check

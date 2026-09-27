@@ -1,5 +1,6 @@
 ---
-description: Run OCR in delegation mode — OCR handles file selection and rules, the host agent performs the actual review.
+name: delegate-review
+description: Ревью набора правок перед коммитом — open-code-review в режиме делегирования (Р-046). OCR выбирает файлы и правила, разбор делает агент reviewer со свежим контекстом, отчёт — в dock/reviews/. Run OCR in delegation mode — OCR handles file selection and rules, the host agent performs the actual review.
 ---
 
 Invoke OpenCodeReview (OCR) in delegation mode. OCR determines which files to review and provides review rules; you perform the actual code review using your own capabilities.
@@ -74,6 +75,19 @@ Automatically fix High and Medium issues that are safe and well-defined.
    `ревью: ocr — замечаний N, принято M (dock/reviews/<дата>-<тема>.md)`.
    Сторож цикла (`make cycle`, хук `commit-msg`, CI) краснеет, если отчёта нет в коммите
    или в нём не назван какой-то файл продукта или поставки.
+
+### Кто ревьюит — агент `reviewer` (task-126)
+
+Разбор делает агент `.claude/agents/reviewer.md`: Sonnet, усилие `high`, только чтение.
+Другая модель, чем у автора, и чистый контекст дают независимый взгляд (разбор —
+`dock/reference/оркестрация-агентов-2026-09.md`). Сторож ревью засчитывает только его
+(`subagent_type: "reviewer"`).
+
+Набор задевает права, недоверенный ввод, форму хранимых данных или протокол — того же
+агента зовут с `model: "opus"`: цена пропуска там выше лимита.
+
+До 27.09 это была команда `.claude/commands/delegate-review.md`; переехала в скилл, чтобы
+агент подгружал её полем `skills:` — одна копия текста.
 
 Источник команды: [alibaba/open-code-review](https://github.com/alibaba/open-code-review),
 `plugins/open-code-review/claude-code/commands/delegate-review.md`, Apache-2.0.
