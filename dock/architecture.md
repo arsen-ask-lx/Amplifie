@@ -42,7 +42,7 @@ TLS и домен пока не настроены в текущем Caddyfile; 
 | [frontend/src/shared](../frontend/src/shared/) | общий интерфейс, оформление текста и отказы |
 | [bridge](../bridge/) и [packages/model](../packages/model/) | локальный мост и общие способы вызова модели |
 
-Границы заданы [dependency-cruiser](../tools/dependency-cruiser.cjs) и проверяются
+Границы заданы [arch-rules.mjs](../tools/checks/arch-rules.mjs) (Р-047) и проверяются
 make arch. Старый рисунок с kernel/work, kernel/authority, outbox, отдельным
 worker и обязательным public/ не является описанием нынешнего дерева.
 Сам по себе запрет импорта БД в agent/ не доказывает, что вызывающая функция
@@ -113,7 +113,7 @@ API-ключ способен работать с сервера; фраза «�
 | UI | React ^19.3.0, Vite ^8.3.1, react-router ^8.4.0 | [frontend/package.json](../frontend/package.json) |
 | Стили и компоненты | Tailwind ^4.3.3, shadcn/ui-код, Radix ^1.6.7 | frontend/package.json и shared/ui |
 | Ввод | Lexical ^0.51.0 | frontend/package.json |
-| Проверки | Vitest ^5.0.2, Playwright 1.63.0, Biome ^2.5.14, dependency-cruiser ^18.4.0 | корневой package.json |
+| Проверки | Vitest ^5.0.2, Playwright 1.63.0, Biome ^2.5.14 | корневой package.json |
 | Прокси | caddy:2-alpine | [frontend/Dockerfile](../frontend/Dockerfile) |
 
 **Обновление 26.09.2026 по слову владельца «фул обнову делаем»:** весь набор

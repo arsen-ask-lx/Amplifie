@@ -8,7 +8,7 @@ import { COUNTERS, count, gauge } from "./metrics.js";
  * Единственный пул на процесс.
  *
  * Прямые запросы к базе разрешены ТОЛЬКО в слое хранилища модуля-владельца
- * таблицы. Это стережёт гейт dependency-cruiser, а не договорённость.
+ * таблицы. Это стережёт `make arch` (Р-047), а не договорённость.
  */
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
