@@ -137,6 +137,15 @@ gates:
   # AGENTS.md строкой @AGENTS.md. Из AQK 0.17. `aqk add` положил гейт в gates/,
   # мимо `samples: tools/gates`, — перенесён руками; у grep в нём LC_ALL=C (см. скрипт).
   entry-docs-agree: "bash tools/gates/entry-docs-agree/check.sh ."
+  # Из AQK 0.18, первыми по его совету (27.09). Скопированы руками из kit/gates:
+  # `aqk add` кладёт гейт в gates/ мимо `samples` — находка отдана в AQK.
+  # Спецификации API у нас пока нет — гейт зелёный впустую до task-120.
+  api-contract-has-arbiter: "bash tools/gates/api-contract-has-arbiter/check.sh ."
+  # Разбор делегирован zizmor (в CI ставится отдельным шагом).
+  ci-not-hijackable: "bash tools/gates/ci-not-hijackable/check.sh ."
+  entry-commands-exist: "bash tools/gates/entry-commands-exist/check.sh ."
+  # Набор гейтов только растёт; снимок — tools/ratchets/gates-declared.txt.
+  protection-not-removed: "bash tools/gates/protection-not-removed/check.sh ."
 
 # Совещательные: видны в каждом прогоне, уронить его не могут (см. cost).
 advisory: [cost]
