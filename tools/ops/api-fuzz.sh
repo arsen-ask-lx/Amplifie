@@ -47,15 +47,8 @@ BRIDGE=$(curl -sS -X POST -H 'content-type: application/json' \
   -d "{\"code\":\"$CODE\",\"name\":\"fuzz\"}" "$BASE/v1/bridge/join" | json_field token)
 [ -n "$BRIDGE" ] || { echo "машина моста прогона не подключилась" >&2; exit 2; }
 
-# Исключены — с причиной и с арбитром, который держит дверь вместо фаззера:
-#   /v1/auth/logout    гасит печеньку прогона, дальше всё 401 — auth.e2e;
-#   /v1/stream         SSE, соединение не кончается — приёмочные живых обновлений;
-#   /v1/bridge/next    держит запрос до 25 с (длинный опрос): сотня примеров — час
-#                      ожидания; работу и 204 проверяет bridge.e2e;
-#   /v1/model/check    без живой модели за мостом честно отвечает только 503 —
-#                      ответ модели проверяет bridge.e2e;
-#   /metrics           внутренняя дверь: Caddy её наружу не публикует, на её адресе
-#                      снаружи — страница приложения.
+# Исключённые двери — с причиной и арбитром — в tools/ops/fuzz-shards.mjs (EXCLUDED):
+# одно место и для прогона целиком, и для кусков CI (task-123).
 #
 # ОСЛАБЛЕНО — с причиной; это ограничения стандарта, а не долг:
 #   positive_data_acceptance у GET /v1/conversations/{id}/messages: «before или
@@ -75,7 +68,8 @@ BRIDGE=$(curl -sS -X POST -H 'content-type: application/json' \
 # удостоверение там, где он проверяет отказ. Флага для этого нет — только файл;
 # ослабление на одну дверь флагом тоже не задать.
 mkdir -p tmp
-AUTH="tmp/api-fuzz-auth.toml"
+# Свой файл на процесс: два куска на одной машине не затирают друг другу настройки.
+AUTH="tmp/api-fuzz-auth.$$.toml"
 cat > "$AUTH" <<'TOML'
 [auth.openapi.session]
 api_key = "${AMPLIFIE_SESSION}"
@@ -103,6 +97,23 @@ trap 'rm -f "$JAR" "$AUTH"' EXIT
 # в виде, понятном Docker Desktop (`pwd -W` даёт E:/…; на Linux его нет).
 export MSYS_NO_PATHCONV=1
 HERE="$(pwd -W 2>/dev/null || pwd)"
+
+# Состав прогона. Без FUZZ_SHARD — все двери, кроме исключённых. С ним (`2/4`) —
+# только свой кусок дверей (task-123): CI гоняет куски на разных машинах разом.
+# FUZZ_PHASES — какие фазы Schemathesis; `stateful` ходит по связям между дверями
+# и в куске потеряла бы цепочки, поэтому CI гоняет её отдельно, по всем дверям.
+SCOPE=()
+if [ -n "${FUZZ_SHARD:-}" ]; then
+  PATHS=$(node tools/ops/fuzz-shards.mjs "$FUZZ_SHARD")
+  [ -n "$PATHS" ] || { echo "кусок $FUZZ_SHARD пуст — деление дверей сломано" >&2; exit 2; }
+  while IFS= read -r path; do SCOPE+=(--include-path "$path"); done <<<"$PATHS"
+else
+  while IFS= read -r path; do SCOPE+=(--exclude-path "$path"); done \
+    < <(node tools/ops/fuzz-shards.mjs --excluded)
+fi
+PHASES=()
+[ -n "${FUZZ_PHASES:-}" ] && PHASES=(--phases "$FUZZ_PHASES")
+
 docker run --rm --add-host=host.docker.internal:host-gateway \
   -e AMPLIFIE_SESSION="$SESSION" \
   -e AMPLIFIE_BRIDGE="$BRIDGE" \
@@ -111,9 +122,6 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
   "$IMAGE" --config-file /spec/auth.toml run /spec/openapi.json \
   --url "$INNER" \
   --rate-limit "${API_FUZZ_RATE:-300/m}" \
-  --exclude-path /v1/auth/logout \
-  --exclude-path /v1/stream \
-  --exclude-path /v1/model/check \
-  --exclude-path /metrics \
-  --exclude-path /v1/bridge/next \
+  "${SCOPE[@]}" \
+  "${PHASES[@]}" \
   "$@"

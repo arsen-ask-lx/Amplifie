@@ -22,10 +22,14 @@ env:
 permissions:
   contents: read
 
+# ⚠️ ПРЕДЕЛ ВРЕМЕНИ У КАЖДОЙ РАБОТЫ (task-123): по умолчанию GitHub ждёт шесть часов,
+# и зависший кусок на приватном репозитории сжёг бы их минутами. Числа — около
+# двойного замера; фаззер — с запасом до первого замера по кускам.
 jobs:
   # Дешёвое первым (fail fast): секунды, без базы и без Docker.
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # ⚠️ ПОЛНАЯ ИСТОРИЯ, А НЕ ДВА КОММИТА (task-116). Гейт цикла проверяет
       # все коммиты от появления своего правила; в обрезанном клоне начала
@@ -73,6 +77,7 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # На запросе слияния gitleaks берёт список его коммитов через API,
     # а токен нового репозитория по умолчанию читает только код.
     permissions:
@@ -111,6 +116,7 @@ jobs:
   # `compose.override.yml` и лежит рядом.
   delivery:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # Полная история: версия берётся из тега git, а в обрезанном клоне
       # `git describe` не находит ни одного и врёт голым хешем.
@@ -130,32 +136,27 @@ jobs:
         if: failure()
         run: docker compose -p amplifie_postavka logs --tail=200 || true
 
+  # ⚠️ ТЯЖЁЛОЕ — ПАРАЛЛЕЛЬНО, У КАЖДОЙ РАБОТЫ СВОЙ СТЕНД (task-123). Одной очередью
+  # это шло 45+ минут (фаззер — 44), и почти каждый пуш отменял прогон раньше конца:
+  # CI неделями был красным, а внутрь никто не смотрел. Проверки те же, ни одна не
+  # ослаблена — поделено только, КТО и ГДЕ их гоняет. Своя машина — своя база,
+  # поэтому параллель не даёт мигания, ради которого Playwright идёт в один поток.
+
   # Живой стек + приёмочные тесты через настоящий порт, не test client.
-  stack:
+  acceptance:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 26
-          cache: npm
-      - run: npm ci
-      # Тем же `make up`, что и руками: своя копия этих строк отстала,
-      # когда стенд переехал в compose.dev.yml (Р-030), и голый
-      # `docker compose up` искал образ веба в реестре вместо сборки.
-      - name: Поднять стек
-        run: make up
-      - name: Миграции
-        run: make migrate
+      - uses: $/.github/actions/stand
       # Цена горячего запроса. Стоит ДО приёмочных: он сеет объём
       # и откатывает, поэтому база после него та же, а падает он быстрее
       # и говорит понятнее, чем упавший через минуту сценарий.
       - name: Цена горячих запросов
         id: cost
         run: npm run cost
-
       # ⚠️ ТЕСТЫ ИДУТ И ПОСЛЕ ПАДЕНИЯ ЦЕНЫ. Это разные вердикты: дорогая
       # панель не делает сценарии неверными, а молчание тестов прячет,
       # сломано ли что-то ещё. Работа всё равно красная. Шаги ниже
@@ -163,33 +164,76 @@ jobs:
       - name: Приёмочные тесты
         if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
         run: npm test
-      # Арбитр описания API (task-120): после приёмочных — порог регистраций
-      # общий, фаззер заводит одного своего человека.
-      - name: Арбитр описания API
-        if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
-        run: make api-fuzz
       # Двери чтения под нагрузкой (task-122, Р-051): официальный образ k6 по
       # отпечатку, без сборки. Пороги грубые — машина CI шумная. Та же команда
       # краснела на подсадках локально: панель +2 с и 500 в догоне (журнал task-122).
       - name: Нагрузка на двери чтения (k6)
         if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
         run: make k6
+      - name: Логи при падении
+        if: failure()
+        run: docker compose logs --tail=200
+
+  # Арбитр описания API (task-120): фазы examples, coverage и fuzzing — по четверти
+  # дверей на машину (деление — tools/ops/fuzz-shards.mjs, тест: куски вместе дают все
+  # двери). Фаза stateful ходит по связям между дверями и в куске потеряла бы цепочки —
+  # она идёт отдельной работой по всем дверям.
+  api-fuzz:
+    name: api-fuzz (${{ matrix.part }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      # Упал один кусок — остальные досказывают: иначе видно одно падение из пяти.
+      fail-fast: false
+      matrix:
+        include:
+          - { part: "1/4", shard: "1/4", phases: "examples,coverage,fuzzing" }
+          - { part: "2/4", shard: "2/4", phases: "examples,coverage,fuzzing" }
+          - { part: "3/4", shard: "3/4", phases: "examples,coverage,fuzzing" }
+          - { part: "4/4", shard: "4/4", phases: "examples,coverage,fuzzing" }
+          - { part: "stateful", shard: "", phases: "stateful" }
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/stand
+      - name: Арбитр описания API
+        env:
+          FUZZ_SHARD: ${{ matrix.shard }}
+          FUZZ_PHASES: ${{ matrix.phases }}
+        run: make api-fuzz
+      - name: Логи при падении
+        if: failure()
+        run: docker compose logs --tail=200
+
+  # Проверки интерфейса настоящим браузером — тремя кусками (`--shard`), у каждого
+  # свой стенд. Внутри куска — по-прежнему один поток и ноль повторов.
+  ui:
+    name: ui (${{ matrix.part }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/stand
       # ⚠️ БРАУЗЕР СТАВИТСЯ ОТДЕЛЬНЫМ ШАГОМ, А НЕ ВНУТРИ ТЕСТА. Так его
       # отказ виден отказом СВОЕГО шага: «не смог скачать Chromium»
       # и «сценарий не прошёл» — разные новости, и путать их нельзя.
       # Версия браузера берётся от закреплённой версии пакета.
       - name: Браузер для проверок интерфейса
-        id: browser
-        if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
         run: npx playwright install --with-deps chromium
       - name: Проверки интерфейса
-        if: ${{ !cancelled() && steps.browser.conclusion == 'success' }}
-        run: npm run test-ui
+        run: npm run test-ui -- --shard=${{ matrix.part }}/3
       - name: Следы прогона при падении
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.part }}
           path: |
             test-results/
             playwright-report/
