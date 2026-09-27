@@ -7,7 +7,9 @@
         "tools/arbiter/*.mjs",
         "tools/dev/*.mjs",
         "tools/load/*.mjs",
-        "tools/agent/trace-audit.mjs"
+        "tools/agent/trace-audit.mjs",
+        "tools/agent/review-audit.mjs",
+        ".claude/hooks/*.mjs"
       ],
       "project": ["tools/**/*.{mjs,ts,cjs}"],
       "ignore": ["tools/gates/**"],

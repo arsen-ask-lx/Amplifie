@@ -7,7 +7,8 @@
 # только этот: git передаёт ему источник `commit` и имя коммита — при
 # `--amend --no-edit` это буквально слово HEAD (проверено 26.09 в песочнице).
 # При `--amend -m` источник уже `message`, и отметки нет: там amend узнаётся
-# по дате автора (см. `check-cycle.mjs`). Отметку снимает `check-cycle.mjs`.
+# по дате автора (`tools/checks/git-commit.mjs`, task-124). Отметку снимает сам хук
+# `commit-msg` после всех проверок: она нужна каждой из них.
 if [ "$2" = "commit" ] && { [ "$3" = "HEAD" ] || [ "$3" = "$(git rev-parse HEAD 2>/dev/null)" ]; }; then
   : > "$(git rev-parse --git-dir)/amplifie-amend"
 fi

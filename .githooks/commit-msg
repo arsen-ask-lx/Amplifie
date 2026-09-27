@@ -12,7 +12,15 @@
 #
 # Хук включается `make hooks` (и сам при `make env`): git не берёт хуки
 # из репозитория без `core.hooksPath`.
+#
+# Третья — ревью было по-настоящему (task-124): по записи сессии агента правила
+# `ocr` по каждому файлу и подагент после них. Только здесь: CI записи не видит.
+#
+# Отметку `--amend` от `prepare-commit-msg` снимает хук, а не проверка: она нужна всем
+# трём, и после любого исхода оставлять её нельзя — следующий коммит счёлся бы дописыванием.
 status=0
 node tools/checks/check-map.mjs --staged "$1" || status=1
 node tools/checks/check-cycle.mjs --staged "$1" || status=1
+node tools/agent/review-audit.mjs "$1" || status=1
+rm -f "$(git rev-parse --git-dir)/amplifie-amend"
 exit $status

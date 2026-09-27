@@ -335,6 +335,112 @@ describe("что не проверяется", () => {
   });
 });
 
+describe("после границы task-124: отчёт, причина, охрана охраны", () => {
+  const Report = "dock/reviews/2026-09-27-x.md";
+  const good = `# ревью\n\n- \`tools/checks/check-arch.mjs\`\n`;
+  const strict = (changes, message, report = good) =>
+    verdict({ changes, message, parents: 1 }, planOf, {
+      strict: true,
+      reportOf: (path) => (path === Report ? report : null),
+    });
+  const line = `ревью: ocr — замечаний 1, принято 1 (${Report})`;
+
+  it("отчёт в коммите и называет файл — проходит", () => {
+    const got = strict([M("tools/checks/check-arch.mjs"), A(Report)], `chore(x): y\n${line}`);
+    assert.deepEqual(got.problems, []);
+  });
+
+  it("«ревью: ocr» без отчёта — красный (так было 27.09)", () => {
+    const got = strict(
+      [M("tools/checks/check-arch.mjs")],
+      "chore(x): y\nревью: ocr — замечаний 3, принято 3",
+    );
+    assert.deepEqual(missing(got), ["ревью"]);
+    assert.match(got.problems[0].why, /без отчёта/u);
+  });
+
+  it("отчёт не из этого коммита — красный", () => {
+    const got = strict([M("tools/checks/check-arch.mjs")], `chore(x): y\n${line}`);
+    assert.match(got.problems[0].why, /не в этом коммите/u);
+  });
+
+  it("отчёт без одного из файлов — красный с его именем", () => {
+    const got = strict(
+      [M("tools/checks/check-arch.mjs"), M("tools/checks/check-map.mjs"), A(Report)],
+      `chore(x): y\n${line}`,
+    );
+    assert.match(got.problems[0].why, /check-map\.mjs/u);
+  });
+
+  it("до границы строка «ревью: ocr» по-прежнему годится без отчёта", () => {
+    const got = check(
+      [M("tools/checks/check-arch.mjs")],
+      "chore(x): y\nревью: ocr — замечаний 0, принято 0",
+    );
+    assert.equal(got.ok, true);
+  });
+
+  it("исправление без причины — красный; с Д-NN — проходит; с тестом коммита — проходит", () => {
+    const code = [M("tools/checks/check-arch.mjs"), A(Report)];
+    assert.deepEqual(missing(strict(code, `fix(x): y\n${line}`)), ["причина"]);
+    assert.deepEqual(missing(strict(code, `fix(x): y\n${line}\nпричина: это просто так`)), [
+      "причина",
+    ]);
+    assert.equal(strict(code, `fix(x): y\n${line}\nпричина: Д-78, обход индекса`).ok, true);
+    const withTest = [...code, A("tools/checks/arch-rules.test.mjs")];
+    assert.equal(
+      strict(
+        withTest,
+        `fix(x): y\n${line}\nпричина: arch-rules.test.mjs — tools/checks/arch-rules.test.mjs`,
+      ).ok,
+      true,
+    );
+  });
+
+  it("номер долга, которого нет в реестре, — не причина (второй разбор критика)", () => {
+    const code = [M("tools/checks/check-arch.mjs"), A(Report)];
+    const got = verdict(
+      { changes: code, message: `fix(x): y\n${line}\nпричина: Д-1, выдумано`, parents: 1 },
+      planOf,
+      { strict: true, reportOf: () => good, debtHas: (number) => number === "78" },
+    );
+    assert.deepEqual(missing(got), ["причина"]);
+    assert.match(got.problems[0].why, /Д-1 нет/u);
+  });
+
+  it("отказ от ревью после границы закрыт (второй разбор критика)", () => {
+    const got = strict(
+      [M(".github/workflows/ci.yml")],
+      "chore(ci): y\nревью: не требуется — правка настройки конвейера",
+    );
+    assert.deepEqual(missing(got), ["ревью"]);
+    assert.match(got.problems[0].why, /отказ от ревью закрыт/u);
+  });
+
+  it("удаление сторожа или хука — правка поставки, ревью обязательно", () => {
+    for (const path of [".claude/hooks/read-guard.mjs", "tools/checks/check-cycle.mjs"]) {
+      const got = strict([{ status: "D", path }], "chore(x): убрать");
+      assert.deepEqual(missing(got), ["ревью"], path);
+    }
+  });
+
+  for (const path of [
+    ".github/workflows/ci.yml",
+    ".claude/hooks/read-guard.mjs",
+    ".claude/settings.json",
+    "Makefile",
+    ".aqk.yml",
+  ]) {
+    it(`охрана охраны: ${path} — поставка, ревью обязательно, мелочью нельзя`, () => {
+      assert.equal(kindOf(path, true), "delivery");
+      assert.equal(kindOf(path, false), "other");
+      assert.deepEqual(missing(strict([M(path)], "chore(x): y")), ["ревью"]);
+      const small = strict([M(path)], "chore(x): y\nмелочь: будто бы совсем маленькая правка");
+      assert.match(small.problems[0].why, /мелочь недопустима/u);
+    });
+  }
+});
+
 describe("мелочь — ускоренный путь (владелец 27.09: «цвет кнопки — план и ревью, это глупо»)", () => {
   const small = "fix(вид): цвет кнопки\n\nмелочь: сменён цвет одной кнопки, поведение то же";
 

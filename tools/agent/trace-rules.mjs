@@ -14,6 +14,7 @@
  * файловой системы, поэтому каждое правило проверяется подсаженным случаем
  * в `trace-rules.test.mjs`, а не рассуждением.
  */
+import { addRange } from "./ranges.mjs";
 
 /** Путь к файлу — от корня репозитория, прямыми косыми. */
 function normPath(raw, root = "Amplifie") {
@@ -199,18 +200,6 @@ export function readsFrom(records, until = null, since = null) {
   return events;
 }
 
-/** Добавить диапазон, склеив пересекающиеся и соседние. */
-function addRange(ranges, [from, to]) {
-  const all = [...ranges, [from, to]].sort((a, b) => a[0] - b[0]);
-  const merged = [];
-  for (const one of all) {
-    const last = merged.at(-1);
-    if (last && one[0] <= last[1] + 1) last[1] = Math.max(last[1], one[1]);
-    else merged.push([...one]);
-  }
-  return merged;
-}
-
 /** Отметить открытые строки файла. */
 function noteRead(seen, path, { range, total, at }, linesOf) {
   const known = seen.get(path) ?? { ranges: [], total: null, lastAt: 0 };
@@ -260,11 +249,14 @@ function readsOf(event) {
 /** Похоже ли слово в обратных кавычках на имя файла, а не функции. */
 const looksLikeFile = (token) => /\.[a-z]{1,5}$/iu.test(token) && !/\s/u.test(token);
 
-/** Новая форма (с task-109): строки таблицы «файл | строк | как», где «как» — «целиком». */
+/**
+ * Новая форма (с task-109): строки таблицы «файл | строк | как», где «как» — «целиком».
+ * «—» в числе строк — тоже заявление: иначе такая строка обходила сверку (критик task-124).
+ */
 const tableClaims = (plan) =>
   plan
     .split("\n")
-    .map((line) => /^\|\s*`([^`]+)`\s*\|\s*(\d+)?\s*\|\s*целиком/u.exec(line)?.[1])
+    .map((line) => /^\|\s*`([^`]+)`\s*\|\s*(?:\d+|—)?\s*\|\s*целиком/u.exec(line)?.[1])
     .filter(Boolean);
 
 /**
@@ -420,4 +412,59 @@ export function criticRan(records, planName, since) {
     if ((record.message?.content ?? []).some((block) => isCritic(block, planName))) return true;
   }
   return false;
+}
+
+/** Команда оболочки, которая просит у `ocr` правила: её текст — или null. */
+function rulesCommand(block) {
+  if (block.type !== "tool_use" || !["Bash", "PowerShell"].includes(block.name)) return null;
+  const command = String(block.input?.command ?? "");
+  return /\bocr\s+delegate\s+rule\b/u.test(command) ? command : null;
+}
+
+/**
+ * Подагент, позванный ревьюить: задание называет и ревью, и хотя бы один из файлов —
+ * поиск «где вызывается tools/a.mjs» ревьюером не считается (ревью task-124).
+ */
+function isReviewer(block, paths) {
+  if (block.type !== "tool_use" || block.name !== "Agent") return false;
+  const prompt = String(block.input?.prompt ?? "");
+  return /ревью|review/iu.test(prompt) && paths.some((one) => prompt.includes(one));
+}
+
+/**
+ * Было ли ревью по этим файлам после момента `since` (прошлый коммит): правила `ocr`
+ * по всем файлам — и подагент, позванный после них (task-124).
+ *
+ * ⚠️ СТРОКА «ревью: ocr» — СЛОВО, А ЭТО — ФАКТ. 27.09 строка стояла в коммитах, где шаг
+ * правил не выполнялся. Отчёт в коммите сторож цикла видит, а кто и как его написал —
+ * только запись сессии. Подагент — потому что ревью отдельно от создания (AGENTS.md).
+ *
+ * Правила можно просить несколькими вызовами (длинный список) — пути складываются.
+ * Подагент засчитывается, если позван после того, как все пути покрыты, и задание его —
+ * ревью этих файлов: критик плана или поиск ревьюером не считаются (второй разбор).
+ */
+export function reviewRan(records, paths, since) {
+  const asked = new Set();
+  let subagent = false;
+  const blocks = [...ownRecords(records, null)]
+    .filter((record) => since === null || timeOf(record) >= since)
+    .flatMap((record) => record.message?.content ?? []);
+  for (const block of blocks) {
+    const command = rulesCommand(block);
+    if (command) noteRulePaths(command, paths, asked);
+    else if (asked.size === paths.length && isReviewer(block, paths)) subagent = true;
+  }
+  return { rules: asked.size === paths.length, subagent };
+}
+
+/**
+ * Отметить пути, по которым команда просила правила. Точное слово, а не подстрока:
+ * `Dockerfile` не засчитывается командой про `backend/Dockerfile` — та же ошибка, что Д-67
+ * (ревью task-124).
+ */
+function noteRulePaths(command, paths, asked) {
+  const tokens = new Set(words(command));
+  for (const one of paths) {
+    if (tokens.has(one)) asked.add(one);
+  }
 }

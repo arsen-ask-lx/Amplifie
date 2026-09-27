@@ -10,7 +10,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { claimsIn, claimTime, coverageOf, criticRan, readsFrom, verdict } from "./trace-rules.mjs";
+import {
+  claimsIn,
+  claimTime,
+  coverageOf,
+  criticRan,
+  readsFrom,
+  reviewRan,
+  verdict,
+} from "./trace-rules.mjs";
 
 let clock = 0;
 const at = () => new Date(Date.UTC(2026, 8, 21, 12, 0, clock++)).toISOString();
@@ -132,6 +140,14 @@ describe("что заявлено", () => {
     assert.deepEqual(
       claimsIn(plan).map((one) => one.file),
       ["a/one.ts"],
+    );
+  });
+
+  it("«—» в числе строк с «целиком» — тоже заявление (разбор критика task-124)", () => {
+    const plan = "| `AGENTS.md` | — | целиком |";
+    assert.deepEqual(
+      claimsIn(plan).map((one) => one.file),
+      ["AGENTS.md"],
     );
   });
 
@@ -392,6 +408,67 @@ describe("разбор критика: был ли критик", () => {
   it("критик по другому плану — не в счёт", () => {
     const records = [...plan, ...critic("Разбери план task-901")];
     assert.equal(criticRan(records, "task-900", claimTime(records, "task-900")), false);
+  });
+});
+
+describe("было ли ревью (task-124): правила ocr по файлам и подагент после них", () => {
+  const files = ["tools/a.mjs", "tools/b.mjs"];
+  const rules = (paths) => bash(`ocr delegate rule ${paths.join(" ")}`);
+  const reviewer = (prompt = `ревью: ${files.join(", ")}`) =>
+    call("Agent", { subagent_type: "general-purpose", prompt }, {});
+
+  it("подагент «ревью» без путей или пути без «ревью» — не ревьюер (ревью task-124)", () => {
+    assert.equal(reviewRan([...rules(files), ...reviewer("ревью")], files, null).subagent, false);
+    const search = reviewer("найди, где вызывается tools/a.mjs");
+    assert.equal(reviewRan([...rules(files), ...search], files, null).subagent, false);
+  });
+
+  it("правила по похожему пути — не по этому (точное слово, как Д-67)", () => {
+    const got = reviewRan([...rules(["tools/a.mjs.bak", "tools/b.mjs"])], files, null);
+    assert.equal(got.rules, false);
+  });
+
+  it("правила по всем файлам, затем подагент — было", () => {
+    const got = reviewRan([...rules(files), ...reviewer()], files, null);
+    assert.deepEqual(got, { rules: true, subagent: true });
+  });
+
+  it("строка в коммите без шага правил — не было (так было 27.09)", () => {
+    const got = reviewRan([...reviewer()], files, null);
+    assert.equal(got.rules, false);
+  });
+
+  it("правила не по всем файлам — не в счёт", () => {
+    assert.equal(reviewRan([...rules(["tools/a.mjs"]), ...reviewer()], files, null).rules, false);
+  });
+
+  it("подагент до правил — не ревью по ним", () => {
+    const got = reviewRan([...reviewer(), ...rules(files)], files, null);
+    assert.deepEqual(got, { rules: true, subagent: false });
+  });
+
+  it("правила двумя вызовами — пути складываются", () => {
+    const got = reviewRan(
+      [...rules(["tools/a.mjs"]), ...rules(["tools/b.mjs"]), ...reviewer()],
+      files,
+      null,
+    );
+    assert.deepEqual(got, { rules: true, subagent: true });
+  });
+
+  it("критик плана после правил — не ревьюер", () => {
+    const critic = call(
+      "Agent",
+      { subagent_type: "plan-critic", prompt: "Разбери план task-900" },
+      {},
+    );
+    assert.equal(reviewRan([...rules(files), ...critic], files, null).subagent, false);
+  });
+
+  it("давнее — до прошлого коммита — не в счёт", () => {
+    const records = [...rules(files), ...reviewer()];
+    const later = Date.parse(records.at(-1).timestamp) + 1;
+    assert.equal(reviewRan(records, files, later).rules, false);
   });
 });
 

@@ -11,11 +11,10 @@
  * что агент видел. Наружу из этого файла не уходит ничего, а печатается
  * только путь, число строк и вердикт.
  */
-import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
-import { createInterface } from "node:readline";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 
+import { latestSession, records, sessionsDir } from "./session-log.mjs";
 import { claimsIn, claimTime, coverageOf, criticRan, readsFrom, verdict } from "./trace-rules.mjs";
 
 const TASKS = "dock/tasks";
@@ -34,21 +33,6 @@ function fail(message) {
   process.exit(2);
 }
 
-/** Папка записей этого проекта: Claude Code называет её путём, где `:` и косые — дефисы. */
-function sessionsDir() {
-  return join(homedir(), ".claude", "projects", resolve(".").replace(/[:\\/]/gu, "-"));
-}
-
-function latestSession() {
-  const dir = sessionsDir();
-  const files = readdirSync(dir)
-    .filter((one) => one.endsWith(".jsonl"))
-    .map((one) => ({ path: join(dir, one), at: statSync(join(dir, one)).mtimeMs }))
-    .sort((a, b) => b.at - a.at);
-  if (!files[0]) fail(`в ${dir} нет записей сессий`);
-  return files[0].path;
-}
-
 function planPath(name) {
   const found = readdirSync(TASKS).find(
     (one) => one.startsWith(`${name}-`) || one === `${name}.md`,
@@ -59,52 +43,6 @@ function planPath(name) {
     );
   return join(TASKS, found);
 }
-
-/**
- * Строки записи, нужные сверке, — без содержимого прочитанных файлов.
- *
- * ⚠️ ЗАПИСЬ ЧИТАЕТСЯ ПОТОКОМ И СРАЗУ ПРОРЕЖИВАЕТСЯ. Запись длинной сессии —
- * сотни мегабайт (184 МБ 21.09); держать её в памяти целиком ради номеров
- * строк незачем.
- */
-async function records(path) {
-  const kept = [];
-  let broken = 0;
-  for await (const line of createInterface({ input: createReadStream(path) })) {
-    let record;
-    try {
-      record = JSON.parse(line);
-    } catch {
-      broken += 1;
-      continue;
-    }
-    const content = record.message?.content;
-    if (!Array.isArray(content)) continue;
-    if (!content.some((one) => one.type === "tool_use" || one.type === "tool_result")) continue;
-    const file = record.toolUseResult?.file;
-    kept.push({
-      isSidechain: record.isSidechain,
-      timestamp: record.timestamp,
-      message: {
-        content: content.map((one) =>
-          one.type === "tool_use"
-            ? { type: one.type, id: one.id, name: one.name, input: one.input }
-            : { type: one.type, tool_use_id: one.tool_use_id, truncated: truncated(one) },
-        ),
-      },
-      ...(file ? { toolUseResult: { file: { ...file, content: undefined } } } : {}),
-    });
-  }
-  if (broken > 0) console.log(`строк записи не разобрано: ${broken}`);
-  return kept;
-}
-
-/**
- * Claude Code обрезал вывод команды до превью: полный вывод сохранён в файл,
- * а агент увидел только начало (разбор критика 21.09).
- */
-const truncated = (block) =>
-  /Output too large|persisted-output/u.test(JSON.stringify(block.content ?? ""));
 
 /** Сколько строк в файле репозитория сейчас — для команд оболочки. */
 function linesOf(path) {
@@ -120,6 +58,7 @@ if (!plan) fail("нужен PLAN, например: make trace-audit PLAN=task-1
 
 const planFile = planPath(plan);
 const session = process.env.SESSION ?? latestSession();
+if (!session) fail(`в ${sessionsDir()} нет записей сессий`);
 const all = await records(session);
 const until = claimTime(all, plan);
 /**

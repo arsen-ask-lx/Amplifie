@@ -15,22 +15,14 @@
  * ⚠️ ПЛАН ЧИТАЕТСЯ ИЗ GIT, А НЕ С ДИСКА. Незакоммиченный план в рабочей
  * папке не должен засчитываться, а в чужом клоне его нет вовсе.
  */
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { verdict } from "./cycle-rule.mjs";
+import { STRICT_SINCE, verdict } from "./cycle-rule.mjs";
 import { NAME_STATUS, parseChanges, parsePaths } from "./git-changes.mjs";
+import { commitBase, git } from "./git-commit.mjs";
 
 const RULE = "tools/checks/cycle-rule.mjs";
-
-function git(...args) {
-  const run = spawnSync("git", args, {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  return { ok: run.status === 0, out: (run.stdout ?? "").trim(), err: (run.stderr ?? "").trim() };
-}
 
 function die(lines) {
   console.error(`\n${lines.join("\n")}\n`);
@@ -56,36 +48,41 @@ function planReader(tree) {
   };
 }
 
-/** Какой коммит сейчас дописывается `--amend`: отметку оставляет `prepare-commit-msg`. */
-function amendMark() {
-  const dir = git("rev-parse", "--git-dir").out;
-  return dir ? join(dir, "amplifie-amend") : null;
+/**
+ * Отчёт ревью из дерева git: `tree` — ссылка на коммит либо пустая строка для индекса.
+ * С диска нельзя — годится только отчёт, который лежит в этом же коммите.
+ */
+function reportReader(tree) {
+  return (path) => {
+    const shown = git("show", `${tree}:${path}`);
+    return shown.ok ? shown.out : null;
+  };
 }
 
-/**
- * Второй признак amend — для `--amend -m`, когда `prepare-commit-msg` получает
- * источник `message` и отметки не ставит. Git переносит дату и автора
- * исходного коммита в окружение хука (`GIT_AUTHOR_DATE=@секунды`), новый
- * коммит получает дату «сейчас». Совпадение с HEAD до секунды и по автору —
- * это дописывание. Ложное срабатывание — второй коммит того же автора в ту же
- * секунду; тогда сравнение идёт с коммитом раньше, а `make cycle` всё равно
- * проверит оба по отдельности.
- */
-function sameAuthorAsHead() {
-  const date = /^@(\d+)/u.exec(process.env.GIT_AUTHOR_DATE ?? "")?.[1];
-  if (!date) return false;
-  const head = git("log", "-1", "--format=%at %ae").out.split(" ");
-  return head[0] === date && head[1] === (process.env.GIT_AUTHOR_EMAIL ?? "");
+/** Есть ли запись `Д-NN` в реестре долга из того же дерева git. */
+function debtReader(tree) {
+  const shown = git("show", `${tree}:dock/debt.md`);
+  const text = shown.ok ? shown.out : "";
+  return (number) => new RegExp(`^### Д-${number}\\.`, "mu").test(text);
+}
+
+/** Коммиты после границы task-124 (включая сам пограничный) — им действуют новые требования. */
+function strictCommits() {
+  const born = git("log", "--diff-filter=A", "--format=%H", "--", STRICT_SINCE)
+    .out.split("\n")
+    .filter(Boolean);
+  const start = born[born.length - 1];
+  if (!start) return new Set();
+  const since = git("rev-parse", "--verify", "-q", `${start}^`).ok ? [`^${start}^`] : [];
+  return new Set(
+    git("rev-list", "HEAD", ...since)
+      .out.split("\n")
+      .filter(Boolean),
+  );
 }
 
 function staged(messagePath) {
-  const mark = amendMark();
-  const marked = mark !== null && existsSync(mark);
-  if (marked) rmSync(mark, { force: true });
-  const amending = marked || sameAuthorAsHead();
-  // Дописывая коммит, сравниваем с ЕГО родителем: иначе видна только добавка,
-  // и тест, лежащий в исходном коммите, «пропал бы» (замечание 6).
-  const base = amending ? "HEAD^" : "HEAD";
+  const base = commitBase();
   const hasBase = git("rev-parse", "--verify", "-q", base).ok;
   const diff = hasBase
     ? git("diff", "--cached", ...NAME_STATUS, "-M", base)
@@ -99,7 +96,13 @@ function staged(messagePath) {
   }
   const merging = existsSync(join(git("rev-parse", "--git-dir").out, "MERGE_HEAD"));
   const commit = { changes: parseChanges(diff.out), message, parents: merging ? 2 : 1 };
-  return [{ name: "коммит, который вы делаете", got: verdict(commit, planReader("")) }];
+  // Новый коммит — всегда после границы: требования task-124 действуют на него целиком.
+  const got = verdict(commit, planReader(""), {
+    strict: true,
+    reportOf: reportReader(""),
+    debtHas: debtReader(""),
+  });
+  return [{ name: "коммит, который вы делаете", got }];
 }
 
 /** Коммиты от появления правила до HEAD, старые первыми. */
@@ -126,13 +129,18 @@ function rangeCommits() {
 }
 
 function history() {
+  const strict = strictCommits();
   return rangeCommits().map((sha) => {
     const changes = parseChanges(
       git("diff-tree", "--no-commit-id", ...NAME_STATUS, "-r", "-M", "--root", sha).out,
     );
     const message = git("log", "-1", "--format=%B", sha).out;
     const subject = message.split("\n")[0] ?? "";
-    const got = verdict({ changes, message, parents: 1 }, planReader(sha));
+    const got = verdict({ changes, message, parents: 1 }, planReader(sha), {
+      strict: strict.has(sha),
+      reportOf: reportReader(sha),
+      debtHas: debtReader(sha),
+    });
     return { name: `${sha.slice(0, 7)} ${subject.slice(0, 70)}`, got };
   });
 }
@@ -166,7 +174,9 @@ console.error(
     "    план: task-NNN                        (план одобрен или на ревью)",
     "    тест: <что проверяет>                 (засчитан тест своей стороны в коммите)",
     "    спека: <id изменения openspec>        (изменение тронуто этим коммитом)",
-    "    ревью: ocr — замечаний N, принято M   (make review + /delegate-review)",
+    "    ревью: ocr — замечаний N, принято M (dock/reviews/<отчёт>.md)",
+    "                                          (/delegate-review; отчёт — в этом коммите)",
+    "    причина: Д-NN или тест в коммите      (у коммита fix)",
     "",
     "  Ступень правда не нужна — скажи это с причиной не короче десяти знаков:",
     "",

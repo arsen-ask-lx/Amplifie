@@ -322,8 +322,8 @@ trace-audit: ## план заявил «прочитано целиком» — 
 > @test -n "$(PLAN)" || (echo "нужен PLAN, например: make trace-audit PLAN=task-108" && exit 2)
 > PLAN=$(PLAN) node tools/agent/trace-audit.mjs
 
-trace-check: ## проверки правил сверки плана с делом (подсаженные нарушения)
-> node --test tools/agent/trace-rules.test.mjs
+trace-check: ## проверки правил сверки по записи сессии и хука чтения (подсаженные нарушения)
+> node --test tools/agent/trace-rules.test.mjs tools/agent/read-guard-rules.test.mjs tools/agent/session-log.test.mjs
 
 plan-review: ## план с task-109 не одобрен без «Прочитано», «Варианты» и «Разбор критика»
 > node --test tools/checks/plan-review-rule.test.mjs
