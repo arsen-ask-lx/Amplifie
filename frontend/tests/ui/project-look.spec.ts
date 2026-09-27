@@ -105,32 +105,3 @@ test("свой цвет пипеткой доезжает до сервера, �
   });
   expect(look, "цвет из пипетки не сохранился").toEqual({ color: "#3a7bd5", icon: "crane" });
 });
-
-test("сервер принимает только цвет, а не имя", async ({ page }) => {
-  await register(page, "Хозяин");
-  const answers = await page.evaluate(async () => {
-    const made = await fetch("/v1/projects", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: "Проверка" }),
-    }).then((r) => r.json());
-    const send = async (color: string) =>
-      (
-        await fetch(`/v1/projects/${made.id}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ color }),
-        })
-      ).status;
-    return {
-      name: await send("красный"),
-      junk: await send("#zzz"),
-      color: await send("#3a7bd5"),
-    };
-  });
-  expect(answers.name, "сервер принял имя цвета").toBe(422);
-  expect(answers.junk, "сервер принял не цвет").toBe(422);
-  expect(answers.color, "сервер не принял настоящий цвет").toBe(200);
-});

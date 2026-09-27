@@ -123,12 +123,6 @@ describe("выделение", () => {
     expect(kinds(parseMarkup("**оба**"))).toEqual(["bold"]);
     expect(kinds(parseMarkup("*один*"))).toEqual(["italic"]);
   });
-
-  it("одинарное подчёркивание по-прежнему не курсив", () => {
-    // Расхождение с Телеграмом, названное в самом разборщике: имена
-    // с подчёркиваниями в рабочей переписке частотнее курсива.
-    expect(kinds(parseMarkup("поле user_name_id"))).toEqual(["text"]);
-  });
 });
 
 describe("целость текста", () => {

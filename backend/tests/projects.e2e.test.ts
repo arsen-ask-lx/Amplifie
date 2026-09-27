@@ -377,4 +377,27 @@ describe("проекты", () => {
       expect((await renameProject(stranger, project.id, "моё")).status).toBe(404);
     });
   });
+
+  describe("вид: цвет проверяется на границе (перенесено из браузерного project-look, task-125)", () => {
+    it("сервер принимает только цвет, а не имя", async () => {
+      const owner = await newPerson("Хозяин");
+      const project = await newProject(owner, "Вид");
+
+      const name = await patch(`/v1/projects/${project.id}`, { color: "красный" }, owner);
+      expect(name.status, "сервер принял имя цвета").toBe(422);
+      const nameBody = (await name.json()) as { error: string; fields: Record<string, string> };
+      expect(nameBody.error).toBe("validation_failed");
+      expect(nameBody.fields.color).toBe("цвет записывается как #rrggbb строчными буквами");
+
+      const junk = await patch(`/v1/projects/${project.id}`, { color: "#zzz" }, owner);
+      expect(junk.status, "сервер принял не цвет").toBe(422);
+      const junkBody = (await junk.json()) as { fields: Record<string, string> };
+      expect(junkBody.fields.color).toBe("цвет записывается как #rrggbb строчными буквами");
+
+      const ok = await patch(`/v1/projects/${project.id}`, { color: "#3a7bd5" }, owner);
+      expect(ok.status, "сервер не принял настоящий цвет").toBe(200);
+      const okBody = (await ok.json()) as { id: string };
+      expect(okBody.id).toBe(project.id);
+    });
+  });
 });

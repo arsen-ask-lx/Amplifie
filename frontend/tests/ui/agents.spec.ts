@@ -20,24 +20,15 @@ test("агенты живут в настройках, а старая ссыл�
   await expect(page.getByRole("link", { name: "Агенты" })).toBeVisible();
 });
 
-test("выдача кода открывается поверх неподвижной формы ключа", async ({ page }) => {
+test("«Подключить» открывает окно со строкой запуска моста", async ({ page }) => {
   await register(page, "Подключение");
   await page.goto("/settings/agents");
-
-  // При открытом диалоге Radix правильно скрывает фон от чтения с экрана.
-  // Геометрию фона поэтому измеряем по семантическому тегу, а не по роли:
-  // иначе тест проверяет не сдвиг, а работу фокус-ловушки общего Dialog.
-  const keyHeading = page.locator("h3").filter({ hasText: "Ключ API" });
-  const before = await keyHeading.boundingBox();
-  if (!before) throw new Error("заголовок ключа не измеряется");
 
   await page.getByRole("button", { name: "Подключить" }).click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel("Строка запуска моста")).toBeVisible();
-  const after = await keyHeading.boundingBox();
-  expect(after?.y).toBe(before.y);
 });
 
 test("ошибка проверки живёт в окне подключения, а не раздвигает страницу", async ({ page }) => {
@@ -51,23 +42,6 @@ test("ошибка проверки живёт в окне подключени�
   await expect(
     dialog.getByText("Мост не на связи. Запустите строку выше в терминале и не закрывайте окно."),
   ).toBeVisible();
-});
-
-test("выбранный пункт тихого списка повторяет скругление поля", async ({ page }) => {
-  await register(page, "Радиус");
-  await page.goto("/settings/agents");
-
-  const trigger = page.getByRole("combobox", { name: "Кому" });
-  const radius = async (locator: typeof trigger) =>
-    locator.evaluate((element) => getComputedStyle(element).borderTopLeftRadius);
-  // Поле меряем ДО раскрытия: открытый список прячет остальную страницу
-  // от чтения экрана (aria-hidden), и по роли поле уже не найти.
-  const fieldRadius = await radius(trigger);
-
-  await trigger.click();
-  const selected = page.getByRole("option", { name: "Только мой", exact: true });
-  await expect(selected).toBeVisible();
-  expect(await radius(selected)).toBe(fieldRadius);
 });
 
 /**

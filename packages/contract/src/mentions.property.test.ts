@@ -39,6 +39,8 @@ describe("упоминания: свойства", () => {
           if (!expected.includes(lower)) expected.push(lower);
         }
         expect(mentionedIds(twice), "повторы схлопнуты").toEqual(expected);
+        // Общая глобальная регулярка помнила бы lastIndex и через раз
+        // возвращала бы пусто на том же теле — отсюда два вызова подряд.
         expect(mentionedIds(body), "первый вызов").toEqual(expected);
         expect(mentionedIds(body), "повторный вызов").toEqual(expected);
       }),

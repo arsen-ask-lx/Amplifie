@@ -86,16 +86,6 @@ describe("список агентов", () => {
   beforeAll(requireStand);
 
   describe("В-1 список не протекает между пространствами", () => {
-    it("свой агент виден", async () => {
-      const person = await newPerson("Свой");
-      await summonAgent(person);
-
-      const seen = await agentsOf(person);
-      expect(seen.items).toHaveLength(1);
-      expect(seen.items[0]?.name).toBe(AGENT);
-      expect(seen.items[0]?.kind).toBe("agent");
-    });
-
     it("чужой агент в списке не появляется", async () => {
       const owner = await newPerson("Хозяин");
       const stranger = await newPerson("Чужак");
@@ -107,7 +97,12 @@ describe("список агентов", () => {
       expect(seen.items).toHaveLength(0);
       // Положительный контроль: агент у хозяина действительно появился —
       // иначе пустой список чужака доказывал бы лишь, что зов не удался.
-      expect((await agentsOf(owner)).items.map((one) => one.name)).toEqual([AGENT]);
+      // Заодно проверяет вид записи (kind === "agent") — здесь для теста
+      // есть положительный контроль, чего не было у отдельного «свой агент
+      // виден» (тест удалён: дублировал эту же проверку без него).
+      expect(
+        (await agentsOf(owner)).items.map((one) => ({ name: one.name, kind: one.kind })),
+      ).toEqual([{ name: AGENT, kind: "agent" }]);
     });
   });
 

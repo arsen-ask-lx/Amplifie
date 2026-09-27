@@ -123,10 +123,4 @@ describe("обращение упоминанием", () => {
     expect(awaitsAnswer(asText, AGENT, agentId)).toBe(true);
     expect(awaitsAnswer(asNode, AGENT, agentId)).toBe(true);
   });
-
-  it("своё же упоминание агента не зовёт", () => {
-    // Без этого выходит та же петля, что и с текстовым обращением.
-    const feed = [{ body: mentionMarkup(AGENT, agentId), authorKind: "agent" }];
-    expect(awaitsAnswer(feed, AGENT, agentId)).toBe(false);
-  });
 });

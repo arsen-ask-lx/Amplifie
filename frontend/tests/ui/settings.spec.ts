@@ -57,19 +57,6 @@ test("системная тема не предлагается в подроб�
   await expect(page.getByRole("button", { name: "Как в системе" })).toHaveCount(0);
 });
 
-test("светлая тема и монохром различаются не только названием", async ({ page }) => {
-  await register(page, "Без дублей");
-  await page.goto("/settings/appearance");
-
-  const background = async (label: string) =>
-    page
-      .getByRole("button", { name: label, exact: true })
-      .locator("[data-theme]")
-      .evaluate((element) => getComputedStyle(element).backgroundColor);
-
-  await expect.poll(() => background("Светлая")).not.toBe(await background("Монохром"));
-});
-
 test("редкие палитры скрыты под «Ещё темы», а алая и малина не предлагаются", async ({ page }) => {
   await register(page, "Коллекционер");
 

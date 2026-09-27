@@ -882,6 +882,9 @@ $(NODE_IMAGE) npm install …` — замок версий пересобира�
 
 ### Д-86. `tools/load/sse.test.mjs` не запускается нигде и дублирует контракт
 
+**✅ Закрыт 2026-09-27** (task-125, шаг 4): файл удалён с разрешения владельца, те же три
+случая держит `packages/contract/src/stream.test.ts`.
+
 **Что.** Три теста — копия `packages/contract/src/stream.test.ts` (та же `framed`,
 реэкспорт); файла нет ни в `Makefile`, ни в `package.json`, ни в CI (ревизия 27.09).
 

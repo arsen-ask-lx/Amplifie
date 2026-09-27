@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { bubble, createChannel, field, menu, register, say, typeInto } from "./fixtures.js";
 import { expect, test } from "./guard.js";
 
@@ -137,20 +138,34 @@ test("нажатие на моноширинный кусок копирует �
   expect(clipboardText).toBe("make check");
 });
 
-test("ссылка в своём пузыре — своим цветом, читаемым на его заливке (Д-29)", async ({ page }) => {
+test("ссылка в своём пузыре читаема на его заливке — axe не находит нарушений контраста (Д-29)", async ({
+  page,
+}) => {
   await register(page, "Со ссылкой");
   await createChannel(page, "Ссылки");
   await say(page, "смотри https://example.com/отчёт");
 
   const link = bubble(page, "смотри").getByRole("link");
   await expect(link).toBeVisible();
-  const [shown, wanted] = await link.evaluate((node) => {
-    const probe = document.createElement("span");
-    probe.style.color = "var(--link-on-soft)";
-    document.body.append(probe);
-    const expected = getComputedStyle(probe).color;
-    probe.remove();
-    return [getComputedStyle(node).color, expected];
-  });
-  expect(shown, "ссылка в своём пузыре взяла цвет ссылки на фоне").toBe(wanted);
+
+  // ⚠️ ЧЕРЕЗ AXE, А НЕ getComputedStyle (правило test-quality: цвет и контраст
+  // проверяются арбитром WCAG, а не сверкой с тем же CSS-токеном, который
+  // и назначает цвет, — такая проверка красит саму себя). Область — свой
+  // пузырь: во всём канале сейчас ровно одна реплика с одной ссылкой.
+  //
+  // ⚠️ ДОБАВЛЕН incomplete, А НЕ ТОЛЬКО violations. Проверено подстановкой
+  // заведомо белого на белом: axe кладёт находку с contrastRatio 1
+  // и messageKey «equalRatio» именно в incomplete (подчёркивание ссылки
+  // мешает ему быть уверенным до конца), а не в violations — при одном
+  // включённом правиле colour-contrast читать только violations значит
+  // не заметить настоящий провал.
+  const report = await new AxeBuilder({ page })
+    .include("article")
+    .withRules(["color-contrast"])
+    .analyze();
+  const found = [...report.violations, ...report.incomplete].map(
+    (one) =>
+      `${one.id} (${one.impact}): ${one.nodes.map((node) => node.target.join(" ")).join("; ")}`,
+  );
+  expect(found, "ссылка в своём пузыре не читается на его заливке").toEqual([]);
 });

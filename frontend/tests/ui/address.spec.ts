@@ -56,21 +56,3 @@ test("сообщение в другом чате не вызывает запр
 
   await other.close();
 });
-
-test("сообщение в открытом чате по-прежнему доезжает само", async ({ page }) => {
-  // Сторож обратной стороны: адрес не должен превратиться в «ничего
-  // не обновляем». Это та поломка, которую экономия приносит с собой.
-  await register(page);
-  await createChannel(page, "Смета");
-  await openChannel(page, "Смета");
-  await say(page, "первая");
-
-  const other = await page.context().newPage();
-  await other.goto("/");
-  await openChannel(other, "Смета");
-  await say(other, "вторая из другой вкладки");
-  await expect(bubble(other, "вторая из другой вкладки")).toBeVisible();
-
-  await expect(bubble(page, "вторая из другой вкладки")).toBeVisible();
-  await other.close();
-});

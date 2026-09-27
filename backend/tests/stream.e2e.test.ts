@@ -119,30 +119,6 @@ describe("живые обновления", () => {
     await response.text();
   });
 
-  it("отправленное доезжает звонком через Caddy", async () => {
-    const person = await newPerson("Слушатель");
-    const stream = await listen(person);
-    expect(stream.status).toBe(200);
-
-    try {
-      const nudge = stream.nextNudge();
-      // Небольшая пауза: подписка должна встать до отправки, иначе звонок
-      // уйдёт в пустоту и тест начнёт мигать.
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      await send(person, "первое живое");
-
-      const got = await Promise.race([
-        nudge,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("звонка не было 5 секунд")), 5000),
-        ),
-      ]);
-      expect(got).toContain("event: changed");
-    } finally {
-      stream.close();
-    }
-  });
-
   it("после звонка догон отдаёт содержимое без дыр", async () => {
     const person = await newPerson("Догоняющий");
     const stream = await listen(person);

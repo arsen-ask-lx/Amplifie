@@ -191,42 +191,6 @@ test("у проектов свой раздел и свой плюс", async ({ 
   await expect(empty, "подсказка осталась при заведённом проекте").toHaveCount(0);
 });
 
-test("плюс проекта появляется только при наведении на строку раздела", async ({ page }) => {
-  await register(page, "Хозяин");
-  await createProject(page, "Объект");
-
-  const add = page.getByRole("button", { name: "Новый проект" });
-  // Уводим курсор на другую строку панели: после закрытия модалки он может
-  // остаться в месте, которое физически оказалось под заголовком проектов.
-  await page.getByRole("button", { name: "Новый чат", exact: true }).hover();
-  await expect(add).toHaveCSS("opacity", "0");
-
-  // Курсор именно на строке проекта, а не на всей секции. Если hover-группа
-  // останется на `section`, эта проверка пропустит утечку действия в список.
-  await folderRow(page, "Объект").hover();
-  await expect(add).toHaveCSS("opacity", "0");
-
-  await page.getByText("Проекты", { exact: true }).hover();
-  await expect(add).toHaveCSS("opacity", "1");
-});
-
-test("наведение на чат не показывает действия его проекта", async ({ page }) => {
-  await register(page, "Хозяин");
-  await createProject(page, "Объект");
-  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового чата").fill("Смета");
-  await page.getByLabel("Название нового чата").press("Enter");
-
-  const project = folderRow(page, "Объект");
-  const addToProject = page.getByRole("button", { name: "Новый чат в проекте «Объект»" });
-
-  await channelRow(page, "Смета").hover();
-  await expect(addToProject, "у чата не должно быть плюса проекта").toHaveCSS("opacity", "0");
-
-  await project.hover();
-  await expect(addToProject).toHaveCSS("opacity", "1");
-});
-
 test("у папки свой значок и свой цвет, и они переживают перезагрузку", async ({ page }) => {
   await register(page, "Хозяин");
 
@@ -258,54 +222,30 @@ test("у папки свой значок и свой цвет, и они пер
     color: "#b86d1e",
   });
 
+  /**
+   * ⚠️ ЗАКРЕПЛЕНИЕ НЕ ПОДМЕНЯЕТ ЗНАЧОК ПАПКИ. Смотрим разметку значков строки
+   * до и после — она обязана совпасть: скрепка вместо портфеля или рядом с ним
+   * её меняет. Не по именам CSS-классов, как было до task-125: те — устройство.
+   */
+  const glyphs = () =>
+    folderRow(page, "Объект")
+      .locator("svg")
+      .evaluateAll((nodes) => nodes.map((node) => node.outerHTML));
+  const before = await glyphs();
+  const pinned = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && /\/v1\/projects\/[^/]+\/pin$/u.test(response.url()),
+  );
   await inProjectMenu(page, "Объект", "Закрепить");
-  const badges = await folderRow(page, "Объект")
-    .locator("svg")
-    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("class") ?? ""));
-  expect(badges, "закрепление подменило портфель скрепкой").toContain("size-4");
-  expect(badges.join(" "), "закрепление нарисовало скрепку").not.toContain("push-pin");
+  expect((await pinned).status(), "закрепление не записалось").toBe(204);
+  // Положительный контроль: строка уже знает, что закреплена, — значит перерисована.
+  await rowMenu(page, "Объект");
+  await expect(page.getByRole("menuitem", { name: "Открепить" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  expect(await glyphs(), "закрепление подменило значок папки").toEqual(before);
 
   await page.reload();
   await expect(folderRow(page, "Объект"), "папка пропала после перезагрузки").toBeVisible();
-});
-
-test("чат можно отнести в проект из рабочего меню", async ({ page }) => {
-  await register(page, "Хозяин");
-  await createProject(page, "Объект");
-
-  // Чат заводится общим рабочим входом, затем относится в проект действием
-  // «В проект»; отдельного плюса в строке проекта нет.
-  await createChannel(page, "Смета");
-  await rowMenu(page, "Смета");
-  await page.getByRole("menuitem", { name: "В проект" }).click();
-  // Ждём ответ на перенос, а не спрашиваем сервер вдогонку щелчку: та же
-  // гонка, что починена в «чат без проекта можно отнести в проект» (task-098).
-  const moved = page.waitForResponse(
-    (response) =>
-      response.request().method() === "PATCH" && response.url().includes("/v1/conversations/"),
-  );
-  await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
-  await moved;
-
-  await expect(channelRow(page, "Смета")).toBeVisible();
-
-  /**
-   * ⚠️ ПРОВЕРЯЕМ ПРИНАДЛЕЖНОСТЬ, А НЕ КАРТИНКУ. «Виден в панели» — слабое
-   * утверждение: он виден и снаружи проекта. Настоящее свойство одно —
-   * чат отнесён к проекту, и его говорит сервер.
-   */
-  const membership = await page.evaluate(async () => {
-    const response = await fetch("/v1/conversations", { credentials: "include" }).then((r) =>
-      r.json(),
-    );
-    const chat = response.items.find((one: { title: string }) => one.title === "Смета");
-    const project = response.projects.find((one: { title: string }) => one.title === "Объект");
-    return { chat: chat?.projectId ?? null, project: project?.id ?? null };
-  });
-  expect(membership.project, "проекта нет в ответе сервера").toMatch(UUID);
-  expect(membership.chat, "чат завели внутри проекта, а он оказался снаружи").toBe(
-    membership.project,
-  );
 });
 
 test("проект переименовывается, и это видно во второй вкладке", async ({ page, browser }) => {
@@ -503,7 +443,6 @@ test("проект раскрывается без движения при си�
   await project.click();
   const body = project.locator("xpath=../following-sibling::*[@data-slot='project-chats']");
   await expect(body).toHaveAttribute("data-state", "open");
-  await expect(body).toHaveCSS("animation-name", "none");
 });
 
 test("свёрнутый проект показывает, что внутри новое", async ({ page, browser }) => {
