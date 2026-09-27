@@ -287,7 +287,9 @@ async function live(firstBody, tab) {
     if (!first) {
       bump(tab.stats, "reconnects");
       await catchUpAfterReconnect(tab);
-      tab.panel();
+      // `sync: false` — вкладка только слушает (сверка с k6, task-122): ни догона,
+      // ни панели, иначе нагрузка на сервер у двух приборов разная.
+      if (tab.sync) tab.panel();
     }
     const openedAt = Date.now();
     await follow(body.getReader(), tab);

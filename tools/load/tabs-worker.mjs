@@ -33,7 +33,10 @@ const stats = { syncs: 0, panels: 0, queries: 0, reconnects: 0, syncFailures: 0,
 /** Открыть вкладки и сказать родителю, сколько вышло, — или почему нет. */
 async function open({ token, count, watching }) {
   try {
-    held = await openTabs(token, count, seen, undefined, { watching, stats });
+    // `SYNC=0` — вкладки только слушают: режим сверки с k6 (task-122, Р-051).
+    // Нагрузка на сервер тогда у обоих приборов одна — отправка и раздача.
+    const sync = process.env.SYNC !== "0";
+    held = await openTabs(token, count, seen, undefined, { watching, stats, sync });
     process.send({ ready: held.length });
   } catch (error) {
     /**

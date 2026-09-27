@@ -24,6 +24,7 @@
  * Запуск: make k6 (стенд поднят: make up).
  */
 import { check, fail } from "k6";
+import exec from "k6/execution";
 import http from "k6/http";
 import { Counter } from "k6/metrics";
 
@@ -171,7 +172,8 @@ export function setup() {
 }
 
 export default function ({ room, people, near }) {
-  const cookie = people[(__VU + __ITER) % people.length];
+  // Общий номер прохода: `__VU + __ITER` раскладывал людей неровно.
+  const cookie = people[exec.scenario.iterationInTest % people.length];
   const replies = [
     get("/v1/panel", cookie, "panel"),
     get(`/v1/conversations/${room}/messages?limit=50`, cookie, "feed"),

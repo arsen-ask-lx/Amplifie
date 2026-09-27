@@ -421,6 +421,23 @@ k6: ## двери чтения под нагрузкой, пороги крас�
 >   -e P99_MS=$${P99_MS:-1500} \
 >   $(K6_IMAGE) run --quiet /scripts/reads.js
 
+# Доставка до чужой вкладки: свой образ k6 с расширением потока (tools/load/k6/Dockerfile).
+# Настройки: TABS=20 RATE=5 SEND_S=20 make k6-sse (не SECONDS: это встроенная переменная оболочки)
+.PHONY: k6-sse
+k6-sse: ## доставка до чужой вкладки и её время — k6 с потоком (сначала: make up)
+> docker build -q -t amplifie-k6-sse tools/load/k6 >/dev/null
+> MSYS_NO_PATHCONV=1 docker run --rm --network amplifie_default \
+>   -v "$(CURDIR)/tools/load/k6:/scripts:ro" \
+>   -e TABS=$${TABS:-20} -e RATE=$${RATE:-5} -e SEND_S=$${SEND_S:-20} \
+>   amplifie-k6-sse run --quiet /scripts/delivery.js
+
+# Сверка своего прибора и k6 на одних условиях: сеть стенда, Caddy, вкладки слушают.
+# Тяжелее прочих: перед ним make conditions. Настройки: TABS=100 RATE=10 SEND_S=200
+.PHONY: k6-compare
+k6-compare: ## сверка двух измерителей нагрузки — расхождение красное (сначала: make up)
+> docker build -q -t amplifie-k6-sse tools/load/k6 >/dev/null
+> node tools/load/compare.mjs
+
 .PHONY: db-per-event
 db-per-event: ## цена одного события в транзакциях базы (сначала: make up)
 > node tools/load/db-per-event.mjs
