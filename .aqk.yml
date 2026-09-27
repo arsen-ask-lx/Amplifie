@@ -133,6 +133,10 @@ gates:
   secrets-not-in-code: "bash tools/gates/secrets-not-in-code/check.sh ."
   gates-run-in-ci: "bash tools/gates/gates-run-in-ci/check.sh ."
   personal-config-not-shared: "bash tools/gates/personal-config-not-shared/check.sh ."
+  # Два свода агента (AGENTS.md и CLAUDE.md) не расходятся: CLAUDE.md включает
+  # AGENTS.md строкой @AGENTS.md. Из AQK 0.17. `aqk add` положил гейт в gates/,
+  # мимо `samples: tools/gates`, — перенесён руками; у grep в нём LC_ALL=C (см. скрипт).
+  entry-docs-agree: "bash tools/gates/entry-docs-agree/check.sh ."
 
 # Совещательные: видны в каждом прогоне, уронить его не могут (см. cost).
 advisory: [cost]

@@ -394,3 +394,23 @@ describe("разбор критика: был ли критик", () => {
     assert.equal(criticRan(records, "task-900", claimTime(records, "task-900")), false);
   });
 });
+
+describe("путь от корня не путается с вложенным (Д-67)", () => {
+  it("план назвал AGENTS.md, прочитан только backend/AGENTS.md — корневой не открыт", () => {
+    const events = readsFrom([...read("E:/Amplifie/backend/AGENTS.md", 1, 40, 40)]);
+    const exists = (path) => path === "AGENTS.md" || path === "backend/AGENTS.md";
+    const rows = verdict(
+      claimsIn("| `AGENTS.md` | 165 | целиком |"),
+      coverageOf(events, linesOf),
+      exists,
+    );
+    assert.equal(rows[0].status, "не открыт");
+  });
+
+  it("названный путь, который есть и прочитан, засчитывается", () => {
+    const events = readsFrom([...read("E:/Amplifie/frontend/src/data/readMarks.ts", 1, 180, 180)]);
+    const exists = (path) => path === "frontend/src/data/readMarks.ts";
+    const plan = "| `frontend/src/data/readMarks.ts` | 180 | целиком |";
+    assert.equal(verdict(claimsIn(plan), coverageOf(events, linesOf), exists)[0].status, "целиком");
+  });
+});

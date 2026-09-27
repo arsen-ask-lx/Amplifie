@@ -55,6 +55,19 @@
   `make decisions`, а не совесть.** Незнание — не повод угадывать: почти всякую
   нашу ошибку кто-то уже совершил и описал.
 
+## Задача → скилл
+
+Скилл сам срабатывает не всегда; явный указатель — всегда. Перед такой работой — этот скилл:
+
+- план задачи — `plan-quality`, затем агент `plan-critic`;
+- новая зависимость, версия, чужая настройка — `research-before-build`;
+- миграция — `safe-migrations`; горячий запрос или индекс — `postgres-performance`;
+- Dockerfile — `docker-build-strategies`; compose — `docker-compose-patterns`;
+  удаление в Docker — `docker-destructive-guardrails`;
+- живые обновления — `centrifugo-realtime`;
+- изменение видимого поведения — `openspec-propose`, сдача — `openspec-archive-change`;
+- итоги владельцу — `itogi`.
+
 ## Где что лежит
 
 - `dock/README.md` — карта; `dock/decisions.md` — основания; `dock/debt.md` — **очередь исправлений**

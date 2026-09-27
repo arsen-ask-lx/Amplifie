@@ -11,7 +11,7 @@
  * что агент видел. Наружу из этого файла не уходит ничего, а печатается
  * только путь, число строк и вердикт.
  */
-import { createReadStream, readdirSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -135,7 +135,9 @@ if (until === null) {
 }
 const claims = claimsIn(readFileSync(planFile, "utf8"));
 const since = until - FRESH_HOURS * 3_600_000;
-const rows = verdict(claims, coverageOf(readsFrom(all, until, since), linesOf));
+// Путь есть в репозитории — засчитывается он, а не одноимённый вложенный (Д-67).
+const isFile = (path) => existsSync(path) && statSync(path).isFile();
+const rows = verdict(claims, coverageOf(readsFrom(all, until, since), linesOf), isFile);
 
 console.log(`план: ${planFile}`);
 console.log(`запись: ${basename(session)} — событий с инструментами ${all.length}`);

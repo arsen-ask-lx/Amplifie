@@ -341,11 +341,23 @@ function seenLines({ ranges, total }) {
   return ranges.reduce((sum, [from, to]) => sum + Math.max(0, Math.min(to, limit) - from + 1), 0);
 }
 
-/** Кандидаты под имя из плана: склеенные, с открытыми строками. */
-function candidatesFor(file, coverage) {
+/**
+ * Кандидаты под имя из плана: склеенные, с открытыми строками.
+ *
+ * ⚠️ ПУТЬ ОТ КОРНЯ, КОТОРЫЙ ЕСТЬ, НЕ ПУТАЕТСЯ С ВЛОЖЕННЫМ (Д-67). План назвал
+ * `AGENTS.md`, прочитан был только `backend/AGENTS.md` — и сверка засчитала
+ * его: имя совпало концом. Если названный путь существует, засчитывается
+ * он сам и его короткие записи (`cd … && cat`), но не пути длиннее его.
+ */
+function candidatesFor(file, coverage, exists) {
   const wanted = file.replace(/\\/gu, "/");
+  const real = exists(wanted);
   const matches = [...coverage.entries()]
-    .filter(([path]) => path === wanted || path.endsWith(`/${wanted}`))
+    .filter(([path]) =>
+      real
+        ? path === wanted || wanted.endsWith(`/${path}`)
+        : path === wanted || path.endsWith(`/${wanted}`),
+    )
     .map(([path, entry]) => ({ path, ...entry }));
   return mergeSuffixes(matches).filter((one) => one.ranges.length > 0);
 }
@@ -354,8 +366,8 @@ const isFull = (one) => one.total !== null && one.seen >= one.total;
 const listed = (many) => many.map((one) => one.path).join(", ");
 
 /** Вердикт по одному заявлению. */
-function judge(file, coverage) {
-  const found = candidatesFor(file, coverage);
+function judge(file, coverage, exists) {
+  const found = candidatesFor(file, coverage, exists);
   if (found.length === 0) return { file, status: "не открыт", seen: 0, total: null };
   const alive = found.filter((one) => !one.gone);
   if (alive.length === 0)
@@ -383,8 +395,8 @@ function judge(file, coverage) {
  * имелся в виду `talk/service.ts` на 905 строк, а засчитался `identity/`
  * на 212 (живой прогон 21.09). Полный путь в таблице снимает вопрос.
  */
-export function verdict(claims, coverage) {
-  return claims.map(({ file }) => judge(file, coverage));
+export function verdict(claims, coverage, exists = () => false) {
+  return claims.map(({ file }) => judge(file, coverage, exists));
 }
 
 /** Вызов критика по этому плану: агент `plan-critic` или его инструкция в задании. */
