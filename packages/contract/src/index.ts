@@ -12,7 +12,14 @@
  * в свалку общего назначения, а такой пакет связывает всех со всеми.
  */
 export { KEY_SHAPES, type KeyProvider, keyShapeMessage } from "./keys.js";
-export { MENTION_SOURCE, mentionedIds, mentionMarkup } from "./mentions.js";
+export {
+  escapeLabel,
+  LABEL_SOURCE,
+  MENTION_SOURCE,
+  mentionedIds,
+  mentionMarkup,
+  unescapeLabel,
+} from "./mentions.js";
 export {
   contrastRatio,
   inkOn,

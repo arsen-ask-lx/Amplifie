@@ -11,25 +11,10 @@
 import { describe, expect, it } from "vitest";
 import type { Message, SyncLine, Tombstone } from "./api.js";
 import { inside, merge, mergePinned, ofRoom, writtenEdge } from "./feed.js";
+import { TEST_ROOM, testLine } from "./feedLines.js";
 
-const ROOM = "комната-1";
-
-function line(id: string, seq: number, body: string, pinnedAt: string | null = null): Message {
-  return {
-    id,
-    clientMsgId: id,
-    conversationId: ROOM,
-    body,
-    kind: "text",
-    seq,
-    createdAt: "2026-09-08T10:00:00.000Z",
-    editedAt: null,
-    pinnedAt,
-    author: { id: "автор", name: "Автор", kind: "human" },
-    replyTo: null,
-    forwardedFrom: null,
-  };
-}
+const ROOM = TEST_ROOM;
+const line = testLine;
 
 const grave = (id: string, seq: number): Tombstone => ({
   id,

@@ -524,7 +524,8 @@ export const bridgeFileParams = z.object({ file: text().min(1) });
  */
 export const bridgeArchiveBytes = z
   .custom<Uint8Array>((value) => value instanceof Uint8Array)
-  .meta({ type: "string", format: "binary" });
+  // Тип содержимого — только у этого ответа: отказ 404 той же двери — JSON.
+  .meta({ content: { "application/gzip": { schema: { type: "string", format: "binary" } } } });
 
 /** Работа для машины: вопрос модели. Пусто — 204, мост тут же приходит снова. */
 export const bridgeJob = z.object({ jobId: z.string(), system: z.string(), prompt: z.string() });

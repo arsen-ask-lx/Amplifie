@@ -1,3 +1,4 @@
+import { escapeLabel } from "@amplifie/contract";
 import { $createLinkNode, $isLinkNode } from "@lexical/link";
 import {
   $createParagraphNode,
@@ -170,7 +171,8 @@ export function $fillFromMarkup(text: string): void {
  */
 function linkMarkup(node: unknown, text: string): string {
   const href = (node as { getURL: () => string }).getURL();
-  return text === href ? text : `[${text}](${href})`;
+  // Подпись экранируется тем же правилом, что читает разборщик (task-121).
+  return text === href ? text : `[${escapeLabel(text)}](${href})`;
 }
 
 /** Один кусок дерева → строка с обёртками. */

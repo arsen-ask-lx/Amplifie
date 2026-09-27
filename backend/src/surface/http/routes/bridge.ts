@@ -164,7 +164,6 @@ export function registerBridgeMachineRoutes(scope: FastifyInstance): void {
     {
       schema: {
         params: bridgeFileParams,
-        produces: ["application/gzip"],
         response: { 200: bridgeArchiveBytes, 404: failure },
       },
     },

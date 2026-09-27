@@ -33,11 +33,29 @@ export function lineOf(body: string): string {
   return parseMarkup(body).map(shown).join("").replace(/\s+/gu, " ").trim();
 }
 
+/**
+ * Нормализация для подсветки — по одному знаку, и длина не меняется никогда.
+ *
+ * ⚠️ `toLowerCase` МЕНЯЕТ ДЛИНУ: «İ» становится «i̇» (два знака). Подсветка
+ * режет исходную строку по позициям из нормализованной, и после такой буквы
+ * подсвечивалась половина слова (найдено проверкой свойств, task-121). Знак,
+ * который нормализация удлиняет, остаётся как есть: слово с ним не подсветится,
+ * но и подсветка не съедет. Серверный поиск нормализует по-прежнему (`searchFold`).
+ */
+function foldInPlace(text: string): string {
+  let folded = "";
+  for (const one of text) {
+    const lower = searchFold(one);
+    folded += lower.length === one.length ? lower : one;
+  }
+  return folded;
+}
+
 /** Где в строке первое слово запроса, начинающее слово строки; нет — `-1`. */
-function firstHit(folded: string, words: string[]): number {
+function firstHit(line: string, words: string[]): number {
   // Тот же проход, что у подсветки: первый подсвеченный кусок и есть совпадение.
   let at = 0;
-  for (const mark of marksIn(folded, words)) {
+  for (const mark of marksIn(line, words)) {
     if (mark.hit) return at;
     at += mark.text.length;
   }
@@ -55,7 +73,7 @@ function startsWord(text: string, at: number): boolean {
  */
 export function snippetAround(line: string, words: string[], width: number): string {
   if (line.length <= width) return line;
-  const hit = Math.max(0, firstHit(searchFold(line), words));
+  const hit = Math.max(0, firstHit(line, words));
   const from = Math.max(0, Math.min(hit - Math.floor(width / 3), line.length - width));
   const to = from + width;
   return `${from > 0 ? "…" : ""}${line.slice(from, to)}${to < line.length ? "…" : ""}`;
@@ -64,10 +82,10 @@ export function snippetAround(line: string, words: string[], width: number): str
 /**
  * Строка → куски «подсветить / нет»: совпадение слова запроса с началом
  * слова строки, без учёта регистра и ё. Куски складываются обратно
- * в исходную строку — нормализация длину не меняет (`searchFold`).
+ * в исходную строку — нормализация длину не меняет (`foldInPlace`).
  */
 export function marksIn(text: string, words: string[]): Mark[] {
-  const folded = searchFold(text);
+  const folded = foldInPlace(text);
   const marks: Mark[] = [];
   let plainFrom = 0;
   let at = 0;

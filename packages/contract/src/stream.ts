@@ -83,7 +83,8 @@ export const RECONNECT = { baseMs: 1_000, capMs: 30_000 } as const;
  */
 export function nextDelay(attempt: number, random: () => number, floorMs = 0): number {
   const window = Math.min(RECONNECT.capMs, RECONNECT.baseMs * 2 ** Math.max(0, attempt));
-  return Math.max(0, floorMs) + Math.floor(random() * window);
+  // Срок у самой границы таймера плюс разброс перевалил бы за неё — и тот же ноль.
+  return Math.min(TIMER_MAX_MS, Math.max(0, floorMs) + Math.floor(random() * window));
 }
 
 /**
@@ -94,7 +95,14 @@ export function nextDelay(attempt: number, random: () => number, floorMs = 0): n
 export function retryAfterMs(header: string | null, now: number): number {
   if (header === null) return 0;
   const trimmed = header.trim();
-  if (/^\d+$/u.test(trimmed)) return Number(trimmed) * 1_000;
+  if (/^\d+$/u.test(trimmed)) return Math.min(TIMER_MAX_MS, Number(trimmed) * 1_000);
   const at = Date.parse(trimmed);
-  return Number.isNaN(at) ? 0 : Math.max(0, at - now);
+  return Number.isNaN(at) ? 0 : Math.min(TIMER_MAX_MS, Math.max(0, at - now));
 }
+
+/**
+ * Дольше таймер браузера не держит: 2³¹−1 мс. Срок больше этого `setTimeout`
+ * понимает как ноль — и переподключение шло БЕЗ паузы, ровно наоборот тому,
+ * о чём просил сервер (найдено проверкой свойств, task-121).
+ */
+const TIMER_MAX_MS = 2_147_483_647;

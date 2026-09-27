@@ -15,6 +15,8 @@ describe("незнакомый метод на известном пути", () 
     const cases: Array<[string, string, string]> = [
       ["PUT", "/v1/me", "GET, HEAD"],
       ["DELETE", "/health", "GET, HEAD"],
+      // QUERY без тела: Fastify отверг бы его 400 до обработчика (RFC 10008), а метода нет.
+      ["QUERY", "/v1/me", "GET, HEAD"],
       ["PUT", `/v1/conversations/${crypto.randomUUID()}/messages`, "GET, HEAD, POST"],
     ];
     for (const [method, path, allow] of cases) {

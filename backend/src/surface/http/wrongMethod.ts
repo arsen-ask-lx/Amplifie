@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 
 /** Метка своих дверей 405: их собственные методы собирать не надо. */
 const OWN = "wrongMethod";
@@ -31,13 +31,18 @@ export function collectMethods(app: FastifyInstance): () => void {
       const missing = app.supportedMethods.filter((method) => !allowed.has(method));
       if (missing.length === 0) continue;
       const allow = [...allowed].sort().join(", ");
+      const refuse = (reply: FastifyReply) =>
+        reply.code(405).header("allow", allow).send({ error: "method_not_allowed" });
       app.route({
         method: missing,
         url,
         config: { [OWN]: true },
         schema: { hide: true },
-        handler: (_request, reply) =>
-          reply.code(405).header("allow", allow).send({ error: "method_not_allowed" }),
+        // ⚠️ ОТКАЗ В `onRequest`, ДО РАЗБОРА ТЕЛА. QUERY без `Content-Type` Fastify
+        // отвергает 400 раньше обработчика (RFC 10008 §2) — а метода у пути нет
+        // вовсе, и честный ответ ему 405 (найдено Schemathesis, task-121).
+        onRequest: async (_request, reply) => refuse(reply),
+        handler: async (_request, reply) => refuse(reply),
       });
     }
   };

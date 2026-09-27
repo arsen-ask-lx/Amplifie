@@ -220,6 +220,23 @@ describe("упоминания", () => {
       );
     });
 
+    it("зовёт и того, у кого в имени скобка: подпись экранируется, как в markdown", async () => {
+      // Найдено проверкой свойств (task-121): подпись была «всё, кроме `]`», и
+      // «Анна]» не находилась — позванный не получал ничего. Запись — руками,
+      // по протоколу: `\]` внутри подписи.
+      const owner = await newPerson("Хозяин");
+      const guest = await invite(owner, "Анна]");
+      const channel = await channelOf(owner);
+
+      const label = guest.name.replace(/[\\[\]]/gu, "\\$&");
+      await say(owner, channel.id, `зову [${label}](@${guest.participantId})`);
+
+      const room = await roomOf(guest, channel.id);
+      expect(room.mentions, "упоминание должно быть одно, а не столько же, сколько сообщений").toBe(
+        1,
+      );
+    });
+
     it("своё упоминание не считается", async () => {
       const owner = await newPerson("Хозяин");
       const channel = await channelOf(owner);

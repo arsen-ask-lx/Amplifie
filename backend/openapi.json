@@ -950,7 +950,7 @@
           "404": {
             "description": "Default Response",
             "content": {
-              "application/gzip": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -972,7 +972,7 @@
           "422": {
             "description": "Default Response",
             "content": {
-              "application/gzip": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -994,7 +994,7 @@
           "429": {
             "description": "Default Response",
             "content": {
-              "application/gzip": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {

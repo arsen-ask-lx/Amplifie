@@ -44,10 +44,12 @@
     "bridge:pack": "node bridge/pack.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@biomejs/biome": "^2.5.14",
     "@playwright/test": "1.63.0",
     "@types/react": "^19.3.0",
     "drizzle-kit": "0.31.11",
+    "fast-check": "4.10.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
   },
