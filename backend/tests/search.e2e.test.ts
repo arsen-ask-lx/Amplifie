@@ -159,11 +159,13 @@ describe("поиск по сообщениям", () => {
     const owner = await newPerson("Хозяин");
     const room = await firstChannel(owner);
     // 25 + 1: порог отправки — 30 реплик в минуту на человека (Р-025).
-    for (let n = 1; n <= 25; n++) await say(owner, room, `смета номер ${n}`);
+    const saidSeq: number[] = [];
+    for (let n = 1; n <= 25; n++) saidSeq.push((await say(owner, room, `смета номер ${n}`)).seq);
 
     const first = await search(owner, "смета", { limit: 20 });
     expect(first.items).toHaveLength(20);
-    expect(first.next).not.toBeNull();
+    // Новые сверху: страница — реплики 25…6, курсор — номер последней показанной (шестой).
+    expect(first.next, "курсор не номер последней показанной").toBe(saidSeq[5]);
     const seqs = first.items.map((one) => one.seq);
     expect(seqs, "не по убыванию").toEqual([...seqs].sort((a, b) => b - a));
 
@@ -231,7 +233,8 @@ describe("поиск по сообщениям", () => {
     const page = await search(owner, "склад");
     const found = page.items[0];
     expect(found?.conversationId).toBe(room);
-    expect(found?.conversationTitle).toBeTruthy();
+    // Первый канал пространства заводит регистрация под именем «Общий».
+    expect(found?.conversationTitle).toBe("Общий");
     expect(found?.replyTo?.id).toBe(asked.id);
   });
 });

@@ -2,47 +2,24 @@
  * ПРИЁМОЧНЫЙ ТЕСТ СОЗДАНИЯ И ВИДИМОСТИ КАНАЛОВ (Р-010).
  * Написан ДО кода и обязан быть красным.
  *
- * ⚠️ ПОЛОВИНА ЭТОГО ФАЙЛА УДАЛЕНА ВМЕСТЕ С ПРИГЛАШЕНИЯМИ. Четыре проверки
- * требовали ВТОРОГО человека в том же пространстве — «канал виден другому»,
- * «в открытом пишут оба», «приватный виден только своим», «ветка на тех же
- * условиях». Приглашение было единственной дверью для второго человека;
- * двери нет — значит и проверить нечего. Код видимости остался, но
- * доказательства у него больше НЕТ, и это сказано здесь, а не забыто.
+ * Проверки одним человеком: канал появляется у создателя, чужой не виден,
+ * порядок по свежести, отказы.
  *
- * Осталось то, что проверяется одним человеком: канал появляется у создателя,
- * чужой не виден, порядок по свежести, отказы.
+ * Когда файл писался, второго человека в том же пространстве завести было
+ * нельзя, и четыре проверки были из него вынуты: «канал виден другому»,
+ * «в открытом пишут оба», «приватный виден только своим», «ветка на тех же
+ * условиях». Теперь второй человек заводится (`colleague` в `stand.ts`).
+ * Приватный канал и его ветку стережёт `visibility.e2e.test.ts`; «открытый
+ * канал виден коллеге» и «в открытом пишут оба» здесь пока не восстановлены —
+ * это дыра, а не забывчивость (task-125, «коллега того же пространства»).
  *
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-function freshEmail(): string {
-  return `ch-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
+import { BASE, newPerson, requireStand } from "./stand.js";
 
 async function newOwner(tag: string): Promise<string> {
-  const response = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (response.status !== 201) throw new Error(`регистрация: ${response.status}`);
-  return sessionCookie(response);
+  return (await newPerson(tag)).cookie;
 }
 
 interface Room {
@@ -66,10 +43,7 @@ async function createChannel(cookie: string, title: string, body: object = {}): 
 }
 
 describe("каналы", () => {
-  beforeAll(async () => {
-    const health = await fetch(`${BASE}/health`);
-    if (!health.ok) throw new Error(`стек не поднят (${BASE}/health): make up`);
-  });
+  beforeAll(requireStand);
 
   it("созданный канал появляется в списке у создателя", async () => {
     const owner = await newOwner("Создатель");
@@ -85,13 +59,17 @@ describe("каналы", () => {
     const created = await createChannel(owner, "Не для всех");
     const { id } = (await created.json()) as { id: string };
 
+    const read = (cookie: string) =>
+      fetch(`${BASE}/v1/conversations/${id}/messages`, { headers: { cookie } });
+
+    // Положительный контроль: у своего канал есть и читается — отказ ниже
+    // про чужого, а не про несостоявшееся создание.
+    expect((await rooms(owner)).map((r) => r.id)).toContain(id);
+    expect((await read(owner)).status).toBe(200);
+
     const stranger = await newOwner("Посторонний");
     expect((await rooms(stranger)).map((r) => r.id)).not.toContain(id);
-
-    const peek = await fetch(`${BASE}/v1/conversations/${id}/messages`, {
-      headers: { cookie: stranger },
-    });
-    expect(peek.status).toBe(404);
+    expect((await read(stranger)).status).toBe(404);
   });
 
   it("список идёт по свежести: где писали последним — первый", async () => {
@@ -130,6 +108,11 @@ describe("каналы", () => {
     const owner = await newOwner("Безымянный");
     const response = await createChannel(owner, "   ");
     expect(response.status).toBe(422);
+    // Слова — из схемы двери (`channelBody` в @amplifie/contract): их видит человек.
+    expect(await response.json()).toEqual({
+      error: "validation_failed",
+      fields: { title: "у канала нужно название" },
+    });
   });
 
   it("без сессии канал не создаётся", async () => {

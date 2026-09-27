@@ -17,17 +17,10 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
+import { BASE, call, newPerson, type Person, requireStand } from "./stand.js";
 
 /** Имя участника-агента. Заводится сервером, см. ensureAgent. */
 const AGENT = "memo";
-
-interface Person {
-  cookie: string;
-  name: string;
-}
 
 interface Conversation {
   id: string;
@@ -43,42 +36,12 @@ interface Message {
   author: { id: string; name: string; kind: string };
 }
 
-function freshEmail(): string {
-  return `ask-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-async function newPerson(tag: string): Promise<Person> {
-  const response = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (response.status !== 201) throw new Error(`регистрация ${tag}: ${response.status}`);
-  return { cookie: sessionCookie(response), name: tag };
-}
-
 function get(path: string, person: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, { headers: { cookie: person.cookie } });
+  return call("GET", path, person);
 }
 
 function post(path: string, body: unknown, person: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: person.cookie },
-    body: JSON.stringify(body),
-  });
+  return call("POST", path, person, body);
 }
 
 async function channelOf(person: Person): Promise<Conversation> {
@@ -170,10 +133,7 @@ async function askWhileBridgeAnswers(
 }
 
 describe("агент отвечает в чате", () => {
-  beforeAll(async () => {
-    const health = await fetch(`${BASE}/health`);
-    if (!health.ok) throw new Error(`стек не поднят (${BASE}/health): make up`);
-  });
+  beforeAll(requireStand);
 
   describe("В-1 обращение рождает ответ, его отсутствие — нет", () => {
     it("обращение к агенту рождает в ленте сообщение от него", async () => {
@@ -250,12 +210,16 @@ describe("агент отвечает в чате", () => {
       const second = (await made.json()) as Conversation;
 
       await send(person, second.id, "тайна второго канала: пароль от сейфа");
+      await send(person, first.id, "в первом канале обсуждаем смету");
       await send(person, first.id, `@${AGENT} что тут было?`);
 
       const { job } = await askWhileBridgeAnswers(person, first.id, bridge, (one) =>
         bridge.answer((one as { jobId: string } & typeof one).jobId, "Ничего особенного."),
       );
 
+      // Положительный контроль: подсказка собрана, и в ней свой разговор —
+      // иначе «тайны нет» прошло бы и на пустой подсказке.
+      expect(job?.prompt).toContain("в первом канале обсуждаем смету");
       expect(job?.prompt).not.toContain("тайна второго канала");
     });
   });

@@ -51,7 +51,7 @@ describe("событие о реплике несёт папку", () => {
       ] as const) {
         await say(owner, where, text);
         const seen = await callAbout(calls, where);
-        expect(seen, `нет звонка о реплике «${text}»`).not.toBeNull();
+        expect(seen?.conversation, `нет звонка о реплике «${text}»`).toBe(where);
         if (where === inside) expect(seen?.project).toBe(folder);
         else expect(seen && "project" in seen, `у «${text}» папки быть не должно`).toBe(false);
       }

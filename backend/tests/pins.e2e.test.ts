@@ -16,59 +16,15 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { call, colleague, newPerson, type Person, requireStand } from "./stand.js";
 
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
 const LIMIT = 100;
 
-interface Person {
-  cookie: string;
-}
-
-function freshEmail(): string {
-  return `pins-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-async function call(method: string, path: string, person: Person, body?: unknown) {
-  return fetch(`${BASE}${path}`, {
-    method,
-    headers: { cookie: person.cookie, ...(body ? { "content-type": "application/json" } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-}
-
-async function register(): Promise<Person> {
-  const response = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: "Хозяин",
-      workspaceName: "Закрепы",
-    }),
-  });
-  if (response.status !== 201) throw new Error(`регистрация: ${response.status}`);
-  return { cookie: sessionCookie(response) };
-}
-
-async function invite(owner: Person, name: string): Promise<Person> {
-  const made = await call("POST", "/v1/invites", owner, { maxUses: 10 });
-  const { token } = (await made.json()) as { token: string };
-  const entered = await fetch(`${BASE}/v1/auth/join`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token, email: freshEmail(), password: PASSWORD, displayName: name }),
-  });
-  if (entered.status !== 201) throw new Error(`вход по ссылке: ${entered.status}`);
-  return { cookie: sessionCookie(entered) };
+async function firstChannel(person: Person): Promise<string> {
+  const list = await call("GET", "/v1/conversations", person);
+  const id = ((await list.json()) as { items: Array<{ id: string }> }).items[0]?.id;
+  if (!id) throw new Error("у нового пространства нет канала");
+  return id;
 }
 
 async function say(person: Person, room: string, body: string): Promise<string> {
@@ -83,30 +39,63 @@ async function say(person: Person, room: string, body: string): Promise<string> 
 const pin = (person: Person, id: string) => call("POST", `/v1/messages/${id}/pin`, person);
 const unpin = (person: Person, id: string) => call("DELETE", `/v1/messages/${id}/pin`, person);
 
-async function pinnedCount(person: Person, room: string): Promise<number> {
+async function pinnedIds(person: Person, room: string): Promise<string[]> {
   const response = await call("GET", `/v1/conversations/${room}/pinned`, person);
   expect(response.status).toBe(200);
-  return ((await response.json()) as { items: unknown[] }).items.length;
+  return ((await response.json()) as { items: Array<{ id: string }> }).items.map((one) => one.id);
+}
+
+async function pinnedCount(person: Person, room: string): Promise<number> {
+  return (await pinnedIds(person, room)).length;
 }
 
 describe("закреплённое: потолок и частота", () => {
+  beforeAll(requireStand);
+
   let people: Person[] = [];
   let room = "";
   /** По 21 реплике на каждого: 20 закрепляет сам, одна — в запас. */
   const said: string[][] = [];
 
   beforeAll(async () => {
-    const owner = await register();
+    const owner = await newPerson("Хозяин");
     people = [owner];
-    for (const name of ["Анна", "Борис", "Вера", "Глеб"]) people.push(await invite(owner, name));
-    const list = await call("GET", "/v1/conversations", owner);
-    room = ((await list.json()) as { items: Array<{ id: string }> }).items[0]?.id ?? "";
+    for (const name of ["Анна", "Борис", "Вера", "Глеб"]) people.push(await colleague(owner, name));
+    room = await firstChannel(owner);
     for (const [n, person] of people.entries()) {
       const mine: string[] = [];
       for (let k = 0; k < 21; k++) mine.push(await say(person, room, `реплика ${n}-${k}`));
       said.push(mine);
     }
   }, 120_000);
+
+  /**
+   * Своё исходное состояние, а не наследство прошлого теста: закреплены
+   * первые двадцать реплик каждого, кроме said[2][0], — ровно 99. После
+   * первого теста это одно открепление, при запуске в одиночку — 99
+   * закреплений (порог — 30 в минуту на человека, у каждого по двадцать).
+   */
+  async function holdAt99(): Promise<void> {
+    const owner = people[0] as Person;
+    const have = new Set(await pinnedIds(owner, room));
+    // Запасную said[0][20] и said[2][0] снимаем, если закреплены: вторая
+    // остаётся, когда первый тест упал до открепления, — иначе 100, а не 99.
+    const releases: Array<[Person, string]> = [
+      [owner, said[0]?.[20] ?? ""],
+      [people[2] as Person, said[2]?.[0] ?? ""],
+    ];
+    for (const [who, id] of releases.filter(([, one]) => have.has(one))) {
+      expect((await unpin(who, id)).status).toBe(204);
+    }
+    for (const [n, person] of people.entries()) {
+      const wanted = (said[n]?.slice(0, 20) ?? []).filter(
+        (id) => id !== said[2]?.[0] && !have.has(id),
+      );
+      for (const id of wanted) {
+        expect((await pin(person, id)).status, "подготовка 99 закреплений").toBe(204);
+      }
+    }
+  }
 
   it("сто первое закрепление не проходит и называет причину; повтор и открепление — как прежде", async () => {
     for (const [n, person] of people.entries()) {
@@ -125,6 +114,7 @@ describe("закреплённое: потолок и частота", () => {
 
     // Повтор уже закреплённого места не занимает и ошибкой не считается.
     expect((await pin(people[1] as Person, said[1]?.[0] ?? "")).status).toBe(204);
+    expect(await pinnedCount(people[0] as Person, room), "повтор занял место").toBe(LIMIT);
 
     // Открепил одно — место освободилось.
     expect((await unpin(people[2] as Person, said[2]?.[0] ?? "")).status).toBe(204);
@@ -136,7 +126,7 @@ describe("закреплённое: потолок и частота", () => {
     // ⚠️ НАЙДЕНО РЕВЬЮ open-code-review 26.09 (Р-046): подсчёт шёл ДО замка
     // пространства, и двое одновременных у 99 оба видели 99 — выходило 101.
     const owner = people[0] as Person;
-    expect((await unpin(owner, said[0]?.[20] ?? "")).status).toBe(204);
+    await holdAt99();
     expect(await pinnedCount(owner, room)).toBe(LIMIT - 1);
 
     const racers = [1, 2, 3, 4].map((n) => {
@@ -149,11 +139,12 @@ describe("закреплённое: потолок и частота", () => {
   }, 60_000);
 
   it("закреплять чаще, чем может рука, нельзя", async () => {
-    // Свежий человек: у пятерых выше счётчик уже потрачен первым сценарием.
+    // Свой человек в своём пространстве: ни счётчик, ни потолок сотни
+    // не достаются от сценариев выше.
     // Одну и ту же реплику — раз за разом: повтор места не занимает, но
     // запросом считается. У каждой двери свой счётчик, поэтому бьём в одну.
-    const hand = await invite(people[0] as Person, "Дина");
-    const id = await say(hand, room, "реплика для порога");
+    const hand = await newPerson("Дина");
+    const id = await say(hand, await firstChannel(hand), "реплика для порога");
     let blocked = 0;
     for (let n = 0; n < 40 && blocked === 0; n++) {
       if ((await pin(hand, id)).status === 429) blocked = n + 1;

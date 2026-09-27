@@ -7,6 +7,8 @@
  */
 import { expect } from "vitest";
 
+// ⚠️ Имя переменной — НЕ `BASE_URL`: туда Vite подставляет "/", и запросы уходили бы
+// мимо стенда (перенесено из прежних копий в auth и chat при сведении помощников).
 export const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 export const PASSWORD = "правильный-конский-скотч-батарейка";
 
@@ -22,7 +24,11 @@ export interface Person {
   name: string;
 }
 
-function sessionCookie(response: Response): string {
+/**
+ * Печенька сессии из ответа входа — `amplifie_session=<значение>`.
+ * Нет печеньки — ошибка, а не `null`: без неё тест дальше идти не может.
+ */
+export function sessionCookie(response: Response): string {
   const header = (response.headers.getSetCookie?.() ?? []).find((c) =>
     c.startsWith("amplifie_session="),
   );

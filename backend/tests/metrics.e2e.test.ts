@@ -25,7 +25,10 @@ async function metrics(): Promise<string> {
 /** Значение числа по имени. Метки игнорируем — берём первое совпадение. */
 function numberOf(text: string, name: string): number {
   const line = text.split("\n").find((one) => one.startsWith(name) && !one.startsWith("#"));
-  expect(line, `в метриках нет числа ${name}`).toBeDefined();
+  // Строка формата Prometheus: имя ровно это (не длиннее), метки по желанию, число.
+  expect(line, `в метриках нет числа ${name}`).toMatch(
+    new RegExp(`^${name}(\\{[^}]*\\})? [0-9.eE+-]+$`, "u"),
+  );
   return Number((line ?? "").trim().split(" ").at(-1));
 }
 
@@ -116,6 +119,9 @@ describe("числа от самого сервера", () => {
     const response = await fetch(`${OUTSIDE}/metrics`);
     const text = await response.text();
     expect(text, "метрики просочились наружу").not.toContain("amplifie_db_queries_total");
+    // Положительный контроль: внутри то же число есть — отказ выше не от того,
+    // что метрика переименована.
+    expect(await metrics()).toContain("amplifie_db_queries_total");
   });
 
   it("сама дверь метрик не ходит в базу", async () => {

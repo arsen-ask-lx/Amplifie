@@ -78,6 +78,7 @@ describe("лента вперёд от номера", () => {
     const response = await page(owner, channel, "before=10&after=2");
     // Неверный ввод у всех дверей — 422 `validation_failed` (`failures.ts`).
     expect(response.status).toBe(422);
+    expect(((await response.json()) as { error: string }).error).toBe("validation_failed");
   });
 
   it("чужой закрытый канал не читается и вперёд", async () => {
@@ -90,6 +91,11 @@ describe("лента вперёд от номера", () => {
     expect(created.status).toBe(201);
     const secret = ((await created.json()) as { id: string }).id;
     const seq = await say(owner, secret, "тайна");
+
+    // Положительный контроль: хозяину та же страница отдаёт реплику —
+    // 404 ниже про постороннего, а не про неверный запрос.
+    const own = (await (await page(owner, secret, `after=${seq - 1}`)).json()) as Page;
+    expect(own.items.map((one) => one.seq)).toEqual([seq]);
 
     const response = await page(stranger, secret, `after=${seq - 1}`);
     expect(response.status).toBe(404);

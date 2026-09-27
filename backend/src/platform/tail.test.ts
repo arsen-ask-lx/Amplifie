@@ -20,6 +20,16 @@ function seen(seq: number, audience: string[] | null = null) {
   return { seq, audience, line: { id: `реплика-${seq}`, seq } };
 }
 
+/** Положительный контроль повтора: 10 и 11 запомнены, и память отвечает после 10. */
+function answersBeforeRepeat() {
+  remember(SPACE, seen(10));
+  remember(SPACE, seen(11));
+  expect(
+    visibleTo<{ seq: number }>(SPACE, 10, 50, ME)?.lines.map((one) => one.seq),
+    "до повтора память отвечает",
+  ).toEqual([11]);
+}
+
 describe("кольцо изменений", () => {
   beforeEach(() => forget(SPACE));
 
@@ -74,12 +84,12 @@ describe("кольцо изменений", () => {
      */
   });
 
-  it("номер, пошедший назад, сбрасывает хвост", () => {
-    remember(SPACE, seen(10));
+  // Номер назад (11 после 12) — не повод: это приход не по порядку, см. ниже.
+  // Повод — номер, который уже был: дважды он достаться не может.
+  it("тот же номер дважды — даже с тем же содержимым — память больше не отвечает", () => {
+    answersBeforeRepeat();
     remember(SPACE, seen(11));
-    remember(SPACE, seen(11));
-
-    expect(visibleTo(SPACE, 10, 50, ME)).toBeNull();
+    expect(visibleTo(SPACE, 10, 50, ME), "после повтора — в базу").toBeNull();
   });
 
   it("закрытый разговор не виден постороннему на быстрой дороге", () => {
@@ -159,9 +169,8 @@ describe("кольцо изменений", () => {
     ).toEqual([10, 11, 12]);
   });
 
-  it("тот же номер с другим содержимым — наше представление о порядке неверно", () => {
-    remember(SPACE, seen(10));
-    remember(SPACE, seen(11));
+  it("тот же номер с другим содержимым — память больше не отвечает", () => {
+    answersBeforeRepeat();
     remember(SPACE, { seq: 11, audience: null, line: { id: "другая", seq: 11 } });
 
     expect(visibleTo(SPACE, 10, 50, ME), "два разных ответа на один номер").toBeNull();

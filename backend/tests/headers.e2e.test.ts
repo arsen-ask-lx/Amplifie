@@ -66,7 +66,10 @@ describe("защитные заголовки установки", () => {
     const page = await fetch(`${BASE}/`);
     expect(page.headers.get("cache-control")).toBe("no-cache");
     const script = /\/assets\/index-[^"]+\.js/u.exec(await page.text())?.[0];
-    expect(script, "в странице нет собранного скрипта").toBeDefined();
+    // Форма имени сборки Vite: `index-<хеш>.js`, хеш — латиница, цифры, `_`, `-`.
+    expect(script, "в странице нет собранного скрипта").toMatch(
+      /^\/assets\/index-[A-Za-z0-9_-]+\.js$/u,
+    );
 
     const asset = await fetch(`${BASE}${script}`);
     expect(asset.status).toBe(200);

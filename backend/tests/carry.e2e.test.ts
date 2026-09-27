@@ -72,7 +72,11 @@ describe("событие несёт саму реплику", () => {
     const who = await call("GET", `/v1/conversations/${channel}/people`, owner);
     const people = (await who.json()) as { items: { id: string; name: string }[] };
     const called = people.items.find((one) => one.name === "Коллега");
-    expect(called, "коллега виден в списке зовущихся").toBeDefined();
+    // Строка — именно коллега: тот участник, что вошёл по приглашению.
+    expect(called, "коллега виден в списке зовущихся").toMatchObject({
+      id: mate.participantId,
+      name: "Коллега",
+    });
 
     const stream = await listenCalls(mate);
     try {
@@ -100,6 +104,9 @@ describe("событие несёт саму реплику", () => {
       await said(owner, channel, "просто реплика");
       const heard = await stream.next();
 
+      // Положительный контроль: звонок об этой реплике пришёл — иначе
+      // «списка нет» прошло бы и на потерянном звонке.
+      expect(heard?.conversation, "звонок о реплике").toBe(channel);
       expect(heard?.mentions, "пустого списка в событии нет вовсе").toBeUndefined();
     } finally {
       stream.stop();
@@ -138,6 +145,8 @@ describe("событие несёт саму реплику", () => {
   it("постороннему не приходит ни события, ни содержимого", async () => {
     const owner = await newPerson("Хозяин");
     const outsider = await colleague(owner, "Посторонний");
+    // Канал берём ДО закрытого чата: иначе первым в списке мог бы оказаться он.
+    const open = await firstChannel(owner);
 
     const made = await call("POST", "/v1/conversations", owner, {
       title: "Только для своих",
@@ -147,11 +156,21 @@ describe("событие несёт саму реплику", () => {
 
     const stream = await listenCalls(outsider);
     try {
+      // Положительный контроль: поток постороннего жив — об открытом канале
+      // ему звонят. Иначе «звонка нет» прошло бы и на мёртвом потоке.
+      await said(owner, open, "для всех");
+      const control = await stream.next();
+      expect(control?.conversation, "звонок об открытом канале").toBe(open);
+
       await said(owner, closed.id, "секрет");
-      const heard = await stream.next(1500);
-      // Не «поле пустое», а «звонка нет вовсе»: адрес закрытого чата —
-      // тоже сведение о нём.
-      expect(heard, "постороннему не звонят о закрытом чате").toBeNull();
+      // Не «поле пустое», а «звонка о нём нет вовсе»: адрес закрытого чата —
+      // тоже сведение о нём. Лишний звонок об открытом канале пропускается —
+      // иначе он выдал бы себя за утечку (ревью task-125).
+      const about: (string | null)[] = [];
+      for (let heard = await stream.next(1500); heard; heard = await stream.next(1500)) {
+        if (heard.conversation !== open) about.push(heard.conversation);
+      }
+      expect(about, "постороннему не звонят о закрытом чате").toEqual([]);
     } finally {
       stream.stop();
     }

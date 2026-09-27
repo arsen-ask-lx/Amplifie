@@ -14,38 +14,10 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
+import { BASE, newPerson, requireStand } from "./stand.js";
 
 /** Сколько сервер ждёт ответа моста. Должно совпадать с настройкой стенда. */
 const WAIT_MS = Number(process.env.AMPLIFIE_BRIDGE_WAIT_MS ?? 25_000);
-
-function freshEmail(): string {
-  return `bridge-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-async function person(tag: string): Promise<{ cookie: string }> {
-  const registered = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (registered.status !== 201) throw new Error(`регистрация: ${registered.status}`);
-  return { cookie: sessionCookie(registered) };
-}
 
 /** Выдать код подключения. Код показывается ОДИН раз — как приглашение. */
 async function issueCode(cookie: string): Promise<{ id: string; code: string; command: string }> {
@@ -112,17 +84,14 @@ function ask(cookie: string, prompt: string): Promise<Response> {
 }
 
 describe("мост участника", () => {
-  beforeAll(async () => {
-    const health = await fetch(`${BASE}/health`);
-    if (!health.ok) throw new Error(`стек не поднят (${BASE}/health): make up`);
-  });
+  beforeAll(requireStand);
 
   describe("В-1 код подключения одноразовый", () => {
     it("два одновременных подключения одним кодом — успех ровно один", async () => {
       // Код даёт постоянный доступ от имени человека. Два моста по одному
       // коду — это чужая машина, отвечающая за него. Приём тот же, что
       // у приглашений, но таблица и запрос другие, поэтому проверяем заново.
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       const { code } = await issueCode(svetlana.cookie);
 
       const [first, second] = await Promise.all([join(code, "ноутбук"), join(code, "рабочий")]);
@@ -142,8 +111,8 @@ describe("мост участника", () => {
 
   describe("В-2 ответ приходит тому, кто спросил", () => {
     it("два человека спрашивают одновременно — ответы не перепутаны", async () => {
-      const svetlana = await person("Светлана");
-      const petr = await person("Пётр");
+      const svetlana = await newPerson("Светлана");
+      const petr = await newPerson("Пётр");
       const svetlanaBridge = await connect(svetlana.cookie, "ноутбук Светланы");
       const petrBridge = await connect(petr.cookie, "ноутбук Петра");
 
@@ -167,7 +136,7 @@ describe("мост участника", () => {
   describe("В-3 мост молчит", () => {
     it("моста нет вовсе — внятная причина, а не пятисотка", async () => {
       // Обычное состояние: человек ещё не подключился или закрыл терминал.
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       const response = await ask(svetlana.cookie, "привет");
 
       expect(response.status).toBe(503);
@@ -177,7 +146,7 @@ describe("мост участника", () => {
     it(
       "мост взял задание и не ответил — срок выходит, вопрос не висит",
       async () => {
-        const svetlana = await person("Светлана");
+        const svetlana = await newPerson("Светлана");
         const silentBridge = await connect(svetlana.cookie, "молчаливый");
 
         const startedAt = Date.now();
@@ -194,7 +163,7 @@ describe("мост участника", () => {
     );
 
     it("мост честно сообщил об отказе — причина доезжает до человека", async () => {
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       const silentBridge = await connect(svetlana.cookie, "сломанный");
 
       const question = ask(svetlana.cookie, "привет");
@@ -212,9 +181,11 @@ describe("мост участника", () => {
 
   describe("В-4 удостоверения не смешиваются", () => {
     it("токеном моста нельзя ходить в интерфейс человека", async () => {
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       const { code } = await issueCode(svetlana.cookie);
       const joined = await join(code, "ноутбук");
+      // Положительный контроль: токен настоящий — мост подключился им.
+      expect(joined.status).toBe(200);
       const { token } = (await joined.json()) as { token: string };
 
       const response = await fetch(`${BASE}/v1/me`, {
@@ -224,11 +195,14 @@ describe("мост участника", () => {
     });
 
     it("сессией браузера нельзя прийти за работой моста", async () => {
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       const response = await fetch(`${BASE}/v1/bridge/next`, {
         headers: { cookie: svetlana.cookie },
       });
       expect(response.status).toBe(401);
+      // Положительный контроль: та же сессия живая — в интерфейс она пускает.
+      const me = await fetch(`${BASE}/v1/me`, { headers: { cookie: svetlana.cookie } });
+      expect(me.status).toBe(200);
     });
   });
 
@@ -237,7 +211,7 @@ describe("мост участника", () => {
       // Мост присылает то, что породила модель, а модель читала ленту.
       // Это недоверенный ввод по определению: он не должен ни исполняться,
       // ни подменять поля ответа.
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       const silentBridge = await connect(svetlana.cookie, "ноутбук");
       const dangerous = '<script>alert(1)</script> и {"text":"подмена"}';
 
@@ -253,7 +227,7 @@ describe("мост участника", () => {
 
   describe("состояние моста видно человеку", () => {
     it("подключённый мост показан на связи, с именем машины", async () => {
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       await connect(svetlana.cookie, "ноутбук Светланы");
 
       const list = (await (
@@ -267,7 +241,7 @@ describe("мост участника", () => {
 
     it("выданный, но не погашенный код мостом не считается", async () => {
       // Иначе человек видит «мост есть», а спросить не может.
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       await issueCode(svetlana.cookie);
 
       const list = (await (
@@ -286,7 +260,7 @@ describe("мост участника", () => {
       /^npx --yes (\S+\/v1\/bridge\/package\/amplifie-bridge-[0-9a-f]+\.tgz) --url (\S+) --code (\S+)$/u;
 
     async function lineFrom(origin: string): Promise<{ code: string; command: string }> {
-      const svetlana = await person("Светлана");
+      const svetlana = await newPerson("Светлана");
       const response = await fetch(`${BASE}/v1/bridges`, {
         method: "POST",
         headers: { "content-type": "application/json", cookie: svetlana.cookie, origin },

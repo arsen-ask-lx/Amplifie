@@ -45,7 +45,9 @@ describe("порции панели", () => {
     expect(firstResponse.status).toBe(200);
     const first = (await firstResponse.json()) as { items: Chat[]; next: string | null };
     expect(first.items).toHaveLength(10);
-    expect(first.next, "после первых десяти нужен курсор следующей порции").not.toBeNull();
+    // Курсор непрозрачен: его вид не проверяем. Что он есть и рабочий,
+    // доказывает порция ниже — без курсора вернулась бы первая, десять чатов.
+    expect(typeof first.next, "после первых десяти нужен курсор следующей порции").toBe("string");
 
     const nextResponse = await call(
       "GET",
@@ -96,7 +98,8 @@ describe("сводный ответ панели", () => {
 
     expect(panel.projects.map((one) => one.id)).toContain(folder.id);
     expect(panel.recent.items).toHaveLength(25);
-    expect(panel.recent.next, "после первой порции нужен курсор").not.toBeNull();
+    // Курсор непрозрачен: проверяем, что он есть, а не как закодирован.
+    expect(typeof panel.recent.next, "после первой порции нужен курсор").toBe("string");
     expect(
       panel.recent.items.map((one) => one.title),
       "чат проекта приехал в «Недавние» — панель снова тянет всё",
@@ -123,7 +126,12 @@ describe("сводный ответ панели", () => {
 
     const all = [...panel.recent.items, ...rest.items];
     expect(new Set(all.map((one) => one.id)).size, "порции налезли друг на друга").toBe(all.length);
-    expect(all.length).toBeGreaterThanOrEqual(28);
+    // 27 своих и «Общий», который пространство получает при регистрации.
+    expect(panel.recent.items).toHaveLength(25);
+    expect(rest.items).toHaveLength(3);
+    expect(rest.next, "после последней порции курсора нет").toBeNull();
+    const expected = ["Общий", ...Array.from({ length: 27 }, (_, n) => `Свежий ${n + 1}`)];
+    expect(all.map((one) => one.title).sort()).toEqual(expected.sort());
   });
 
   it("открытый чат приезжает строкой, даже если он внутри проекта", async () => {
@@ -150,16 +158,26 @@ describe("сводный ответ панели", () => {
       items: Chat[];
     };
     const secret = list.items.find((one) => one.title === "Только владельцу");
-    if (!secret) throw new Error("приватный чат не завёлся");
-    const said = await call("POST", `/v1/conversations/${secret.id}/messages`, owner, {
-      body: "тайна",
-      clientMsgId: crypto.randomUUID(),
-    });
-    expect(said.status).toBe(201);
+    const common = list.items.find((one) => one.title === "Общий чат");
+    if (!secret || !common) throw new Error("чаты проекта не завелись");
+    for (const [room, body] of [
+      [secret.id, "тайна"],
+      [common.id, "для всех"],
+    ] as const) {
+      const said = await call("POST", `/v1/conversations/${room}/messages`, owner, {
+        body,
+        clientMsgId: crypto.randomUUID(),
+      });
+      expect(said.status).toBe(201);
+    }
 
     const response = await call("GET", "/v1/panel", guest);
     const panel = (await response.json()) as { projects: Array<{ id: string; unread: number }> };
     const seen = panel.projects.find((one) => one.id === folder.id);
-    expect(seen?.unread, "счётчик выдал непрочитанное из чата, которого гость не видит").toBe(0);
+    // Одна — из видимого чата: счёт живой. Вторая, из приватного, — утечка.
+    expect(
+      seen?.unread,
+      "счёт проекта не 1: 0 — счёт мёртв, 2 — выдал непрочитанное из чата, которого гость не видит",
+    ).toBe(1);
   });
 });

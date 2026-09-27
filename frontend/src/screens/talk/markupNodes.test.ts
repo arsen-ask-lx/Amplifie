@@ -153,7 +153,7 @@ describe("два вида на одном куске", () => {
     })),
   );
 
-  it.each(pairs)("$внешний.имя поверх $внутренний.имя переживает круг", ({ outer, inner }) => {
+  it.each(pairs)("$outer.name поверх $inner.name переживает круг", ({ outer, inner }) => {
     const before = outer.wrap(inner.wrap("слово"));
     const after = roundTrip(before);
 
@@ -172,8 +172,10 @@ describe("два вида на одном куске", () => {
   });
 
   it("все пять разом", () => {
-    const after = roundTrip("||~~__**и курсив тоже**__~~||");
-    expect(kinds(after)).toEqual(["bold", "spoiler", "strike", "underline"]);
+    // Курсив и жирный вместе — тройной звёздочкой (Р-028): пятый вид здесь.
+    const after = roundTrip("||~~__***и курсив тоже***__~~||");
+    expect(kinds(after)).toEqual(["bold", "italic", "spoiler", "strike", "underline"]);
+    expect(text(after)).toBe("и курсив тоже");
     expect(roundTrip(after)).toBe(after);
   });
 

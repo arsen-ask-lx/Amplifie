@@ -7,10 +7,18 @@ const read = (written: string) => label.exec(written)?.[1];
 
 describe("подпись в скобках", () => {
   it("скобка и обратная черта в подписи доезжают целыми", () => {
-    for (const name of ["Анна]", "[админ] Павел", "C:\\путь", "a\\]b", "]"]) {
-      const inside = read(`[${escapeLabel(name)}](x)`);
-      expect(inside, name).toBeDefined();
-      expect(unescapeLabel(inside ?? ""), name).toBe(name);
+    // Запись — руками, как её экранировал бы markdown, а не выходом escapeLabel.
+    const cases: [name: string, written: string][] = [
+      ["Анна]", "Анна\\]"],
+      ["[админ] Павел", "\\[админ\\] Павел"],
+      ["C:\\путь", "C:\\\\путь"],
+      ["a\\]b", "a\\\\\\]b"],
+      ["]", "\\]"],
+    ];
+    for (const [name, written] of cases) {
+      expect(escapeLabel(name), name).toBe(written);
+      expect(read(`[${written}](x)`), name).toBe(written);
+      expect(unescapeLabel(written), name).toBe(name);
     }
   });
 

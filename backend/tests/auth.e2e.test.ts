@@ -8,22 +8,14 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { BASE, freshEmail, requireStand, sessionCookie } from "./stand.js";
 
-// ⚠️ Имя переменной НЕ BASE_URL: Vite (а значит и Vitest) владеет этим именем
-// и подставляет туда свой `base`, то есть "/". Час отладки на ровном месте.
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-
-/** Уникальная почта на прогон: тест не должен зависеть от состояния базы. */
-function freshEmail(tag: string): string {
-  return `${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-/** Достаёт значение cookie сессии из ответа. */
-function sessionCookie(response: Response): string | null {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  return header ? (header.split(";")[0] ?? null) : null;
-}
+/**
+ * Печенька сессии целиком: имя и 32 случайных байта в base64url (43 знака).
+ * Проверяется форма, а не «что-то есть»: пустое или обрезанное значение
+ * тоже было бы «чем-то».
+ */
+const SESSION_COOKIE = /^amplifie_session=[A-Za-z0-9_-]{43}$/;
 
 async function post(path: string, body: unknown, cookie?: string): Promise<Response> {
   return fetch(`${BASE}${path}`, {
@@ -41,10 +33,7 @@ async function get(path: string, cookie?: string): Promise<Response> {
 }
 
 describe("вход на платформу", () => {
-  beforeAll(async () => {
-    const health = await get("/health");
-    if (!health.ok) throw new Error(`Стек не поднят (${BASE}/health). Запусти: make up`);
-  });
+  beforeAll(requireStand);
 
   it("регистрация создаёт пространство, лицо и сессию", async () => {
     const email = freshEmail("reg");
@@ -56,7 +45,7 @@ describe("вход на платформу", () => {
     });
 
     expect(response.status).toBe(201);
-    expect(sessionCookie(response)).toBeTruthy();
+    expect(sessionCookie(response)).toMatch(SESSION_COOKIE);
 
     const body = (await response.json()) as { participant: { displayName: string } };
     expect(body.participant.displayName).toBe("Арсен");
@@ -71,9 +60,9 @@ describe("вход на платформу", () => {
       workspaceName: "Пространство Петра",
     });
     const cookie = sessionCookie(registered);
-    expect(cookie).toBeTruthy();
+    expect(cookie).toMatch(SESSION_COOKIE);
 
-    const me = await get("/v1/me", cookie ?? undefined);
+    const me = await get("/v1/me", cookie);
     expect(me.status).toBe(200);
 
     const body = (await me.json()) as {
@@ -149,7 +138,7 @@ describe("вход на платформу", () => {
     expect(login.status).toBe(200);
 
     const cookie = sessionCookie(login);
-    const me = await get("/v1/me", cookie ?? undefined);
+    const me = await get("/v1/me", cookie);
     expect(me.status).toBe(200);
   });
 
@@ -163,10 +152,10 @@ describe("вход на платформу", () => {
     });
     const cookie = sessionCookie(registered);
 
-    const logout = await post("/v1/auth/logout", {}, cookie ?? undefined);
+    const logout = await post("/v1/auth/logout", {}, cookie);
     expect(logout.status).toBe(204);
 
-    const afterLogout = await get("/v1/me", cookie ?? undefined);
+    const afterLogout = await get("/v1/me", cookie);
     expect(afterLogout.status).toBe(401);
   });
 
@@ -189,7 +178,7 @@ describe("вход на платформу", () => {
     const header = (response.headers.getSetCookie?.() ?? []).find((c) =>
       c.startsWith("amplifie_session="),
     );
-    expect(header).toBeTruthy();
+    expect(header).toMatch(/^amplifie_session=[A-Za-z0-9_-]{43};/);
     expect(header).toMatch(/HttpOnly/i);
     expect(header).toMatch(/SameSite=Lax/i);
     expect(header).toMatch(/Path=\//i);
@@ -206,6 +195,7 @@ describe("вход на платформу", () => {
 
     const body = (await response.json()) as { error: string; fields?: Record<string, string> };
     expect(body.error).toBe("validation_failed");
-    expect(body.fields?.password).toBeTruthy();
+    // Слова — из схемы двери (`registerBody` в @amplifie/contract): их видит человек.
+    expect(body.fields?.password).toBe("пароль короче 12 символов");
   });
 });

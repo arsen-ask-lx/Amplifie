@@ -16,7 +16,7 @@ import { call, newPerson, type Person, requireStand } from "./stand.js";
 
 async function queriesOf(response: Response): Promise<number> {
   const header = response.headers.get("x-db-queries");
-  expect(header, "стенд не сказал, сколько было запросов к базе").not.toBeNull();
+  expect(header, "стенд не сказал, сколько было запросов к базе").toMatch(/^\d+$/);
   await response.arrayBuffer();
   return Number(header);
 }

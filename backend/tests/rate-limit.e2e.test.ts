@@ -11,13 +11,20 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { BASE, freshEmail, requireStand, sessionCookie } from "./stand.js";
 
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
 /** Порт `api` напрямую, мимо Caddy: только стенд публикует его на петле. */
 const API = process.env.AMPLIFIE_API_URL ?? "http://localhost:3477";
 
-function freshEmail(tag: string): string {
-  return `${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
+/**
+ * `Retry-After` — целые секунды (RFC 9110 §10.2.3), и не дольше окна порога:
+ * у входа и барьера печенек окно — минута. «Заголовок есть» не проверяло
+ * ничего: `Retry-After: abc` или час ожидания прошли бы.
+ */
+function expectRetryWithinMinute(value: string | null | undefined, why: string): void {
+  expect(value, why).toMatch(/^\d+$/);
+  expect(Number(value), `${why}: ждать меньше секунды`).toBeGreaterThanOrEqual(1);
+  expect(Number(value), `${why}: ждать дольше окна`).toBeLessThanOrEqual(60);
 }
 
 async function post(path: string, body: unknown, cookie?: string): Promise<Response> {
@@ -32,14 +39,6 @@ async function get(path: string, cookie?: string): Promise<Response> {
   return fetch(`${BASE}${path}`, { headers: cookie ? { cookie } : {} });
 }
 
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  const value = header ? header.split(";")[0] : null;
-  if (!value) throw new Error("нет печеньки сессии");
-  return value;
-}
-
 /** Неверный пароль указанной почте. Возвращает код ответа. */
 async function tryLogin(email: string): Promise<number> {
   const response = await post("/v1/auth/login", { email, password: "заведомо-неверный-пароль" });
@@ -47,10 +46,7 @@ async function tryLogin(email: string): Promise<number> {
 }
 
 describe("пороги у дверей", () => {
-  beforeAll(async () => {
-    const health = await get("/health");
-    if (!health.ok) throw new Error(`стек не поднят (${health.status}) — сначала make up`);
-  });
+  beforeAll(requireStand);
 
   it("П-1: подбор пароля упирается в порог", async () => {
     const email = freshEmail("brute");
@@ -104,10 +100,10 @@ describe("пороги у дверей", () => {
       last = await post("/v1/auth/login", { email, password: "заведомо-неверный-пароль" });
     }
     expect(last?.status).toBe(429);
-    expect(
+    expectRetryWithinMinute(
       last?.headers.get("retry-after"),
       "клиенту не сказано, когда возвращаться",
-    ).not.toBeNull();
+    );
   });
 
   /**
@@ -148,9 +144,9 @@ describe("пороги у дверей", () => {
       await response.arrayBuffer();
     }
 
-    expect(blocked, "тысяча выдуманных печенек прошла к проверке сессии").not.toBeNull();
+    expect(blocked?.status, "тысяча выдуманных печенек прошла к проверке сессии").toBe(429);
     expect(blocked?.headers.get("x-db-queries"), "отказ барьера сходил в базу").toBe("0");
-    expect(blocked?.headers.get("retry-after")).not.toBeNull();
+    expectRetryWithinMinute(blocked?.headers.get("retry-after"), "барьер не сказал, сколько ждать");
 
     const neighbour = await direct("/v1/sync?after=0", real);
     expect(neighbour.status, "настоящую сессию наказали за чужие выдуманные печеньки").toBe(200);

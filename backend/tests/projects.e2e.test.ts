@@ -17,9 +17,8 @@
  * Бьёт по живому стеку. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { BASE, call, colleague, newPerson, type Person, requireStand } from "./stand.js";
 
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
 const AGENT = "memo";
 
 /**
@@ -29,23 +28,6 @@ const AGENT = "memo";
  * и не общая фраза, а именно та реплика.
  */
 const SECRET_WORD = "криптоквазиморфный";
-
-function freshEmail(): string {
-  return `project-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-interface Person {
-  cookie: string;
-  participantId: string;
-  name: string;
-}
 
 interface Conversation {
   id: string;
@@ -59,51 +41,9 @@ interface Project {
   title: string;
 }
 
-async function get(path: string, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, { headers: person ? { cookie: person.cookie } : {} });
-}
-
-async function post(path: string, body: unknown, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(person ? { cookie: person.cookie } : {}) },
-    body: JSON.stringify(body),
-  });
-}
-
-async function patch(path: string, body: unknown, person: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie: person.cookie },
-    body: JSON.stringify(body),
-  });
-}
-
-async function newPerson(tag: string): Promise<Person> {
-  const response = await post("/v1/auth/register", {
-    email: freshEmail(),
-    password: PASSWORD,
-    displayName: tag,
-    workspaceName: `Пространство ${tag}`,
-  });
-  if (response.status !== 201) throw new Error(`регистрация не удалась: ${response.status}`);
-  const body = (await response.json()) as { participant: { id: string } };
-  return { cookie: sessionCookie(response), participantId: body.participant.id, name: tag };
-}
-
-async function invite(owner: Person, tag: string): Promise<Person> {
-  const created = await post("/v1/invites", { maxUses: 50 }, owner);
-  const { token } = (await created.json()) as { token: string };
-  const entered = await post("/v1/auth/join", {
-    token,
-    email: freshEmail(),
-    password: PASSWORD,
-    displayName: tag,
-  });
-  if (entered.status !== 201) throw new Error(`вход по ссылке не удался: ${entered.status}`);
-  const body = (await entered.json()) as { participant: { id: string } };
-  return { cookie: sessionCookie(entered), participantId: body.participant.id, name: tag };
-}
+const get = (path: string, person?: Person) => call("GET", path, person);
+const post = (path: string, body: unknown, person?: Person) => call("POST", path, person, body);
+const patch = (path: string, body: unknown, person: Person) => call("PATCH", path, person, body);
 
 async function conversations(person: Person): Promise<Conversation[]> {
   const response = await get("/v1/conversations", person);
@@ -148,11 +88,8 @@ async function renameProject(person: Person, id: string, title: string): Promise
   return patch(`/v1/projects/${id}`, { title }, person);
 }
 
-async function removeProject(person: Person, id: string): Promise<Response> {
-  return fetch(`${BASE}/v1/projects/${id}`, {
-    method: "DELETE",
-    headers: { cookie: person.cookie },
-  });
+function removeProject(person: Person, id: string): Promise<Response> {
+  return call("DELETE", `/v1/projects/${id}`, person);
 }
 
 /** Отнести чат к проекту либо снять (`null`). */
@@ -222,24 +159,24 @@ async function askAndCatchPrompt(
 }
 
 describe("проекты", () => {
-  beforeAll(async () => {
-    const health = await get("/health");
-    if (!health.ok) throw new Error(`Стек не поднят (${BASE}/health). Запусти: make up`);
-  });
+  beforeAll(requireStand);
 
   describe("агент не выносит закрытое", () => {
     it("зов по всему проекту не приносит из чата, которого позвавший не видит", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
       const bridge = await connectBridge(guest);
 
       const project = await newProject(owner, "Объект");
       const open = await newChannel(owner, "Смета");
+      const nearby = await newChannel(owner, "Кровля");
       const closed = await newChannel(owner, "Деньги", "private");
       await toProject(owner, open.id, project.id);
+      await toProject(owner, nearby.id, project.id);
       await toProject(owner, closed.id, project.id);
 
       await say(owner, open.id, "по смете вопросов нет");
+      await say(owner, nearby.id, "кровлю закрыли в четверг");
       await say(owner, closed.id, `ставка ${SECRET_WORD}`);
 
       await say(guest, open.id, `@${AGENT} что у нас по объекту?`);
@@ -249,7 +186,10 @@ describe("проекты", () => {
         prompt,
         "в приглашение модели уехало содержимое чата, которого позвавший не видит",
       ).not.toContain(SECRET_WORD);
-      expect(prompt, "соседний ВИДИМЫЙ чат проекта в приглашение не попал").toContain("смете");
+      // Положительный контроль: зов прочитал и свой чат, и соседний видимый —
+      // значит проект читался целиком, а тайна отсеяна правом, а не пустотой.
+      expect(prompt, "чат, где позвали, в приглашение не попал").toContain("смете");
+      expect(prompt, "соседний ВИДИМЫЙ чат проекта в приглашение не попал").toContain("четверг");
     });
 
     it("зов по проекту читает соседний чат, если он виден", async () => {
@@ -286,7 +226,7 @@ describe("проекты", () => {
   describe("проект не меняет прав", () => {
     it("приватный чат в общем проекте остаётся невидимым", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
 
       const project = await newProject(owner, "Объект");
       const open = await newChannel(owner, "Смета");
@@ -304,7 +244,7 @@ describe("проекты", () => {
 
     it("проект, все чаты которого закрыты, гостю не виден вовсе", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
 
       const project = await newProject(owner, "Только своё");
       const closed = await newChannel(owner, "Деньги", "private");
@@ -418,7 +358,7 @@ describe("проекты", () => {
       const list = await conversations(owner);
       for (const id of [first.id, second.id]) {
         const chat = list.find((one) => one.id === id);
-        expect(chat, "чат исчез вместе с папкой — худшая трактовка слова «убрать»").toBeDefined();
+        expect(chat?.id, "чат исчез вместе с папкой — худшая трактовка слова «убрать»").toBe(id);
         expect(chat?.projectId, "чат остался привязан к убранному проекту").toBeNull();
       }
 

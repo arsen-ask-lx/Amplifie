@@ -11,14 +11,9 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { BASE, call, newPerson, type Person, requireStand } from "./stand.js";
 
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
 const AGENT = "memo";
-
-interface Person {
-  cookie: string;
-}
 
 interface Agents {
   items: Array<{ id: string; name: string; kind: string }>;
@@ -26,38 +21,8 @@ interface Agents {
   bridge: { connected: boolean; online: boolean; name: string | null };
 }
 
-function freshEmail(): string {
-  return `agents-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-async function newPerson(tag: string): Promise<Person> {
-  const response = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (response.status !== 201) throw new Error(`регистрация ${tag}: ${response.status}`);
-  return { cookie: sessionCookie(response) };
-}
-
 function post(path: string, body: unknown, person: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: person.cookie },
-    body: JSON.stringify(body),
-  });
+  return call("POST", path, person, body);
 }
 
 async function agentsOf(person: Person): Promise<Agents> {
@@ -118,10 +83,7 @@ async function connectBridge(person: Person, machine: string): Promise<void> {
 }
 
 describe("список агентов", () => {
-  beforeAll(async () => {
-    const health = await fetch(`${BASE}/health`);
-    if (!health.ok) throw new Error(`стек не поднят (${BASE}/health): make up`);
-  });
+  beforeAll(requireStand);
 
   describe("В-1 список не протекает между пространствами", () => {
     it("свой агент виден", async () => {
@@ -143,6 +105,9 @@ describe("список агентов", () => {
       // тёк, здесь оказался бы агент соседнего пространства.
       const seen = await agentsOf(stranger);
       expect(seen.items).toHaveLength(0);
+      // Положительный контроль: агент у хозяина действительно появился —
+      // иначе пустой список чужака доказывал бы лишь, что зов не удался.
+      expect((await agentsOf(owner)).items.map((one) => one.name)).toEqual([AGENT]);
     });
   });
 
@@ -166,6 +131,11 @@ describe("список агентов", () => {
       const seen = await agentsOf(second);
       expect(seen.bridge.connected).toBe(false);
       expect(seen.bridge.name).toBeNull();
+      // Положительный контроль: у первого мост есть и назван — отказ выше
+      // не от того, что подключение не состоялось вовсе.
+      const own = await agentsOf(first);
+      expect(own.bridge.connected).toBe(true);
+      expect(own.bridge.name).toBe("машина-первого");
     });
   });
 

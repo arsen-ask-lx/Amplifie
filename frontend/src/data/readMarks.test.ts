@@ -48,7 +48,9 @@ function harness() {
     timers = timers.filter((one) => !due.includes(one));
     for (const one of due) one.run();
   };
-  return { marks, sent, reported, pass };
+  /** Сколько таймеров ещё стоит: не сработали и не сняты. */
+  const armed = () => timers.filter((one) => !one.cleared).length;
+  return { marks, sent, reported, pass, armed };
 }
 
 describe("отметки «прочитано»", () => {
@@ -141,7 +143,7 @@ describe("отметки «прочитано»", () => {
     expect(h.reported).toEqual(["a:6:2"]);
   });
 
-  it("после остановки ответы не сообщаются и таймер снят", async () => {
+  it("после остановки ответы не сообщаются", async () => {
     const h = harness();
     h.marks.seen("a", 1);
     h.sent[0]?.answer(0);
@@ -154,5 +156,21 @@ describe("отметки «прочитано»", () => {
     h.pass(READ_WINDOW_MS * 2);
     expect(h.sent.map((one) => one.seq)).toEqual([1, 2]);
     expect(h.reported).toEqual(["a:1:0"]);
+  });
+
+  it("остановка снимает таймер отложенной отметки", async () => {
+    const h = harness();
+    h.marks.seen("a", 1);
+    h.sent[0]?.answer(0);
+    await settle();
+    h.marks.seen("a", 2);
+    // Положительный контроль: отметка отложена, и таймер к окну стоит (сколько —
+    // устройство, не поведение; поведение — что после остановки не висит ни одного).
+    expect(h.armed()).toBeGreaterThan(0);
+    h.marks.stop();
+    expect(h.armed()).toBe(0);
+    // Сопутствующее: и после двух окон ничего не ушло.
+    h.pass(READ_WINDOW_MS * 2);
+    expect(h.sent.map((one) => one.seq)).toEqual([1]);
   });
 });

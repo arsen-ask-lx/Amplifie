@@ -31,8 +31,16 @@ describe("упоминания: свойства", () => {
           .reverse()
           .map(([n, id]) => mentionMarkup(n, id))
           .join(" ")}`;
-        expect(new Set(mentionedIds(twice))).toEqual(new Set(mentionedIds(body)));
-        expect(mentionedIds(body)).toEqual(mentionedIds(body));
+        // Ожидание — из входа, а не из mentionedIds: каждый номер один раз,
+        // в нижнем регистре, в порядке первого упоминания.
+        const expected: string[] = [];
+        for (const [, id] of people) {
+          const lower = id.toLowerCase();
+          if (!expected.includes(lower)) expected.push(lower);
+        }
+        expect(mentionedIds(twice), "повторы схлопнуты").toEqual(expected);
+        expect(mentionedIds(body), "первый вызов").toEqual(expected);
+        expect(mentionedIds(body), "повторный вызов").toEqual(expected);
       }),
       RUNS,
     );

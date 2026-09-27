@@ -376,10 +376,12 @@ describe("память закреплённого (закреплённое за
 
 describe("память закреплённого — закрепили событием, при открытом чате", () => {
   it("уходя из чата, запоминается то, что на экране", () => {
-    const pin = msg("p2", 7, { pinnedAt: "2026-09-27T11:00:00.000Z" });
+    const pin = msg("p2", 7, { conversationId: "A", pinnedAt: "2026-09-27T11:00:00.000Z" });
     let state = feedState(emptyFeed, { type: "pinnedLoaded", conversationId: "A", items: [] });
-    // Закрепили живьём: ответа сервера не было, полоска обновилась на экране.
-    state = { ...state, pinned: [pin] };
+    // Закрепили живьём: ответа сервера про закреплённое не было — отметка
+    // приехала событием, и полоска обновилась на экране.
+    state = feedState(state, { type: "arrived", lines: [pin], openId: "A" });
+    expect(state.pinned, "событие дошло до полоски").toEqual([pin]);
     state = feedState(state, { type: "pinnedRecalled", conversationId: "B" });
     state = feedState(state, { type: "pinnedLoaded", conversationId: "B", items: [] });
     state = feedState(state, { type: "pinnedRecalled", conversationId: "A" });

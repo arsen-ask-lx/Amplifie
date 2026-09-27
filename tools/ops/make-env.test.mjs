@@ -45,8 +45,15 @@ test("адрес базы собран из того же пароля, что �
 });
 
 test("мастер-ключ у коробки свой, а не общий", () => {
-  const first = box();
-  const second = box();
+  // Сравниваем сами строки ключа: тексты целиком различались бы и из-за пароля.
+  // Ключ — 32 байта в base64 (AES-256-GCM, Р-016): 43 знака и «=».
+  const keyOf = (text) =>
+    /^AMPLIFIE_SECRET_KEY=([A-Za-z0-9+/]{43}=)$/mu.exec(text)?.[1] ?? "нет строки ключа";
+  const first = keyOf(box());
+  const second = keyOf(box());
+  assert.match(first, /^[A-Za-z0-9+/]{43}=$/u);
+  assert.match(second, /^[A-Za-z0-9+/]{43}=$/u);
+  assert.equal(Buffer.from(first, "base64").length, 32);
   assert.notEqual(first, second);
 });
 

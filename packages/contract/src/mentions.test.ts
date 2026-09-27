@@ -44,6 +44,8 @@ describe("запись упоминания", () => {
     // Общая глобальная регулярка помнила бы lastIndex и через раз
     // возвращала пусто. Тест ровно на это.
     const body = mentionMarkup("Мария", MARIA);
-    expect(mentionedIds(body)).toEqual(mentionedIds(body));
+    expect(mentionedIds(body), "первый вызов").toEqual([MARIA]);
+    expect(mentionedIds(body), "второй вызов").toEqual([MARIA]);
+    expect(mentionedIds(body), "третий вызов").toEqual([MARIA]);
   });
 });

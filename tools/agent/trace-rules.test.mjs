@@ -123,7 +123,10 @@ describe("что открыто: команды оболочки", () => {
       claimsIn("| `readMarks.ts` | 180 | целиком |"),
       coverageOf(events, linesOf),
     );
-    assert.notEqual(rows[0].status, "целиком");
+    assert.deepEqual(
+      { status: rows[0].status, seen: rows[0].seen, total: rows[0].total },
+      { status: "частично", seen: 30, total: 180 },
+    );
   });
 });
 
@@ -304,12 +307,16 @@ describe("куски разных версий не складываются", (
 
 describe("когда прочитано", () => {
   it("вердикт называет время последнего чтения — давнее чтение видно глазами", () => {
-    const events = readsFrom(read("E:/Amplifie/frontend/src/data/readMarks.ts", 1, 180, 180));
+    // Два чтения: вердикт называет время ОТВЕТА на последнее, а не первое и не просьбу.
+    const records = [
+      ...read("E:/Amplifie/frontend/src/data/readMarks.ts", 1, 180, 180),
+      ...read("E:/Amplifie/frontend/src/data/readMarks.ts", 1, 180, 180),
+    ];
     const rows = verdict(
       claimsIn("| `readMarks.ts` | 180 | целиком |"),
-      coverageOf(events, linesOf),
+      coverageOf(readsFrom(records), linesOf),
     );
-    assert.equal(typeof rows[0].lastAt, "number");
+    assert.equal(rows[0].lastAt, Date.parse(records[3].timestamp));
   });
 });
 

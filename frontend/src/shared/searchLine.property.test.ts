@@ -39,14 +39,29 @@ describe("подсветка найденного: свойства", () => {
   });
 
   it("подсвечен ровно кусок, который и есть слово запроса", () => {
+    let controlled = 0;
     fc.assert(
       fc.property(lineAndQuery, ([line, query]) => {
         const words = searchWords(query);
-        for (const mark of marksIn(line, words)) {
+        const marks = marksIn(line, words);
+        for (const mark of marks) {
           if (mark.hit) expect(words).toContain(searchFold(mark.text));
+        }
+        // Положительный контроль: без него свойство проходит и на подсветке,
+        // которая не подсвечивает ничего. Попадание обязано быть, если в запрос
+        // вошло слово строки без букв, чья нормализация зависит от соседей
+        // или меняет длину (İ, Σ — известный предел `foldInPlace`).
+        const plainPicked = query
+          .split(" ")
+          .some((one) => !/[İΣ]/u.test(one) && words.includes(searchFold(one)));
+        if (plainPicked) {
+          controlled += 1;
+          expect(marks.filter((one) => one.hit).length).toBeGreaterThan(0);
         }
       }),
       RUNS,
     );
+    // Контроль не пустой: условие выше выполнялось на заметной доле прогонов.
+    expect(controlled).toBeGreaterThan(RUNS.numRuns / 3);
   });
 });

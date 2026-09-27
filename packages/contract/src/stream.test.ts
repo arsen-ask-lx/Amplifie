@@ -6,7 +6,7 @@
  * потому что держал свою копию — теперь копии нет, и проверяется оригинал.
  */
 import { describe, expect, it } from "vitest";
-import { eventOf, framed, nextDelay, RECONNECT, retryAfterMs } from "./stream.js";
+import { eventOf, framed, nextDelay, retryAfterMs } from "./stream.js";
 
 const block = (seq: number) => `event: changed\ndata: {"line":{"seq":${seq}}}`;
 
@@ -45,21 +45,27 @@ describe("событие читается по правилам SSE", () => {
   });
 });
 
+/**
+ * Ожидания — литералы по обещанию (секунда на первую попытку, вдвое на каждую,
+ * потолок 30 с), а не `RECONNECT`: иначе суженное окно совпало бы само с собой
+ * (ревью task-125).
+ */
 describe("когда возвращаться к потоку", () => {
   it("разброс полный: от нуля до окна попытки", () => {
     expect(nextDelay(0, () => 0)).toBe(0);
-    expect(nextDelay(0, () => 0.999_999)).toBeLessThan(RECONNECT.baseMs);
-    expect(nextDelay(3, () => 0.5)).toBe(Math.floor(0.5 * RECONNECT.baseMs * 8));
+    expect(nextDelay(0, () => 0.999_999)).toBe(999);
+    expect(nextDelay(3, () => 0.5)).toBe(4_000);
   });
 
   it("окно растёт вдвое, но не выше потолка", () => {
-    expect(nextDelay(2, () => 0.999_999)).toBeGreaterThan(nextDelay(1, () => 0.999_999));
-    expect(nextDelay(40, () => 0.999_999)).toBeLessThan(RECONNECT.capMs);
+    expect(nextDelay(1, () => 0.5)).toBe(1_000);
+    expect(nextDelay(2, () => 0.5)).toBe(2_000);
+    expect(nextDelay(40, () => 0.5)).toBe(15_000);
   });
 
   it("сервер назвал срок — раньше него не приходим, а разброс идёт поверх", () => {
     expect(nextDelay(0, () => 0, 5_000)).toBe(5_000);
-    expect(nextDelay(0, () => 0.5, 5_000)).toBe(5_000 + Math.floor(0.5 * RECONNECT.baseMs));
+    expect(nextDelay(0, () => 0.5, 5_000)).toBe(5_500);
   });
 });
 

@@ -1,12 +1,20 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { framed, nextDelay, RECONNECT, retryAfterMs } from "./stream.js";
+import { framed, nextDelay, retryAfterMs } from "./stream.js";
 
 /** Свойства протокола потока (task-121). */
 const RUNS = { numRuns: 300 };
 
 /** Самый долгий срок, который браузерный таймер держит честно: 2³¹−1 мс. */
 const TIMER_MAX = 2_147_483_647;
+
+/**
+ * Окно разброса по номеру попытки — посчитано руками по обещанию, а не
+ * формулой из `stream.ts`: секунда на первую, вдвое на каждую следующую,
+ * не больше тридцати. Попытка 5 и дальше (и отрицательные — как нулевая) —
+ * потолок.
+ */
+const WINDOW_BY_ATTEMPT = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000] as const;
 
 /** Событие потока: строки `event:`/`data:` без пустой строки внутри. */
 const event = fc
@@ -48,10 +56,12 @@ describe("поток: свойства", () => {
         fc.double({ min: 0, max: 1, maxExcluded: true, noNaN: true }),
         fc.integer({ min: -5_000, max: 120_000 }),
         (attempt, random, floor) => {
-          const window = Math.min(RECONNECT.capMs, RECONNECT.baseMs * 2 ** Math.max(0, attempt));
-          const delay = nextDelay(attempt, () => random, floor);
-          expect(delay).toBeGreaterThanOrEqual(Math.max(0, floor));
-          expect(delay).toBeLessThan(Math.max(0, floor) + window);
+          const window = WINDOW_BY_ATTEMPT[Math.min(Math.max(0, attempt), 5)] ?? Number.NaN;
+          // Точное значение, а не «меньше верха окна»: суженное окно (секунда → полсекунды,
+          // потолок 30 → 15 с) проходило бы верхнюю границу молча (ревью task-125).
+          expect(nextDelay(attempt, () => random, floor)).toBe(
+            Math.max(0, floor) + Math.floor(random * window),
+          );
         },
       ),
       RUNS,
