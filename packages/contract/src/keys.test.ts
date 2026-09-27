@@ -32,7 +32,7 @@ describe("договор: вход двери отвергает то, что с
   });
 
   it("нулевой символ в тексте — отказ, прочие знаки — нет", () => {
-    const base = { clientMsgId: crypto.randomUUID() };
+    const base = { clientMsgId: "00000000-0000-4000-8000-000000000000" };
     expect(sendBody.safeParse({ ...base, body: "строка\nс переносом\tи табом" }).success).toBe(
       true,
     );
