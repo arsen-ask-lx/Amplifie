@@ -409,6 +409,18 @@ cost: ## цена горячего запроса: панель не читае�
 load: ## нагрузочный замер по живому стеку (сначала: make up)
 > node tools/load/measure.mjs
 
+# Второй, независимый измеритель — k6 в Docker, в сети стенда через Caddy (Р-051).
+# Образ — по отпечатку: чужой сборки «на лету» здесь нет. Порог нарушен — код не ноль.
+# Настройки: RATE=10 DURATION=30s PEOPLE=10 P99_MS=1500 make k6
+K6_IMAGE := grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34
+.PHONY: k6
+k6: ## двери чтения под нагрузкой, пороги краснеют — k6 (сначала: make up)
+> MSYS_NO_PATHCONV=1 docker run --rm --network amplifie_default \
+>   -v "$(CURDIR)/tools/load/k6:/scripts:ro" \
+>   -e RATE=$${RATE:-10} -e DURATION=$${DURATION:-30s} -e PEOPLE=$${PEOPLE:-10} \
+>   -e P99_MS=$${P99_MS:-1500} \
+>   $(K6_IMAGE) run --quiet /scripts/reads.js
+
 .PHONY: db-per-event
 db-per-event: ## цена одного события в транзакциях базы (сначала: make up)
 > node tools/load/db-per-event.mjs
