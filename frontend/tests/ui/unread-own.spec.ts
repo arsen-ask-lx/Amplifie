@@ -10,9 +10,11 @@ import { expect, test } from "./guard.js";
  * сам только что написал. Счётчик панели так не врёт: свои реплики он
  * не считает. Черта обязана следовать тому же правилу.
  *
- * ⚠️ СМОТРИМ ВСЁ ОКНО ЗАПАЗДЫВАНИЯ, А НЕ ОДИН КАДР. Черта живёт секунды,
- * до следующей отметки: разовая проверка «черты нет» прошла бы и на
- * сломанном коде, если бы попала после отметки.
+ * ⚠️ СМОТРИМ С ДО ОТПРАВКИ И ДО КОНЦА, А НЕ ОДИН КАДР. Черта встаёт перед
+ * первой чужой репликой за границей, а граница замирает при открытии чата:
+ * сломанный фильтр своих нарисовал бы черту с первой же доставкой. Ждать
+ * после доставки нечего — и отметку на свою последнюю ждать нельзя: её
+ * вкладка не шлёт вовсе (Д-88; так этот тест покраснел в CI 27.09).
  */
 
 /** Черта на экране — по её надписи, как её видит человек. */
@@ -21,16 +23,6 @@ const LINE_TEXT = "Непрочитанные сообщения";
 test("отправил в новый чат — черты «Непрочитанные» нет ни на миг", async ({ page }) => {
   await register(page, "Пишущий себе");
   await createChannel(page, "Свои реплики");
-  const room = new URL(page.url()).pathname.split("/").pop() ?? "";
-
-  // Отметки, на которые сервер уже ответил: номер из запроса.
-  const confirmed: number[] = [];
-  page.on("response", (response) => {
-    const request = response.request();
-    if (request.method() === "POST" && request.url().endsWith(`/${room}/read`)) {
-      confirmed.push(Number((request.postDataJSON() as { seq: number }).seq));
-    }
-  });
 
   /**
    * ⚠️ НАБЛЮДАТЕЛЬ ВМЕСТО ОПРОСА РАЗ В 100 МС. Он видит каждое изменение
@@ -50,19 +42,7 @@ test("отправил в новый чат — черты «Непрочита�
   await say(page, "первая своя");
   await say(page, "вторая своя");
 
-  // Окно запаздывания кончается ответом на отметку, догнавшую последнюю
-  // реплику: дальше черте рисоваться не из чего. Это признак вместо сна.
-  const answer = await page.request.get(`/v1/conversations/${room}/messages`);
-  expect(answer.status(), "лента чата не прочиталась").toBe(200);
-  const { items } = (await answer.json()) as { items: { seq: number }[] };
-  const last = items.at(-1)?.seq ?? Number.POSITIVE_INFINITY;
-  await expect
-    .poll(() => Math.max(0, ...confirmed), {
-      timeout: 10_000,
-      message: "отметка не догнала свою последнюю реплику",
-    })
-    .toBeGreaterThanOrEqual(last);
-
+  // `say` дождался доставки обеих: они записаны сервером и нарисованы.
   const seen = await page.evaluate(
     () => (window as unknown as { unreadLineSeen: boolean }).unreadLineSeen,
   );
