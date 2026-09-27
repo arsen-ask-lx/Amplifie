@@ -20,26 +20,21 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { verdict } from "./cycle-rule.mjs";
+import { NAME_STATUS, parseChanges, parsePaths } from "./git-changes.mjs";
 
 const RULE = "tools/checks/cycle-rule.mjs";
 
 function git(...args) {
-  const run = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const run = spawnSync("git", args, {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
   return { ok: run.status === 0, out: (run.stdout ?? "").trim(), err: (run.stderr ?? "").trim() };
 }
 
 function die(lines) {
   console.error(`\n${lines.join("\n")}\n`);
   process.exit(1);
-}
-
-/** Разбор `--name-status`: у переименования берётся новый путь. */
-function parseChanges(raw) {
-  return raw
-    .split("\n")
-    .map((line) => line.split("\t"))
-    .filter((parts) => parts.length >= 2 && parts[0])
-    .map((parts) => ({ status: parts[0][0], path: parts[parts.length - 1] }));
 }
 
 /**
@@ -49,9 +44,9 @@ function parseChanges(raw) {
 function planReader(tree) {
   const listing =
     tree === ""
-      ? git("ls-files", "dock/tasks")
-      : git("ls-tree", "-r", "--name-only", tree, "dock/tasks");
-  const files = listing.out.split("\n").filter(Boolean);
+      ? git("ls-files", "-z", "dock/tasks")
+      : git("ls-tree", "-r", "--name-only", "-z", tree, "dock/tasks");
+  const files = parsePaths(listing.out);
   return (number) => {
     const path = files.find((one) => one.startsWith(`dock/tasks/task-${number}-`));
     if (!path) return null;
@@ -93,8 +88,8 @@ function staged(messagePath) {
   const base = amending ? "HEAD^" : "HEAD";
   const hasBase = git("rev-parse", "--verify", "-q", base).ok;
   const diff = hasBase
-    ? git("diff", "--cached", "--name-status", "-M", base)
-    : git("diff", "--cached", "--name-status", "--root");
+    ? git("diff", "--cached", ...NAME_STATUS, "-M", base)
+    : git("diff", "--cached", ...NAME_STATUS, "--root");
   if (!diff.ok) die(["цикл: не удалось прочитать индекс git", `  ${diff.err}`]);
   let message = "";
   try {
@@ -133,7 +128,7 @@ function rangeCommits() {
 function history() {
   return rangeCommits().map((sha) => {
     const changes = parseChanges(
-      git("diff-tree", "--no-commit-id", "--name-status", "-r", "-M", "--root", sha).out,
+      git("diff-tree", "--no-commit-id", ...NAME_STATUS, "-r", "-M", "--root", sha).out,
     );
     const message = git("log", "-1", "--format=%B", sha).out;
     const subject = message.split("\n")[0] ?? "";

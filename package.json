@@ -26,7 +26,7 @@
     "map": "node tools/checks/check-map.mjs",
     "map:check": "node --test tools/checks/map-rule.test.mjs",
     "cycle": "node tools/checks/check-cycle.mjs",
-    "cycle:check": "node --test tools/checks/cycle-rule.test.mjs",
+    "cycle:check": "node --test tools/checks/cycle-rule.test.mjs tools/checks/git-paths.test.mjs",
     "arch:check": "node --test tools/checks/arch-rules.test.mjs",
     "env:check": "node --test tools/ops/*.test.mjs",
     "openspec": "node tools/checks/check-openspec.mjs",
