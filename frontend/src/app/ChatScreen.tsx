@@ -1,5 +1,5 @@
 import { MagnifyingGlass, Sidebar } from "@phosphor-icons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Me } from "../data/api.js";
 import { useChat } from "../data/useChat.js";
 import { ChatSearchBar } from "../screens/talk/ChatSearchBar.js";
@@ -20,7 +20,20 @@ const PANEL_KEY = "amplifie.панель";
  * окне или ему мешает список. Возвращать панель на место при каждой
  * перезагрузке значит спорить с человеком.
  */
+/**
+ * Узкий экран — телефон или узкая боковая панель браузера (Д-28). Там панель
+ * чатов выезжает поверх переписки, а не делит с ней ширину: 256 px из 390
+ * оставляли ленте 124. Порог — тот же `md`, что у классов панели.
+ */
+const NARROW = "(max-width: 767px)";
+
+function narrowNow(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(NARROW).matches;
+}
+
 function railWasOpen(): boolean {
+  // На узком экране панель по умолчанию задвинута: человек пришёл читать.
+  if (narrowNow()) return false;
   try {
     return localStorage.getItem(PANEL_KEY) !== "нет";
   } catch {
@@ -28,6 +41,69 @@ function railWasOpen(): boolean {
     // ради чего стоит падать.
     return true;
   }
+}
+
+/**
+ * Панель чатов: открыта ли, как переключается и что делает на узком экране.
+ * Отдельным хуком — оболочка и без неё держит много состояний (Д-28).
+ */
+function useRail(chat: ReturnType<typeof useChat>) {
+  const [railOpen, setRailOpen] = useState(railWasOpen);
+
+  // Выбрал чат на узком экране — панель уезжает: дальше читают переписку.
+  const currentId = chat.panel.currentId;
+  useEffect(() => {
+    if (currentId && narrowNow()) setRailOpen(false);
+  }, [currentId]);
+
+  // Тот же чат, что открыт, адреса не меняет — выбор из панели задвигает её
+  // сам, иначе на телефоне панель не уезжала по щелчку на свой же чат.
+  const railChat = useMemo(
+    () => ({
+      ...chat,
+      panel: {
+        ...chat.panel,
+        select: (id: string) => {
+          chat.panel.select(id);
+          if (narrowNow()) setRailOpen(false);
+        },
+      },
+    }),
+    [chat],
+  );
+
+  const toggleRail = useCallback(() => {
+    setRailOpen((was) => {
+      // Выбор на узком экране не запоминается: он про телефон, а не про вкус.
+      if (narrowNow()) return !was;
+      try {
+        localStorage.setItem(PANEL_KEY, was ? "нет" : "да");
+      } catch {
+        // Не сохранилось — задвинутость продержится до перезагрузки.
+      }
+      return !was;
+    });
+  }, []);
+
+  return { railOpen, setRailOpen, toggleRail, railChat };
+}
+
+/**
+ * Затемнение под панелью на узком экране (Д-28). Жест для мыши и пальца:
+ * с клавиатуры панель закрывает её кнопка в шапке, а читалке второй
+ * «Задвинуть панель» не нужен.
+ */
+function RailShade({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <button
+      type="button"
+      aria-hidden="true"
+      tabIndex={-1}
+      onClick={onClose}
+      className="fixed inset-0 z-30 bg-ink/20 md:hidden"
+    />
+  );
 }
 
 export function ChatScreen({
@@ -49,7 +125,7 @@ export function ChatScreen({
   const openAtRef = useRef<((seq: number) => void) | null>(null);
   openAtRef.current = (seq) => chat.openAt(chat.panel.currentId ?? "", seq);
 
-  const [railOpen, setRailOpen] = useState(railWasOpen);
+  const { railOpen, setRailOpen, toggleRail, railChat } = useRail(chat);
   /** Открыто ли окно общего поиска по всем чатам (task-100, Ctrl+K). */
   const [searching, setSearching] = useState(false);
   const closeSearch = useCallback(() => setSearching(false), []);
@@ -60,17 +136,6 @@ export function ChatScreen({
     // Переход к попаданию — тем же адресом, что цитата: второго способа
     // доехать до реплики не заводим.
     openAtRef.current?.(seq);
-  }, []);
-
-  const toggleRail = useCallback(() => {
-    setRailOpen((was) => {
-      try {
-        localStorage.setItem(PANEL_KEY, was ? "нет" : "да");
-      } catch {
-        // Не сохранилось — задвинутость продержится до перезагрузки.
-      }
-      return !was;
-    });
   }, []);
 
   // Ctrl+B — тот же способ, что в Слаке, VS Code и Дискорде. Своего
@@ -142,7 +207,9 @@ export function ChatScreen({
     // скрытое переполнение прокручивается из кода, и `scrollIntoView` перехода
     // уводил всю оболочку вместе с шапкой на 253 px (замер в `jump-calm.spec.ts`).
     <div className="relative flex h-dvh overflow-clip bg-bg text-ink">
-      <Rail me={me} chat={chat} open={railOpen} onLeave={onLeave} />
+      <Rail me={me} chat={railChat} open={railOpen} onLeave={onLeave} />
+      {/* Узкий экран: панель поверх, щелчок мимо её задвигает (Д-28). */}
+      <RailShade open={railOpen} onClose={() => setRailOpen(false)} />
 
       {/* ⚠️ `min-h-0` ЗДЕСЬ И НА ЛЕНТЕ — НЕ УКРАШЕНИЕ. У flex-ребёнка
           минимальная высота по умолчанию равна содержимому, поэтому лента

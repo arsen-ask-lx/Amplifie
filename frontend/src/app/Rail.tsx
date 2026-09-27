@@ -47,6 +47,8 @@ export function Rail({
       aria-hidden={!open}
       className={[
         "h-full shrink-0 overflow-hidden border-r bg-panel transition-[width] duration-200",
+        // Узкий экран (Д-28): поверх переписки, а не рядом с ней.
+        "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-float",
         open ? "w-64 border-line" : "w-0 border-transparent",
       ].join(" ")}
     >
