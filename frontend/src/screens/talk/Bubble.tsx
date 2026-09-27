@@ -174,7 +174,9 @@ export function Bubble({
             // теперь один и тот же с одной стороны.
             "rounded-lg rounded-bl-sm",
             row.mine
-              ? "border border-accent-soft-edge bg-accent-soft text-ink-on-soft"
+              ? // Ссылки в своём пузыре — своим цветом (Д-29). Подменяется `--link`, а не
+                // `--color-link`: тема объявлена `@theme inline`, утилита берёт `--link` прямо.
+                "border border-accent-soft-edge bg-accent-soft text-ink-on-soft [--link:var(--link-on-soft)]"
               : "border border-line bg-card text-ink",
           ].join(" ")}
         >

@@ -136,3 +136,21 @@ test("нажатие на моноширинный кусок копирует �
   const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboardText).toBe("make check");
 });
+
+test("ссылка в своём пузыре — своим цветом, читаемым на его заливке (Д-29)", async ({ page }) => {
+  await register(page, "Со ссылкой");
+  await createChannel(page, "Ссылки");
+  await say(page, "смотри https://example.com/отчёт");
+
+  const link = bubble(page, "смотри").getByRole("link");
+  await expect(link).toBeVisible();
+  const [shown, wanted] = await link.evaluate((node) => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--link-on-soft)";
+    document.body.append(probe);
+    const expected = getComputedStyle(probe).color;
+    probe.remove();
+    return [getComputedStyle(node).color, expected];
+  });
+  expect(shown, "ссылка в своём пузыре взяла цвет ссылки на фоне").toBe(wanted);
+});
