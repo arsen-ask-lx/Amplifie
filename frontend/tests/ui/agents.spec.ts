@@ -69,3 +69,18 @@ test("выбранный пункт тихого списка повторяет
   await expect(selected).toBeVisible();
   expect(await radius(selected)).toBe(fieldRadius);
 });
+
+/**
+ * Неверный ключ — причина словами (task-120). Форма ключа теперь проверяется
+ * схемой двери, и отказ приходит полем `fields.key`, а не `detail`: человек
+ * обязан увидеть то же «с чего начинается ключ», что и прежде.
+ */
+test("ключ не той формы — форма говорит, с чего он начинается", async ({ page }) => {
+  await register(page, "Оператор");
+  await page.goto("/settings/agents");
+
+  await page.getByRole("textbox", { name: "Ключ", exact: true }).fill("просто текст");
+  await page.getByRole("button", { name: "Сохранить ключ" }).click();
+
+  await expect(page.getByText(/^ключ \w+ начинается с «sk-/u)).toBeVisible();
+});

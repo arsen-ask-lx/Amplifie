@@ -13,6 +13,7 @@
     "@amplifie/model": "*",
     "@fastify/cookie": "11.1.2",
     "@fastify/rate-limit": "11.2.0",
+    "@fastify/swagger": "9.9.0",
     "@fastify/type-provider-zod": "1.0.0",
     "@node-rs/argon2": "2.2.1",
     "drizzle-orm": "0.45.3",

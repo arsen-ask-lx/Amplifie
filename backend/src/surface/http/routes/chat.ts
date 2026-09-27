@@ -1,4 +1,5 @@
 import {
+  answerView,
   askBody,
   channelBody,
   chatSearchBody,
@@ -8,6 +9,7 @@ import {
   createdThread,
   cursorQuery,
   editBody,
+  failure,
   idOnly,
   idParams,
   limitQuery,
@@ -16,6 +18,7 @@ import {
   messageView,
   moveBody,
   movedConversation,
+  noContent,
   openQuery,
   pageQuery,
   panelSnapshot as panelSnapshotView,
@@ -65,6 +68,7 @@ import {
   whereMentioned,
 } from "../../../kernel/talk/index.js";
 import { PIN, READ, SEARCH, SEND, SYNC } from "../limits.js";
+import { linksTo } from "../links.js";
 import { actorOf } from "./viewer.js";
 
 /**
@@ -129,6 +133,35 @@ const PIN_DOORS: ReadonlyArray<
   ["/v1/projects/:id/pin", setProjectPin],
 ];
 
+/** Что можно сделать с заведённым разговором — каналом или веткой (ссылки описания API). */
+const CONVERSATION_LINKS = linksTo(
+  ["GET", "/v1/conversations/{id}/messages"],
+  ["POST", "/v1/conversations/{id}/messages"],
+  ["POST", "/v1/conversations/{id}/read"],
+  ["GET", "/v1/conversations/{id}/people"],
+  ["GET", "/v1/conversations/{id}/mention"],
+  ["GET", "/v1/conversations/{id}/pinned"],
+  ["POST", "/v1/conversations/{id}/pin"],
+  ["POST", "/v1/conversations/{id}/threads"],
+  ["PATCH", "/v1/conversations/{id}"],
+  ["DELETE", "/v1/conversations/{id}"],
+);
+
+/** Что можно сделать с отправленной репликой. */
+const MESSAGE_LINKS = linksTo(
+  ["PATCH", "/v1/messages/{id}"],
+  ["POST", "/v1/messages/{id}/pin"],
+  ["DELETE", "/v1/messages/{id}"],
+);
+
+/** Что можно сделать с заведённой папкой. */
+const PROJECT_LINKS = linksTo(
+  ["GET", "/v1/projects/{id}/conversations"],
+  ["PATCH", "/v1/projects/{id}"],
+  ["POST", "/v1/projects/{id}/pin"],
+  ["DELETE", "/v1/projects/{id}"],
+);
+
 export function registerChatRoutes(scope: FastifyInstance): void {
   const app = scope.withTypeProvider<ZodTypeProvider>();
 
@@ -175,7 +208,11 @@ export function registerChatRoutes(scope: FastifyInstance): void {
 
   app.post(
     "/v1/conversations",
-    { schema: { body: channelBody, response: { 201: createdConversation } } },
+    // 404 — папка `projectId` не видна или её нет.
+    {
+      schema: { body: channelBody, response: { 201: createdConversation, 404: failure } },
+      links: { 201: CONVERSATION_LINKS },
+    },
     async (request, reply) =>
       reply.code(201).send(await createChannel(actorOf(request), request.body)),
   );
@@ -191,10 +228,14 @@ export function registerChatRoutes(scope: FastifyInstance): void {
   );
 
   /** Удалить канал. Чужое и несуществующее — оба 404: см. ядро. */
-  app.delete("/v1/conversations/:id", { schema: { params: idParams } }, async (request, reply) => {
-    await deleteConversation(actorOf(request), request.params.id);
-    return reply.code(204).send();
-  });
+  app.delete(
+    "/v1/conversations/:id",
+    { schema: { params: idParams, response: { 204: noContent } } },
+    async (request, reply) => {
+      await deleteConversation(actorOf(request), request.params.id);
+      return reply.code(204).send(undefined);
+    },
+  );
 
   /**
    * Отметить прочитанным ДО номера включительно — как `messages.readHistory`
@@ -252,6 +293,7 @@ export function registerChatRoutes(scope: FastifyInstance): void {
         body: sendBody,
         response: { 200: messageView, 201: messageView },
       },
+      links: { 201: MESSAGE_LINKS },
     },
     async (request, reply) => {
       const result = await sendMessage(actorOf(request), request.params.id, request.body);
@@ -262,7 +304,10 @@ export function registerChatRoutes(scope: FastifyInstance): void {
 
   app.post(
     "/v1/conversations/:id/threads",
-    { schema: { params: idParams, body: threadBody, response: { 201: createdThread } } },
+    {
+      schema: { params: idParams, body: threadBody, response: { 201: createdThread } },
+      links: { 201: CONVERSATION_LINKS },
+    },
     async (request, reply) =>
       reply
         .code(201)
@@ -276,7 +321,14 @@ export function registerChatRoutes(scope: FastifyInstance): void {
    */
   app.post(
     "/v1/conversations/:id/ask",
-    { schema: { params: idParams, body: askBody.optional() } },
+    {
+      schema: {
+        params: idParams,
+        body: askBody.optional(),
+        // 502/503/504 — мост отказал, не на связи, промолчал (`failures.ts`).
+        response: { 201: answerView, 204: noContent, 502: failure, 503: failure, 504: failure },
+      },
+    },
     async (request, reply) => {
       try {
         const answer = await answerIfAddressed(
@@ -286,7 +338,7 @@ export function registerChatRoutes(scope: FastifyInstance): void {
         );
         return reply.code(201).send(answer);
       } catch (error) {
-        if (error instanceof NotAddressedError) return reply.code(204).send();
+        if (error instanceof NotAddressedError) return reply.code(204).send(undefined);
         throw error;
       }
     },
@@ -306,34 +358,38 @@ export function registerChatRoutes(scope: FastifyInstance): void {
     (request) => editMessage(actorOf(request), request.params.id, request.body.body),
   );
 
-  app.delete("/v1/messages/:id", { schema: { params: idParams } }, async (request, reply) => {
-    await deleteMessage(actorOf(request), request.params.id);
-    return reply.code(204).send();
-  });
+  app.delete(
+    "/v1/messages/:id",
+    { schema: { params: idParams, response: { 204: noContent } } },
+    async (request, reply) => {
+      await deleteMessage(actorOf(request), request.params.id);
+      return reply.code(204).send(undefined);
+    },
+  );
 
+  // POST закрепляет, DELETE снимает. 409 — только у закрепления: потолок (Р-045).
   for (const [path, pin] of PIN_DOORS) {
-    app.post(
-      path,
-      { config: { rateLimit: PIN }, schema: { params: idParams } },
-      async (request, reply) => {
-        await pin(actorOf(request), request.params.id, true);
-        return reply.code(204).send();
-      },
-    );
-    app.delete(
-      path,
-      { config: { rateLimit: PIN }, schema: { params: idParams } },
-      async (request, reply) => {
-        await pin(actorOf(request), request.params.id, false);
-        return reply.code(204).send();
-      },
-    );
+    for (const pinned of [true, false]) {
+      app.route({
+        method: pinned ? "POST" : "DELETE",
+        url: path,
+        config: { rateLimit: PIN },
+        schema: {
+          params: idParams,
+          response: pinned ? { 204: noContent, 409: failure } : { 204: noContent },
+        },
+        handler: async (request, reply) => {
+          await pin(actorOf(request), request.params.id, pinned);
+          return reply.code(204).send(undefined);
+        },
+      });
+    }
   }
 
   /** Завести проект (Р-032). Прав проект не несёт — заводит любой участник. */
   app.post(
     "/v1/projects",
-    { schema: { body: projectBody, response: { 201: idOnly } } },
+    { schema: { body: projectBody, response: { 201: idOnly } }, links: { 201: PROJECT_LINKS } },
     async (request, reply) => {
       const { title, icon, color } = request.body;
       const created = await createProject(actorOf(request), {
@@ -353,10 +409,14 @@ export function registerChatRoutes(scope: FastifyInstance): void {
   );
 
   /** Убрать проект: папка исчезает, переписка остаётся (Р-032). */
-  app.delete("/v1/projects/:id", { schema: { params: idParams } }, async (request, reply) => {
-    await removeProject(actorOf(request), request.params.id);
-    return reply.code(204).send();
-  });
+  app.delete(
+    "/v1/projects/:id",
+    { schema: { params: idParams, response: { 204: noContent } } },
+    async (request, reply) => {
+      await removeProject(actorOf(request), request.params.id);
+      return reply.code(204).send(undefined);
+    },
+  );
 
   /**
    * Поиск по сообщениям (task-100). `POST`, а не `GET`: текст поиска —

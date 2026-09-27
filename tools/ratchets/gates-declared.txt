@@ -73,6 +73,8 @@ model
 # run model: npm run model
 no-raw-html
 # run no-raw-html: npm run no-raw-html
+openapi
+# run openapi: npm run openapi:check
 openspec
 # run openspec: npm run openspec
 personal-config-not-shared

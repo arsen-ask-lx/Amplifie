@@ -56,8 +56,12 @@ export const LOGIN = {
   max: 5,
   timeWindow: "1 minute",
   keyGenerator: (request: FastifyRequest) => {
-    const email = (request.body as { email?: string } | null)?.email ?? "";
-    return `login:${email.trim().toLowerCase()}:${request.ip}`;
+    // ⚠️ КЛЮЧ СЧИТАЕТСЯ ДО СХЕМЫ (`preValidation`), и тело здесь — что угодно.
+    // `{"email": {}}` падал на `.trim()` с 500 (Schemathesis, task-120).
+    // Не строка — ключ по одному адресу; схема следом ответит 422.
+    const email = (request.body as { email?: unknown } | null)?.email;
+    const who = typeof email === "string" ? email.trim().toLowerCase() : "";
+    return `login:${who}:${request.ip}`;
   },
 } as const;
 

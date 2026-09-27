@@ -384,6 +384,15 @@ aqk-why: ## объяснить одну рекомендацию AQK (AQK_RULE=<
 test: ## приёмочные тесты по ЖИВОМУ стеку (сначала: make up)
 > npm test
 
+openapi: ## пересобрать описание API из схем дверей (task-120)
+> npm run openapi
+
+# Арбитр описания API (task-120, Р-049): Schemathesis из Docker бьёт каждую
+# дверь стенда и сверяет ответы с backend/openapi.json. ВНЕ `make check`:
+# нужен стенд и минуты. Лишние флаги — ARGS, например: make api-fuzz ARGS="-n 50"
+api-fuzz: ## арбитр описания API по живому стенду (сначала: make up)
+> bash tools/ops/api-fuzz.sh $(ARGS)
+
 # ⚠️ ЗАПУСКАЕТСЯ РУКАМИ И РЕДКО, И В `make check` ЕМУ НЕЛЬЗЯ. Это минуты
 # и сотни соединений; быстрые проверки обязаны оставаться быстрыми, иначе
 # их перестают гонять. Числа отсюда идут в реестр долга руками — вместе
@@ -489,4 +498,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
+.PHONY: openapi api-fuzz caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check

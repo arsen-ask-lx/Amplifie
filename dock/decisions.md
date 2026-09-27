@@ -5664,3 +5664,75 @@ Slack взято главное: жирное за новое, отдельны�
 - Разбор целиком — `dock/reference/процесс-с-агентом-2026-09.md`.
 
 </details>
+
+<a id="r-049"></a>
+
+### Р-049 — Описание API собирается из наших zod-схем, арбитр — Schemathesis по живому стенду
+
+<details>
+<summary>Полное решение, альтернативы и источники</summary>
+
+# Р-049. Описание API собирается из наших zod-схем, арбитр — Schemathesis по живому стенду
+
+| | |
+|---|---|
+| **Статус** | ✅ принято 2026-09-27 владельцем («ок го» на план [task-120](tasks/task-120-описание-api-и-его-арбитр.md)) |
+| **Почему сейчас** | у бека 51 дверь и ни одного описания API; гейт AQK `api-contract-has-arbiter` советовался первым и не был прочитан |
+
+## Решение
+
+**Описание — производное, не второй источник.** `@fastify/swagger` собирает OpenAPI из
+тех же zod-схем, которыми Fastify проверяет вход и сериализует ответ
+(`jsonSchemaTransform` из `@fastify/type-provider-zod`). Файл `backend/openapi.json`
+лежит в git; его свежесть держит гейт, как замок версий. Наружу двери `/docs` и
+`/openapi.json` не заводятся.
+
+**Арбитр — Schemathesis по живому стенду, всеми проверками.** Из Docker-образа по
+отпечатку, флагами в одном скрипте, без файла настроек: сужение проверок должно быть
+видно сторожу. Прогон, где дверь отвечала только 429, — провал, а не успех.
+
+## Что было отвергнуто
+
+**Описание руками.** Второй источник правды расходится молча — ровно то, что гейт ловит.
+
+**Pact.** Договор от потребителя нужен, когда фронт и бек живут порознь; у нас они в
+одном репозитории с общими типами `packages/contract` — брокер и тесты на двух сторонах
+окупать нечем.
+
+**Spectral и `schemathesis -c not_a_server_error`.** Замер AQK 2026-09-09: оба дают код 0
+на сервере, который врёт в каждом поле ответа.
+
+**Генератор клиента (openapi-typescript, orval).** Общие zod-типы уже дают фронту то же;
+второй генератор — второй источник.
+
+## Цена
+
+Каждая дверь обязана иметь схему ответа, и неточная схема роняет дверь в 500
+(`ResponseSerializationError`), а не молча срезает поле. Образ Schemathesis — сотни
+мегабайт; прогон — минуты и нагрузка на пороги стенда.
+
+## Источники
+
+- [`@fastify/type-provider-zod` — связка с `@fastify/swagger`](https://github.com/fastify/fastify-type-provider-zod#how-to-use-together-with-fastifyswagger)
+  — `jsonSchemaTransform`, `jsonSchemaTransformObject`; README установленной 1.0.0.
+- [Schemathesis — CLI](https://schemathesis.readthedocs.io/en/stable/reference/cli/)
+  — все проверки по умолчанию; коды выхода 0/1/2; фильтры `--exclude-path`.
+- [Schemathesis — авторизация](https://schemathesis.readthedocs.io/en/stable/guides/auth/)
+  и [CI](https://schemathesis.readthedocs.io/en/stable/guides/cicd/) — заголовки, образ
+  `schemathesis/schemathesis`.
+- README гейта `tools/gates/api-contract-has-arbiter` — замер со spectral и суженным арбитром.
+- [Martin-Lopez, Segura, Ruiz-Cortés — A Catalogue of Inter-parameter Dependencies in RESTful Web APIs (ICSOC 2019)](https://link.springer.com/chapter/10.1007/978-3-030-33702-5_31)
+  — зависимости параметров OpenAPI не выражает (Д-69): одно из двух точечных ослаблений прогона.
+- [JSON:API — ответы при ссылке на несуществующий ресурс](https://jsonapi.org/format/#crud-creating-responses-404)
+  и [Google AIP-193](https://google.aip.dev/193) — 404 на невидимую цитируемую реплику верен (Д-70).
+- [fastify/fastify#862](https://github.com/fastify/fastify/pull/862) — почему Fastify отвечает 404
+  вместо 405; свой ответ 405 с честным `Allow` — `wrongMethod.ts` (Д-68).
+
+## Что выяснил первый прогон (27.09)
+
+107 нарушений на первом прогоне, из них настоящие поломки: 500 с текстом SQL
+наружу на нулевом символе в тексте, 500 на `{"email": {}}` у входа, 500 на
+числе вместо строки у моста и проверки модели, адрес почты вне RFC. Остальное —
+расхождения описания с поведением (коды отказов, лишние параметры, 405).
+
+</details>

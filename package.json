@@ -32,6 +32,8 @@
     "openspec": "node tools/checks/check-openspec.mjs",
     "model": "node tools/checks/check-model.mjs",
     "cost": "tsc --build backend && node tools/checks/check-cost.mjs",
+    "openapi": "tsc --build backend && node tools/checks/openapi.mjs",
+    "openapi:check": "tsc --build backend && node tools/checks/openapi.mjs --check",
     "duplicates": "node tools/checks/check-duplicates.mjs",
     "arbiter:check": "node --test tools/arbiter/*.test.mjs",
     "arbiter": "node tools/arbiter/report.mjs",

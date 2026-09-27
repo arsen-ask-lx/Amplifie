@@ -1,7 +1,17 @@
-import { idParams } from "@amplifie/contract/api";
+import {
+  entryView,
+  failure,
+  idParams,
+  inviteBody,
+  inviteCreated,
+  joinBody,
+  loginBody,
+  meView,
+  noContent,
+  registerBody,
+} from "@amplifie/contract/api";
 import type { ZodTypeProvider } from "@fastify/type-provider-zod";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { z } from "zod";
 import { signUp } from "../../../app/signUp.js";
 import {
   type Actor,
@@ -14,52 +24,9 @@ import {
 } from "../../../kernel/identity/index.js";
 import { config } from "../../../platform/config.js";
 import { INVITE, JOIN, LOGIN, REGISTER } from "../limits.js";
+import { linksTo } from "../links.js";
 import { forgetConfirmed, noteConfirmed } from "../sessionGate.js";
 import { actorOf, SESSION_COOKIE } from "./viewer.js";
-
-const registerSchema = z.object({
-  email: z.email("нужен корректный адрес почты"),
-  password: z.string().min(12, "пароль короче 12 символов"),
-  displayName: z.string().trim().min(1, "как вас зовут?").max(80),
-  workspaceName: z.string().trim().min(1, "название пространства пустое").max(120),
-});
-
-/**
- * Вход по приглашению — ОТДЕЛЬНАЯ дверь и отдельная схема (Р-009).
- *
- * ⚠️ РЕГИСТРАЦИЯ ПРО ТОКЕН НЕ ЗНАЕТ И НЕ УЗНАЕТ. Класс уязвимости, ради
- * которого это разделение и сделано: тот же токен, поданный через ДРУГОЙ
- * поток входа, обходил проверку доступа. Схема регистрации выше не имеет
- * поля `token`, и zod лишнее просто отбрасывает.
- */
-const joinSchema = z.object({
-  token: z.string().min(1),
-  email: z.email("нужен корректный адрес почты"),
-  password: z.string().min(12, "пароль короче 12 символов"),
-  displayName: z.string().trim().min(1, "как вас зовут?").max(80),
-});
-
-/** Ссылка для команды. Верхнюю границу держит ещё и CHECK в базе. */
-const inviteSchema = z.object({
-  maxUses: z.number().int().min(1).max(500).optional(),
-});
-
-/**
- * Вход. ОТДЕЛЬНАЯ схема и отдельный обработчик: у входа проверки другие,
- * чем у регистрации, и смешивать их в одном пути нельзя.
- */
-const loginSchema = z.object({
-  // ⚠️ СВОИ СЛОВА, А НЕ УМОЛЧАНИЕ ПРОВЕРЯЛКИ. Без них пустая форма
-  // отвечала «Too small: expected string to have >=1 characters» —
-  // по-английски, языком библиотеки, прямо человеку на экран.
-  // У регистрации слова были с первого дня, у входа их забыли.
-  //
-  // Длина здесь единица, а не двенадцать: у входа нет правил к паролю,
-  // он проверяется совпадением. Рассказывать на входе, каким пароль
-  // должен быть, значит подсказывать подбирающему.
-  email: z.string().min(1, "введите почту"),
-  password: z.string().min(1, "введите пароль"),
-});
 
 function setSessionCookie(reply: FastifyReply, token: string): void {
   // Сессия только что выдана — барьер выдуманных печенек её не задерживает
@@ -99,13 +66,16 @@ export function registerAuthRoutes(scope: FastifyInstance): void {
    * До этой ручки экран показывал обе двери всегда, и на занятой
    * установке вторая уверенно вела в 403.
    */
-  app.get("/v1/entry", async () => {
+  app.get("/v1/entry", { schema: { response: { 200: entryView } } }, async () => {
     return { registrationOpen: await registrationOpen() };
   });
 
   app.post(
     "/v1/auth/register",
-    { config: { rateLimit: REGISTER }, schema: { body: registerSchema } },
+    {
+      config: { rateLimit: REGISTER },
+      schema: { body: registerBody, response: { 201: meView, 403: failure, 409: failure } },
+    },
     async (request, reply) => {
       const input = request.body;
 
@@ -119,7 +89,10 @@ export function registerAuthRoutes(scope: FastifyInstance): void {
 
   app.post(
     "/v1/auth/login",
-    { config: { rateLimit: LOGIN }, schema: { body: loginSchema } },
+    {
+      config: { rateLimit: LOGIN },
+      schema: { body: loginBody, response: { 200: meView, 401: failure } },
+    },
     async (request, reply) => {
       const input = request.body;
 
@@ -131,15 +104,19 @@ export function registerAuthRoutes(scope: FastifyInstance): void {
     },
   );
 
-  app.post("/v1/auth/logout", async (request, reply) => {
-    const token = request.cookies[SESSION_COOKIE];
-    if (token) {
-      await logout(token);
-      forgetConfirmed(token);
-    }
-    reply.clearCookie(SESSION_COOKIE, { path: "/" });
-    return reply.code(204).send();
-  });
+  app.post(
+    "/v1/auth/logout",
+    { schema: { response: { 204: noContent } } },
+    async (request, reply) => {
+      const token = request.cookies[SESSION_COOKIE];
+      if (token) {
+        await logout(token);
+        forgetConfirmed(token);
+      }
+      reply.clearCookie(SESSION_COOKIE, { path: "/" });
+      return reply.code(204).send(undefined);
+    },
+  );
 
   /**
    * ⚠️ ОДИН И ТОТ ЖЕ ОТКАЗ НА ЧЕТЫРЕ ПРИЧИНЫ: просрочено, отозвано,
@@ -148,7 +125,10 @@ export function registerAuthRoutes(scope: FastifyInstance): void {
    */
   app.post(
     "/v1/auth/join",
-    { config: { rateLimit: JOIN }, schema: { body: joinSchema } },
+    {
+      config: { rateLimit: JOIN },
+      schema: { body: joinBody, response: { 201: meView, 404: failure, 409: failure } },
+    },
     async (request, reply) => {
       const input = request.body;
 
@@ -164,7 +144,11 @@ export function registerAccountRoutes(scope: FastifyInstance): void {
   const app = scope.withTypeProvider<ZodTypeProvider>();
   app.post(
     "/v1/invites",
-    { config: { rateLimit: INVITE }, schema: { body: inviteSchema.optional() } },
+    {
+      config: { rateLimit: INVITE },
+      schema: { body: inviteBody.optional(), response: { 201: inviteCreated } },
+      links: { 201: linksTo(["DELETE", "/v1/invites/{id}"]) },
+    },
     async (request, reply) => {
       const who = actorOf(request);
       const input = request.body ?? {};
@@ -181,14 +165,22 @@ export function registerAccountRoutes(scope: FastifyInstance): void {
     },
   );
 
-  app.delete("/v1/invites/:id", { schema: { params: idParams } }, async (request, reply) => {
-    const who = actorOf(request);
+  app.delete(
+    "/v1/invites/:id",
+    { schema: { params: idParams, response: { 204: noContent, 404: failure } } },
+    async (request, reply) => {
+      const who = actorOf(request);
 
-    const { id } = request.params;
-    // Чужое приглашение не находится — ровно как несуществующее.
-    const revoked = await revokeInvite(who, id);
-    return revoked ? reply.code(204).send() : reply.code(404).send({ error: "not_found" });
-  });
+      const { id } = request.params;
+      // Чужое приглашение не находится — ровно как несуществующее.
+      const revoked = await revokeInvite(who, id);
+      return revoked
+        ? reply.code(204).send(undefined)
+        : reply.code(404).send({ error: "not_found" });
+    },
+  );
 
-  app.get("/v1/me", async (request) => present(actorOf(request)));
+  app.get("/v1/me", { schema: { response: { 200: meView } } }, async (request) =>
+    present(actorOf(request)),
+  );
 }

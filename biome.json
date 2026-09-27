@@ -13,6 +13,7 @@
       "!dock",
       "!tools/gates",
       "!**/migrations/meta",
+      "!backend/openapi.json",
       "!test-results",
       "!playwright-report"
     ]

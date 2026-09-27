@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { isProjectColor, PROJECT_ICONS } from "./projectLook.js";
+import { KEY_SHAPES, type KeyProvider, keyShapeMessage } from "./keys.js";
+import { PROJECT_COLOR, PROJECT_ICONS } from "./projectLook.js";
 
 /**
  * Контракт дверей чата: что сервер принимает и что отдаёт (Р-034).
@@ -16,6 +17,16 @@ import { isProjectColor, PROJECT_ICONS } from "./projectLook.js";
 
 const id = z.uuid();
 const when = z.string();
+
+/**
+ * Текст, пришедший от человека. Нулевой символ Postgres не хранит: запрос
+ * падал с 500 и — до task-120 — отдавал наружу текст SQL с параметрами.
+ * Запрет стоит в схеме, а не в хуке: так его видит описание API, и
+ * Schemathesis не считает отказ «отвергнутым верным запросом».
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: нулевой символ здесь не случайный — его и запрещаем.
+const NO_NUL = /^[^\u0000]*$/u;
+const text = () => z.string().regex(NO_NUL, "в тексте недопустим нулевой символ");
 
 /* ── ответы ────────────────────────────────────────────────────────── */
 
@@ -239,11 +250,7 @@ export const movedConversation = z.object({ id, projectId: id.nullable() });
 
 export const idParams = z.object({ id });
 
-const body = z
-  .string()
-  .trim()
-  .min(1, "сообщение пустое")
-  .max(8000, "сообщение длиннее 8000 символов");
+const body = text().trim().min(1, "сообщение пустое").max(8000, "сообщение длиннее 8000 символов");
 
 export const sendBody = z.object({
   body,
@@ -261,7 +268,7 @@ export const editBody = z.object({ body });
  * в журналы сервера и прокси, а текст поиска — это переписка людей.
  */
 export const searchBody = z.object({
-  q: z.string().max(200, "запрос длиннее 200 символов"),
+  q: text().max(200, "запрос длиннее 200 символов"),
   before: z.int().positive().optional(),
   limit: z.int().min(1).max(50).optional(),
   /**
@@ -276,7 +283,7 @@ export const searchBody = z.object({
  * `searchBody`: названия приватных чатов — тоже переписка людей.
  */
 export const chatSearchBody = z.object({
-  q: z.string().trim().min(1, "пустой запрос").max(100, "запрос длиннее 100 символов"),
+  q: text().trim().min(1, "пустой запрос").max(100, "запрос длиннее 100 символов"),
   limit: z.int().min(1).max(50).optional(),
 });
 
@@ -286,14 +293,14 @@ export const chatsFound = z.object({ items: z.array(conversationView) });
 export const readBody = z.object({ seq: z.int().min(0, "номер не бывает отрицательным") });
 
 export const channelBody = z.object({
-  title: z.string().trim().min(1, "у канала нужно название").max(120),
+  title: text().trim().min(1, "у канала нужно название").max(120),
   /** Завести сразу внутри проекта (task-035). */
   projectId: id.optional(),
   visibility: z.enum(["workspace", "private"]).optional(),
 });
 
 export const threadBody = z.object({
-  title: z.string().trim().min(1, "у ветки нужно название").max(200),
+  title: text().trim().min(1, "у ветки нужно название").max(200),
 });
 
 /**
@@ -301,7 +308,7 @@ export const threadBody = z.object({
  * слить их значило бы стирать цвет при каждом переименовании.
  */
 export const projectBody = z.object({
-  title: z.string().trim().min(1, "у проекта нужно название").max(120),
+  title: text().trim().min(1, "у проекта нужно название").max(120),
   icon: z.enum(PROJECT_ICONS).nullable().optional(),
   /**
    * Цвет — значение, а не имя из набора (task-104, отмена Р-041): человек
@@ -310,7 +317,7 @@ export const projectBody = z.object({
    */
   color: z
     .string()
-    .refine(isProjectColor, "цвет записывается как #rrggbb строчными буквами")
+    .regex(PROJECT_COLOR, "цвет записывается как #rrggbb строчными буквами")
     .nullable()
     .optional(),
 });
@@ -332,9 +339,9 @@ export const askBody = z.object({ scope: z.enum(["conversation", "project"]).opt
  */
 export const pageQuery = z
   .object({
-    limit: z.string().optional(),
-    before: z.string().optional(),
-    after: z.string().optional(),
+    limit: text().optional(),
+    before: text().optional(),
+    after: text().optional(),
     /**
      * Куда открыть ленту (task-107). `unread` — окно вокруг первой
      * непрочитанной реплики; нет непрочитанного — последняя страница,
@@ -349,17 +356,217 @@ export const pageQuery = z
   .refine((query) => query.around === undefined || (!query.before && !query.after), {
     message: "«вокруг непрочитанного» не сочетается с курсором страницы",
   });
-export const cursorQuery = z.object({ cursor: z.string().optional() });
-export const limitQuery = z.object({ limit: z.string().optional() });
+export const cursorQuery = z.object({ cursor: text().optional() });
+export const limitQuery = z.object({ limit: text().optional() });
 
 /** Какой чат открыт в этой вкладке: его строка нужна ленте. */
 export const openQuery = z.object({ open: id.optional() });
 export const syncQuery = z.object({
-  after: z.string().optional(),
-  limit: z.string().optional(),
+  after: text().optional(),
+  limit: text().optional(),
+});
+
+/* ── вход, приглашения, агенты, мосты (task-120) ──────────────────── */
+
+/**
+ * Пустой ответ (204). Тела нет, и описание API говорит это прямо — иначе
+ * Schemathesis не отличит «ничего не должно быть» от «забыли описать».
+ */
+export const noContent = z.null().optional();
+
+/**
+ * Отказ: слово причины и, где можно, пояснение. Открытый объект: у отказа
+ * проверки есть ещё `fields`, у порога частоты — `statusCode`.
+ */
+export const failure = z.looseObject({ error: z.string(), detail: z.string().optional() });
+
+/** Что за дверью до входа: можно ли здесь завести компанию (task-023). */
+export const entryView = z.object({ registrationOpen: z.boolean() });
+
+/** Кто я: учётка, участник в пространстве и само пространство. */
+export const meView = z.object({
+  account: z.object({ id, email: z.string() }),
+  participant: z.object({ id, displayName: z.string(), kind: z.string(), role: z.string() }),
+  workspace: z.object({ id, name: z.string() }),
+});
+
+/**
+ * Адрес почты. Правило zod по умолчанию пропускало дефис на краю части домена
+ * и адрес в 300 знаков — Schemathesis (task-120) нашёл, что описание обещает
+ * формат `email`, а дверь принимает то, что ему не отвечает. Части домена —
+ * по RFC 1035, длина — не больше 254 (RFC 5321).
+ */
+const EMAIL =
+  /^(?!\.)(?!.*\.\.)[A-Za-z0-9_'+\-.]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
+const email = z
+  .email({ pattern: EMAIL, error: "нужен корректный адрес почты" })
+  .max(254, "адрес почты длиннее 254 символов");
+
+export const registerBody = z.object({
+  email,
+  password: text().min(12, "пароль короче 12 символов"),
+  displayName: text().trim().min(1, "как вас зовут?").max(80),
+  workspaceName: text().trim().min(1, "название пространства пустое").max(120),
+});
+
+/**
+ * Вход по приглашению — ОТДЕЛЬНАЯ схема (Р-009): у регистрации поля `token`
+ * нет, и zod лишнее отбрасывает. Тот же токен через другой поток входа
+ * обходил проверку доступа — ради этого разделение и сделано.
+ */
+export const joinBody = z.object({
+  token: text().min(1),
+  email,
+  password: text().min(12, "пароль короче 12 символов"),
+  displayName: text().trim().min(1, "как вас зовут?").max(80),
+});
+
+/**
+ * Вход. Длина единица, а не двенадцать: у входа нет правил к паролю, он
+ * проверяется совпадением, и подсказывать подбирающему нечего. Слова свои:
+ * умолчание проверялки отвечало человеку по-английски.
+ */
+export const loginBody = z.object({
+  email: text().min(1, "введите почту"),
+  password: text().min(1, "введите пароль"),
+});
+
+/** Ссылка для команды. Верхнюю границу держит ещё и CHECK в базе. */
+export const inviteBody = z.object({ maxUses: z.number().int().min(1).max(500).optional() });
+
+/** Приглашение: токен виден ОДИН раз, здесь. В базе только его хеш. */
+export const inviteCreated = z.object({
+  id,
+  token: z.string(),
+  expiresAt: when,
+  maxUses: z.number(),
+  used: z.number(),
+});
+
+/** Раздел «Агенты»: кто есть и чем будет оплачен вызов прямо сейчас. */
+export const agentsView = z.object({
+  items: z.array(z.object({ id, name: z.string(), kind: z.string(), answersOn: z.string() })),
+  /** Мост СПРАШИВАЮЩЕГО: агент отвечает через его подписку, не через чужую. */
+  bridge: z.object({ connected: z.boolean(), online: z.boolean(), name: z.string().nullable() }),
+  answersVia: z.object({ kind: z.string(), hint: z.string().nullable() }),
+});
+
+/**
+ * Ключ поставщика: форма зависит от поставщика, поэтому схема — по одной на
+ * каждого (`KEY_SHAPES`). Без `.trim()`: пробел внутри ключа — это другой
+ * ключ, и молча его менять нельзя. Лишние пробелы по краям снимает клиент.
+ */
+const keyOf = (provider: KeyProvider) =>
+  z.object({
+    provider: z.literal(provider),
+    key: text()
+      .min(KEY_SHAPES[provider].least, keyShapeMessage(provider))
+      .max(400, "это не похоже на ключ")
+      .startsWith(KEY_SHAPES[provider].prefix, keyShapeMessage(provider)),
+    scope: z.enum(["участник", "пространство"]).default("участник"),
+  });
+export const keyBody = z.discriminatedUnion("provider", [keyOf("anthropic"), keyOf("openai")]);
+
+/** Ключ поставщика. Самого ключа здесь нет и не будет — только подсказка. */
+export const modelKeyView = z.object({
+  id,
+  provider: z.string(),
+  hint: z.string(),
+  scope: z.enum(["участник", "пространство"]),
+  createdAt: when,
+});
+export const modelKeyList = z.object({ items: z.array(modelKeyView) });
+
+/** Код подключения моста и готовая строка запуска. Код виден один раз. */
+export const bridgeIssued = z.object({
+  id,
+  code: z.string(),
+  command: z.string(),
+  expiresAt: when,
+});
+
+/** Мост — машина участника, на которой живёт его подписка (task-001). */
+export const bridgeView = z.object({
+  id,
+  name: z.string().nullable(),
+  /** Код погашен, машина подключалась хотя бы раз. */
+  joined: z.boolean(),
+  /** Приходил за работой недавно — значит спросить можно прямо сейчас. */
+  online: z.boolean(),
+  lastSeenAt: when.nullable(),
+  createdAt: when,
+});
+export const bridgeList = z.object({ items: z.array(bridgeView) });
+
+/**
+ * Вопрос живой проверки. Без схемы `prompt` числом ронял дверь в 500 на
+ * `.trim()` (найдено при разборе task-120).
+ */
+export const modelCheckBody = z.object({ prompt: text().max(2000).optional() });
+
+/**
+ * Машина моста (task-120): код подключения меняется на удостоверение. Прежде
+ * тела проверялись руками (`400 bad_request`), и `code` числом ронял дверь
+ * в 500 на `.trim()`. Мост на 400 и 422 отвечает одинаково — «не удалось».
+ */
+export const bridgeJoinBody = z.object({
+  code: text().trim().min(1, "нет кода подключения"),
+  name: text().trim().min(1, "у машины нет имени"),
+});
+export const bridgeJoined = z.object({ id, token: z.string() });
+
+/** Имя архива моста в адресе скачивания. */
+export const bridgeFileParams = z.object({ file: text().min(1) });
+
+/**
+ * Сам архив — байты gzip. Сериализатор их не трогает (буфер уходит как есть),
+ * а описанию API тип говорит правду: двоичная строка.
+ */
+export const bridgeArchiveBytes = z
+  .custom<Uint8Array>((value) => value instanceof Uint8Array)
+  .meta({ type: "string", format: "binary" });
+
+/** Работа для машины: вопрос модели. Пусто — 204, мост тут же приходит снова. */
+export const bridgeJob = z.object({ jobId: z.string(), system: z.string(), prompt: z.string() });
+
+/**
+ * Ответ машины на работу: либо отказ модели словами, либо текст. Непустой
+ * `error` важнее `text` — так мост сообщает, что модель отказала.
+ */
+export const bridgeAnswerBody = z.union([
+  z.object({ jobId: text().min(1), error: text().trim().min(1), text: text().optional() }),
+  z.object({ jobId: text().min(1), text: text(), error: text().optional() }),
+]);
+export const bridgeAnswered = z.object({ outcome: z.enum(["доставлено", "никто-не-ждал"]) });
+
+/** Живая проверка модели через свой мост. */
+export const modelCheck = z.object({ text: z.string(), ms: z.number() });
+
+/** Ответ агента на обращение: реплика уже в ленте, здесь — её номер и время. */
+export const answerView = z.object({ messageId: id, body: z.string(), ms: z.number() });
+
+/** «Жив ли ты» и что стоит в установке (Р-030 ⑥). `null` — честное «не знаю». */
+export const healthView = z.object({
+  status: z.literal("ok"),
+  database: z.literal("ok"),
+  version: z.string().nullable(),
+  migrations: z.number().nullable(),
+});
+export const healthDegraded = z.object({
+  status: z.literal("degraded"),
+  database: z.literal("unreachable"),
 });
 
 /* ── типы для фронта ───────────────────────────────────────────────── */
+
+export type Me = z.infer<typeof meView>;
+export type AgentsView = z.infer<typeof agentsView>;
+export type ModelKey = z.infer<typeof modelKeyView>;
+export type Bridge = z.infer<typeof bridgeView>;
+export type InviteCreated = z.infer<typeof inviteCreated>;
+export type BridgeIssued = z.infer<typeof bridgeIssued>;
+export type ModelCheck = z.infer<typeof modelCheck>;
+export type AnswerView = z.infer<typeof answerView>;
 
 export type Project = z.infer<typeof projectView>;
 export type PanelSnapshot = z.infer<typeof panelSnapshot>;

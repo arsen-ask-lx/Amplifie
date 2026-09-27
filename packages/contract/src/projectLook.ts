@@ -29,10 +29,11 @@
  * лежал бы в базе четырьмя разными строками, а сравнение «тот же цвет?»
  * стало бы разбором записи.
  */
-const COLOR = /^#[0-9a-f]{6}$/;
+/** Цвет папки: `#rrggbb` строчными. Выражением, а не функцией: его видит описание API. */
+export const PROJECT_COLOR = /^#[0-9a-f]{6}$/;
 
 export function isProjectColor(value: string): boolean {
-  return COLOR.test(value);
+  return PROJECT_COLOR.test(value);
 }
 
 /**

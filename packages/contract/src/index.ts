@@ -11,6 +11,7 @@
  * ОДИНАКОВО. Не «то, что удобно переиспользовать» — иначе он превратится
  * в свалку общего назначения, а такой пакет связывает всех со всеми.
  */
+export { KEY_SHAPES, type KeyProvider, keyShapeMessage } from "./keys.js";
 export { MENTION_SOURCE, mentionedIds, mentionMarkup } from "./mentions.js";
 export {
   contrastRatio,

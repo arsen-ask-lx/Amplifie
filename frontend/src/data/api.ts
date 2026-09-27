@@ -1,8 +1,16 @@
 import { retryAfterMs } from "@amplifie/contract";
 import type {
+  AgentsView,
+  AnswerView,
+  Bridge,
+  BridgeIssued,
   ChangeEvent,
   Conversation,
+  InviteCreated,
+  Me,
   Message,
+  ModelCheck,
+  ModelKey,
   PanelSnapshot,
   Person,
   Project,
@@ -21,9 +29,17 @@ import { patient } from "./patient.js";
  * старое поле. Только типы: zod в сборку фронта не едет.
  */
 export type {
+  AgentsView,
+  AnswerView,
+  Bridge,
+  BridgeIssued,
   ChangeEvent,
   Conversation,
+  InviteCreated,
+  Me,
   Message,
+  ModelCheck,
+  ModelKey,
   PanelSnapshot,
   Person,
   Project,
@@ -47,12 +63,6 @@ export interface Page {
  * шлёт её сам при credentials: "include". Хранить токен в localStorage
  * запрещено — это первое, что забирают при XSS.
  */
-
-export interface Me {
-  account: { id: string; email: string };
-  participant: { id: string; displayName: string; kind: string; role: string };
-  workspace: { id: string; name: string };
-}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // ⚠️ content-type ТОЛЬКО там, где есть тело.
@@ -97,38 +107,9 @@ function patiently<T>(path: string, signal?: AbortSignal): Promise<T> {
   return patient((attempt) => request<T>(path, { signal: attempt }), signal);
 }
 
-export interface AgentsView {
-  items: Array<{ id: string; name: string; kind: string; answersOn: string }>;
-  /** Мост СПРАШИВАЮЩЕГО: агент отвечает через его подписку, не через чужую. */
-  bridge: { connected: boolean; online: boolean; name: string | null };
-  /** Чем будет оплачен вызов, если позвать агента прямо сейчас. */
-  answersVia: { kind: string; hint: string | null };
-}
-
-/** Ключ поставщика. Самого ключа здесь нет и не будет — только подсказка. */
-export interface ModelKey {
-  id: string;
-  provider: string;
-  hint: string;
-  scope: "участник" | "пространство";
-  createdAt: string;
-}
-
 /** Надгробие ли это. Разбор в одном месте, а не по «if» у каждого читателя. */
 export function isTombstone(line: SyncLine): line is Tombstone {
   return "deleted" in line && line.deleted;
-}
-
-/** Мост — машина участника, на которой живёт его подписка (task-001). */
-export interface Bridge {
-  id: string;
-  name: string | null;
-  /** Код погашен, машина подключалась хотя бы раз. */
-  joined: boolean;
-  /** Приходил за работой недавно — значит спросить можно прямо сейчас. */
-  online: boolean;
-  lastSeenAt: string | null;
-  createdAt: string;
 }
 
 export const api = {
@@ -304,7 +285,7 @@ export const api = {
    * этот разговор либо весь проект.
    */
   ask: (id: string, scope: "conversation" | "project" = "conversation") =>
-    request<{ messageId: string; body: string; ms: number } | null>(`/v1/conversations/${id}/ask`, {
+    request<AnswerView | null>(`/v1/conversations/${id}/ask`, {
       method: "POST",
       body: JSON.stringify({ scope }),
     }),
@@ -413,7 +394,7 @@ export const api = {
    * невозможно ни нам, ни кому-либо ещё. Потерял — сделай новую.
    */
   invite: () =>
-    request<{ id: string; token: string; expiresAt: string; maxUses: number }>("/v1/invites", {
+    request<InviteCreated>("/v1/invites", {
       method: "POST",
       body: "{}",
     }),
@@ -436,14 +417,14 @@ export const api = {
    * в базе только хеш, как у приглашения (Р-009).
    */
   createBridgeCode: () =>
-    request<{ id: string; code: string; command: string; expiresAt: string }>("/v1/bridges", {
+    request<BridgeIssued>("/v1/bridges", {
       method: "POST",
       body: "{}",
     }),
 
   /** Живая проверка: спросить настоящую модель через свой мост. */
   checkModel: (prompt?: string) =>
-    request<{ text: string; ms: number }>("/v1/model/check", {
+    request<ModelCheck>("/v1/model/check", {
       method: "POST",
       body: JSON.stringify(prompt ? { prompt } : {}),
     }),
