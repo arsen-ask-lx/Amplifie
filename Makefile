@@ -325,6 +325,12 @@ trace-audit: ## план заявил «прочитано целиком» — 
 trace-check: ## проверки правил сверки по записи сессии и хука чтения (подсаженные нарушения)
 > node --test tools/agent/trace-rules.test.mjs tools/agent/read-guard-rules.test.mjs tools/agent/session-log.test.mjs
 
+weak-asserts: ## в тестах нет нового «не пусто» вместо значения (храповик, task-125)
+> npm run weak-asserts
+
+weak-asserts-check: ## проверки правила «не пусто» (подсаженные нарушения)
+> npm run weak-asserts:check
+
 plan-review: ## план с task-109 не одобрен без «Прочитано», «Варианты» и «Разбор критика»
 > node --test tools/checks/plan-review-rule.test.mjs
 > node tools/checks/check-plan-review.mjs
@@ -527,4 +533,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: openapi api-fuzz caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
+.PHONY: openapi api-fuzz weak-asserts weak-asserts-check caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check

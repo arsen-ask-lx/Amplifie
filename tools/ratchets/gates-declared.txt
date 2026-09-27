@@ -101,3 +101,7 @@ typecheck
 # run typecheck: npm run typecheck
 unit
 # run unit: npm run unit
+weak-asserts
+# run weak-asserts: npm run weak-asserts
+weak-asserts-check
+# run weak-asserts-check: npm run weak-asserts:check

@@ -86,8 +86,11 @@
      [Р; машинная проверка удалённого `it(` — в долг].
 2. **Сторож «не пусто»** — `tools/checks/check-weak-asserts.mjs` (чистое правило + тест с
    подсадками): `toBeTruthy()`, `toBeDefined()`, `not.toBeNull()`, `toBeFalsy()`,
-   `not.toBeUndefined()` на значении, у которого в том же тесте нет точной проверки. База —
-   **поимённый список** `файл:строка` в `tools/ratchets/weak-asserts.txt`; новое — красное.
+   `not.toBeUndefined()`, `not.toBe(null|undefined)`, `not.toHaveLength(0)` на значении, у
+   которого в том же тесте нет точной проверки (белый список матчеров, без `not.`). База —
+   **поимённый список** `файл | вызов` в `tools/ratchets/weak-asserts.txt`, одинаковые
+   вызовы — с количеством; новое — красное. Предел назван: `assert.ok` из `node:test` не
+   ловится (в оснастке это обычно условие).
    Подключение: скрипт в `package.json`, цель в `Makefile`, запись в `.aqk.yml`, пара строк
    в `tools/ratchets/gates-declared.txt`; `.aqk.yml` и `Makefile` — охрана охраны, коммит с
    отчётом ревью.
