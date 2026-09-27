@@ -115,8 +115,11 @@ export function Bubble({
   /** Идёт выделение. `null` — обычный режим. */
   picking: Picking | null;
 }) {
-  const chosen = picking?.chosen.has(row.message.id) ?? false;
-  const pick = pickHandlers(row, picking);
+  // Неотправленное не выделяется (task-111): сервер о нём не знает,
+  // и «удалить выделенное» ушло бы в пустоту.
+  const pickable = row.message.state ? null : picking;
+  const chosen = pickable?.chosen.has(row.message.id) ?? false;
+  const pick = pickHandlers(row, pickable);
   /**
    * Есть ли в реплике блок кода — от этого зависит предел ширины пузыря.
    *
@@ -142,7 +145,7 @@ export function Bubble({
         row.fresh ? "msg-fresh" : "",
         // В режиме выделения щелчок по всей строке переключает выбор,
         // поэтому строка целиком становится нажимаемой и подсвечивается.
-        picking ? "cursor-pointer rounded-sm" : "",
+        pickable ? "cursor-pointer rounded-sm" : "",
         chosen ? "bg-selected" : "",
       ]
         .filter(Boolean)
@@ -171,7 +174,9 @@ export function Bubble({
             // теперь один и тот же с одной стороны.
             "rounded-lg rounded-bl-sm",
             row.mine
-              ? "border border-accent-soft-edge bg-accent-soft text-ink-on-soft"
+              ? // Ссылки в своём пузыре — своим цветом (Д-29). Подменяется `--link`, а не
+                // `--color-link`: тема объявлена `@theme inline`, утилита берёт `--link` прямо.
+                "border border-accent-soft-edge bg-accent-soft text-ink-on-soft [--link:var(--link-on-soft)]"
               : "border border-line bg-card text-ink",
           ].join(" ")}
         >
@@ -190,20 +195,20 @@ export function Bubble({
             />
           ) : null}
 
-          <span className="block text-body leading-snug break-words whitespace-pre-wrap">
+          <span data-body className="block text-body leading-snug break-words whitespace-pre-wrap">
             <RichText body={forDisplay(row.message.body)} />
             {/* Распорка под время. Для чтения вслух её нет. */}
             <Spacer row={row} />
           </span>
 
-          <Corner row={row} />
+          <Corner row={row} onRetry={deeds.onRetry} />
         </ContextMenuTrigger>
         <Actions row={row} deeds={deeds} />
       </ContextMenu>
 
       {/* Галочка справа от пузыря, а не внутри: внутри она соревновалась бы
           с текстом за место и уезжала бы под время. */}
-      <Tick row={row} picking={picking} chosen={chosen} />
+      <Tick row={row} picking={pickable} chosen={chosen} />
     </article>
   );
 }

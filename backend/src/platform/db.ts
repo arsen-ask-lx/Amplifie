@@ -2,12 +2,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { config } from "./config.js";
+import { COUNTERS, count, gauge } from "./metrics.js";
 
 /**
  * Единственный пул на процесс.
  *
  * Прямые запросы к базе разрешены ТОЛЬКО в слое хранилища модуля-владельца
- * таблицы. Это стережёт гейт dependency-cruiser, а не договорённость.
+ * таблицы. Это стережёт `make arch` (Р-047), а не договорённость.
  */
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
@@ -40,11 +41,25 @@ export function queriesSoFar(): number | null {
 export const db = drizzle(pool, {
   logger: {
     logQuery() {
+      // Два счёта на одно событие, и это не дубль: первый про ОДНО
+      // обращение (его отдаёт заголовок стенда), второй — про весь
+      // процесс. Именно их расхождение ловит враньё прибора (task-087).
+      count(COUNTERS.dbQueries);
       const store = counting.getStore();
       if (store) store.queries += 1;
     },
   },
 });
+
+/**
+ * Пул рассказывает о себе сам — считать ничего не надо.
+ *
+ * Занято и ОЧЕРЕДЬ — разные вещи, и второе важнее: пул из десяти
+ * бывает занят полностью и без беды, а вот очередь за ним — это уже
+ * чужое ожидание (Saturation из USE).
+ */
+gauge("amplifie_pool_busy", "занято соединений пула", () => pool.totalCount - pool.idleCount);
+gauge("amplifie_pool_waiting", "ждут свободного соединения", () => pool.waitingCount);
 
 type Db = NodePgDatabase;
 

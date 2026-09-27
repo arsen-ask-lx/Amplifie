@@ -29,6 +29,11 @@ export interface Panel
     Rooms,
     | "projects"
     | "loaded"
+    | "openProject"
+    | "moreIn"
+    | "loadMoreIn"
+    | "moreRecent"
+    | "loadMoreRecent"
     | "addChannel"
     | "addProject"
     | "renameProject"
@@ -65,6 +70,11 @@ export function usePanel(input: {
       items: rooms.items.filter((room) => room.parentId === null),
       projects: rooms.projects,
       loaded: rooms.loaded,
+      openProject: rooms.openProject,
+      moreIn: rooms.moreIn,
+      loadMoreIn: rooms.loadMoreIn,
+      moreRecent: rooms.moreRecent,
+      loadMoreRecent: rooms.loadMoreRecent,
       currentId,
       unreadOf: reading.unreadOf,
       mentionsOf: reading.mentionsOf,

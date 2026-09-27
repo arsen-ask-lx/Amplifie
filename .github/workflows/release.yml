@@ -15,13 +15,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Полная история: версия берётся из тега (Р-030 ⑥).
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          # Токен не остаётся в .git/config: дальше его никто не читает (zizmor, artipacked).
+          persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 24
-          cache: npm
+          node-version: 26
+          # ⚠️ БЕЗ КЕША ПАКЕТОВ. Кеш общий с обычными прогонами, и отравленный
+          # там пакет уехал бы в архив выпуска к клиенту (zizmor, cache-poisoning).
+          # Выпуск редкий — минута на скачивание дешевле. С v5 setup-node
+          # включает кеш сам, поэтому выключен явно.
+          package-manager-cache: false
       - run: npm ci
       # ⚠️ ВЫПУСК — ЭТО ТОТ ЖЕ АРХИВ, ЧТО ПРОШЁЛ ПУТЬ КЛИЕНТА. Отдельной
       # сборки для выпуска нет: проверено было бы одно, а уехало другое.

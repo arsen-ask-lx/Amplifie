@@ -43,12 +43,18 @@ function Empty() {
  * строки делятся ПО НОМЕРУ, и каждая половина группируется сама.
  * У Телеграма черта тоже разрывает склейку.
  */
-function splitAtLine(rows: Row[], boundary: number | null) {
-  if (boundary === null) return { beforeLine: rows, afterLine: [] as Row[] };
-  return {
-    beforeLine: rows.filter((one) => one.message.seq <= boundary),
-    afterLine: rows.filter((one) => one.message.seq > boundary),
-  };
+function splitAtLine(rows: Row[], boundary: number | null, hasOlder: boolean) {
+  // ⚠️ ГРАНИЦА СТАРШЕ ЗАГРУЖЕННОГО, А НИЖЕ КРАЯ ЕСТЬ НЕЗАГРУЖЕННОЕ — ЧЕРТЫ
+  // НЕТ (task-099). Над первой загруженной репликой она соврала бы, что
+  // непрочитанное начинается здесь, хотя оно начинается ниже края.
+  const first = rows[0]?.message.seq;
+  const beyond = hasOlder && first !== undefined && boundary !== null && boundary < first - 1;
+  if (boundary === null || beyond) return { beforeLine: rows, afterLine: [] as Row[] };
+  // ⚠️ ЧЕРТА — ПЕРЕД ПЕРВОЙ ЧУЖОЙ НЕПРОЧИТАННОЙ (Д-58): отметка уходит раз в три
+  // секунды и отстаёт от своей свежей реплики. Свои не считает и счётчик панели.
+  const at = rows.findIndex((one) => one.message.seq > boundary && !one.mine);
+  if (at < 0) return { beforeLine: rows, afterLine: [] as Row[] };
+  return { beforeLine: rows.slice(0, at), afterLine: rows.slice(at) };
 }
 
 /**
@@ -148,6 +154,9 @@ export function Feed({
   messages,
   hasOlder,
   onLoadOlder,
+  hasNewer,
+  onLoadNewer,
+  onToLatest,
   title,
   meId,
   focus,
@@ -158,10 +167,16 @@ export function Feed({
   mentions,
   onGoToMention,
   onFollow,
+  onSeen,
 }: {
   messages: Message[];
   hasOlder: boolean;
   onLoadOlder: () => void | Promise<void>;
+  /** Лента открыта не в конце — за верхним краем есть новее (task-099). */
+  hasNewer: boolean;
+  onLoadNewer: () => void | Promise<void>;
+  /** Вернуться к концу разговора. */
+  onToLatest: () => void;
   title: string | undefined;
   meId: string;
   /** Реплика, из которой пришли по цитате. */
@@ -173,20 +188,18 @@ export function Feed({
   /** Идёт выделение. `null` — обычный режим. */
   picking: Picking | null;
   /**
-   * Перед какой репликой стоит черта «Непрочитанные сообщения».
-   * `null` — черты нет. Замирает при открытии разговора (Р-029).
+   * После какого номера черта «Непрочитанные сообщения»; на неё лента
+   * встаёт при открытии (task-107). `null` — черты нет.
    */
   boundary: number | null;
   /** Сколько раз тут позвали тебя и ты этого не видел (Р-031). */
   mentions: number;
   /** Увести к самому раннему неувиденному зову. */
   onGoToMention: () => void;
-  /**
-   * Сказать наружу, внизу ли человек. По этому ответу лента решает,
-   * можно ли вытеснять старое сверху (Р-023): у листающего назад —
-   * нельзя, он читает ровно то, что мы бы выбросили.
-   */
+  /** Внизу ли человек: у листающего назад старое не вытесняется (Р-023). */
   onFollow: (yes: boolean) => void;
+  /** Наибольший номер, увиденный человеком целиком (task-107). */
+  onSeen: (seq: number) => void;
 }) {
   const newest = messages.at(-1)?.seq ?? 0;
   const newestMine = messages.at(-1)?.author.id === meId;
@@ -199,7 +212,12 @@ export function Feed({
     count: messages.length,
     hasOlder,
     onLoadOlder,
+    hasNewer,
+    onLoadNewer,
+    onToLatest,
     focus,
+    boundary,
+    onSeen,
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: важен сам факт смены
@@ -217,7 +235,7 @@ export function Feed({
 
   const rows = rowsOf(messages, meId, wasThereAtFirst.current);
 
-  const { beforeLine, afterLine } = splitAtLine(rows, boundary);
+  const { beforeLine, afterLine } = splitAtLine(rows, boundary, hasOlder);
 
   return (
     // Обёртка нужна кнопке «вниз»: она висит НАД лентой и не должна
@@ -242,8 +260,10 @@ export function Feed({
       >
         <div className="mt-auto">
           {hasOlder ? (
-            <p className="mb-3 text-center text-aside text-muted" aria-live="polite">
-              Загружаем более раннее…
+            // Пустая строка той же высоты, без слов (task-101): надпись мелькала
+            // над каждым давним окном, а высота нужна, чтобы догрузка не дёргала ленту.
+            <p className="mb-3 text-center text-aside" aria-hidden="true">
+              {" "}
             </p>
           ) : (
             <p className="mb-4 text-center text-aside text-muted">
@@ -257,7 +277,7 @@ export function Feed({
               Сколько именно, человек уже прочёл у канала в панели;
               повторять число здесь значит сказать одно и то же дважды. */}
           {afterLine.length > 0 ? (
-            <p className="my-3 flex items-center gap-3 text-mark text-muted">
+            <p data-unread-line className="my-3 flex items-center gap-3 text-mark text-muted">
               <span className="h-px flex-1 bg-line" />
               Непрочитанные сообщения
               <span className="h-px flex-1 bg-line" />

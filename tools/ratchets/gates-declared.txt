@@ -1,0 +1,115 @@
+# Снимок объявленной защиты. Набор может только РАСТИ.
+# Убрал гейт — напиши причину после # в его строке, иначе проверка краснеет.
+# Строка «# run имя: команда» — не комментарий: смена команды без её правки краснеет.
+api-contract-has-arbiter
+# run api-contract-has-arbiter: bash tools/gates/api-contract-has-arbiter/check.sh .
+arbiter-check
+# run arbiter-check: npm run arbiter:check
+arch
+# run arch: npm run arch
+arch-check
+# run arch-check: npm run arch:check
+biome-rules-check
+# run biome-rules-check: npm run biome-rules:check
+ci-actually-fails
+# run ci-actually-fails: bash tools/gates/ci-actually-fails/check.sh .
+ci-red-check
+# run ci-red-check: npm run ci-red:check
+ci-not-hijackable
+# run ci-not-hijackable: bash tools/gates/ci-not-hijackable/check.sh .
+color-from-token
+# run color-from-token: bash tools/gates/color-from-token/ours.sh .
+commit-explains-itself
+# run commit-explains-itself: bash tools/gates/commit-explains-itself/check.sh .
+contrast
+# run contrast: npm run contrast
+cost
+# run cost: npm run cost
+cycle
+# run cycle: npm run cycle
+cycle-check
+# run cycle-check: npm run cycle:check
+dead-code
+# run dead-code: bash tools/gates/dead-code/ours.sh .
+decisions
+# run decisions: npm run decisions
+decisions-check
+# run decisions-check: make decisions-check
+deps-are-pinned
+# run deps-are-pinned: bash tools/gates/deps-are-pinned/check.sh .
+deps-lock
+# run deps-lock: make deps-check
+docs
+# run docs: make docs
+duplicate-code
+# run duplicate-code: npm run duplicates
+entry-commands-exist
+# run entry-commands-exist: bash tools/gates/entry-commands-exist/check.sh .
+entry-docs-agree
+# run entry-docs-agree: bash tools/gates/entry-docs-agree/check.sh .
+entry-links-exist
+# run entry-links-exist: bash tools/gates/entry-links-exist/check.sh .
+env-check
+# run env-check: npm run env:check
+failure-map
+# run failure-map: npm run failure-map
+favicon
+# run favicon: npm run favicon
+file-size-limit
+# run file-size-limit: bash tools/gates/file-size-limit/check.sh .
+gate-has-samples
+# run gate-has-samples: bash tools/gates/gate-has-samples/check.sh .
+gate-not-weakened
+# run gate-not-weakened: bash tools/gates/gate-not-weakened/check.sh .
+gates-are-runnable
+# run gates-are-runnable: bash tools/gates/gates-are-runnable/check.sh .
+gates-run-in-ci
+# run gates-run-in-ci: bash tools/gates/gates-run-in-ci/check.sh .
+lesson-has-outcome
+# run lesson-has-outcome: bash tools/gates/lesson-has-outcome/check.sh .
+lint
+# run lint: npm run lint
+map
+# run map: npm run map
+map-check
+# run map-check: npm run map:check
+model
+# run model: npm run model
+no-raw-html
+# run no-raw-html: npm run no-raw-html
+openapi
+# run openapi: npm run openapi:check
+openspec
+# run openspec: npm run openspec
+personal-config-not-shared
+# run personal-config-not-shared: bash tools/gates/personal-config-not-shared/check.sh .
+plan-review
+# run plan-review: make plan-review
+promise-has-gate
+# run promise-has-gate: bash tools/gates/promise-has-gate/check.sh .
+proof
+# run proof: make proof
+protection-not-removed
+# run protection-not-removed: bash tools/gates/protection-not-removed/check.sh .
+rhythm
+# run rhythm: node tools/checks/check-rhythm.mjs
+rules-paths
+# run rules-paths: npm run rules-paths
+rules-paths-check
+# run rules-paths-check: npm run rules-paths:check
+secrets-not-in-code
+# run secrets-not-in-code: bash tools/gates/secrets-not-in-code/check.sh .
+test-has-assertion
+# run test-has-assertion: bash tools/gates/test-has-assertion/check.sh .
+todo-without-task
+# run todo-without-task: bash tools/gates/todo-without-task/check.sh .
+trace-check
+# run trace-check: make trace-check
+typecheck
+# run typecheck: npm run typecheck
+unit
+# run unit: npm run unit
+weak-asserts
+# run weak-asserts: npm run weak-asserts
+weak-asserts-check
+# run weak-asserts-check: npm run weak-asserts:check

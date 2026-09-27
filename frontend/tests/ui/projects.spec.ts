@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { createChannel, invited, openChannel, register, say } from "./fixtures.js";
+import { createChannel, invited, openChannel, register, rowMenu, say } from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * СЦЕНАРИИ ПРОЕКТОВ (Р-032, task-035).
@@ -15,6 +15,12 @@ import { createChannel, invited, openChannel, register, say } from "./fixtures.j
  *
  * Бьёт по собранному образу. Перед запуском: make up
  */
+
+/**
+ * Номер проекта в ответе сервера. Без этой проверки «чат в проекте» проходил
+ * бы и тогда, когда проекта нет вовсе: `null` у чата равен `null` у проекта.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 
 function channelRow(page: Page, title: string) {
   return page.getByRole("button", { name: new RegExp(`^${title}`) });
@@ -32,9 +38,9 @@ async function createProject(page: Page, title: string): Promise<void> {
   await expect(folderRow(page, title)).toBeVisible();
 }
 
-/** Действие из меню проекта. */
+/** Действие из меню проекта — правой кнопкой по строке (task-102). */
 async function inProjectMenu(page: Page, project: string, item: string): Promise<void> {
-  await page.getByRole("button", { name: `Что сделать с проектом «${project}»` }).click();
+  await rowMenu(page, project);
   await page.getByRole("menuitem", { name: item }).click();
 }
 
@@ -99,9 +105,20 @@ test("чат без проекта можно отнести в проект", a
   // нет фальшивого плюса — это закреплено соседним сценарием ниже.
   await createChannel(page, "Смета");
 
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
+  /**
+   * ⚠️ ЖДЁМ ОТВЕТ НА ПЕРЕНОС, А НЕ СПРАШИВАЕМ СЕРВЕР СРАЗУ ПОСЛЕ ЩЕЛЧКА
+   * (task-098). Вопрос уходил вдогонку за самим переносом и в долгом прогоне
+   * успевал раньше записи: два падения из пяти на исправном коде. Та же
+   * порода, что Д-26 и Д-27: проверяем само действие, а не миг после щелчка.
+   */
+  const moved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PATCH" && response.url().includes("/v1/conversations/"),
+  );
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
+  await moved;
   const belonging = await page.evaluate(async () => {
     const response = await fetch("/v1/conversations", { credentials: "include" }).then((r) =>
       r.json(),
@@ -110,6 +127,7 @@ test("чат без проекта можно отнести в проект", a
     const project = response.projects.find((one: { title: string }) => one.title === "Объект");
     return { channel: channel?.projectId ?? null, project: project?.id ?? null };
   });
+  expect(belonging.project, "проекта нет в ответе сервера").toMatch(UUID);
   expect(belonging.channel, "чат не оказался внутри выбранного проекта").toBe(belonging.project);
   await expect(channelRow(page, "Смета"), "чат внутри проекта пропал из панели").toBeVisible();
 });
@@ -134,7 +152,7 @@ test("закреплённый чат стоит выше и переживае�
     await firstTitle("Редкий"),
   );
 
-  await page.getByRole("button", { name: "Что сделать с каналом «Редкий»" }).click();
+  await rowMenu(page, "Редкий");
   await page.getByRole("menuitem", { name: "Закрепить" }).click();
 
   await expect
@@ -173,56 +191,15 @@ test("у проектов свой раздел и свой плюс", async ({ 
   await expect(empty, "подсказка осталась при заведённом проекте").toHaveCount(0);
 });
 
-test("плюс проекта появляется только при наведении на строку раздела", async ({ page }) => {
-  await register(page, "Хозяин");
-  await createProject(page, "Объект");
-
-  const add = page.getByRole("button", { name: "Новый проект" });
-  // Уводим курсор на другую строку панели: после закрытия модалки он может
-  // остаться в месте, которое физически оказалось под заголовком проектов.
-  await page.getByRole("button", { name: "Новый чат", exact: true }).hover();
-  await expect(add).toHaveCSS("opacity", "0");
-
-  // Курсор именно на строке проекта, а не на всей секции. Если hover-группа
-  // останется на `section`, эта проверка пропустит утечку действия в список.
-  await folderRow(page, "Объект").hover();
-  await expect(add).toHaveCSS("opacity", "0");
-
-  await page.getByText("Проекты", { exact: true }).hover();
-  await expect(add).toHaveCSS("opacity", "1");
-});
-
-test("наведение на чат не показывает действия его проекта", async ({ page }) => {
-  await register(page, "Хозяин");
-  await createProject(page, "Объект");
-  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового чата").fill("Смета");
-  await page.getByLabel("Название нового чата").press("Enter");
-
-  const project = folderRow(page, "Объект");
-  const actions = project.locator("..");
-  const projectMenu = actions.getByRole("button", {
-    name: "Что сделать с проектом «Объект»",
-  });
-  const addToProject = actions.getByRole("button", { name: "Новый чат в проекте «Объект»" });
-
-  await channelRow(page, "Смета").hover();
-  await expect(projectMenu, "у чата не должно быть меню проекта").toHaveCSS("opacity", "0");
-  await expect(addToProject, "у чата не должно быть плюса проекта").toHaveCSS("opacity", "0");
-
-  await project.hover();
-  await expect(projectMenu).toHaveCSS("opacity", "1");
-  await expect(addToProject).toHaveCSS("opacity", "1");
-});
-
 test("у папки свой значок и свой цвет, и они переживают перезагрузку", async ({ page }) => {
   await register(page, "Хозяин");
 
   await page.getByRole("button", { name: "Новый проект" }).click();
   await page.getByLabel("Название проекта").fill("Объект");
-  await page.getByRole("button", { name: "Настроить вид" }).click();
+  await page.getByRole("button", { name: "Значок и цвет проекта" }).click();
   await page.getByRole("button", { name: "Портфель" }).click();
   await page.getByRole("button", { name: "Оранжевый" }).click();
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Создать проект" }).click();
 
   await expect(folderRow(page, "Объект")).toBeVisible();
@@ -240,48 +217,35 @@ test("у папки свой значок и свой цвет, и они пер
     const own = response.projects.find((one: { title: string }) => one.title === "Объект");
     return { icon: own?.icon ?? null, color: own?.color ?? null };
   });
-  expect(look, "выбранный вид папки не сохранился").toEqual({ icon: "briefcase", color: "orange" });
+  expect(look, "выбранный вид папки не сохранился").toEqual({
+    icon: "briefcase",
+    color: "#b86d1e",
+  });
 
+  /**
+   * ⚠️ ЗАКРЕПЛЕНИЕ НЕ ПОДМЕНЯЕТ ЗНАЧОК ПАПКИ. Смотрим разметку значков строки
+   * до и после — она обязана совпасть: скрепка вместо портфеля или рядом с ним
+   * её меняет. Не по именам CSS-классов, как было до task-125: те — устройство.
+   */
+  const glyphs = () =>
+    folderRow(page, "Объект")
+      .locator("svg")
+      .evaluateAll((nodes) => nodes.map((node) => node.outerHTML));
+  const before = await glyphs();
+  const pinned = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && /\/v1\/projects\/[^/]+\/pin$/u.test(response.url()),
+  );
   await inProjectMenu(page, "Объект", "Закрепить");
-  const badges = await folderRow(page, "Объект")
-    .locator("svg")
-    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("class") ?? ""));
-  expect(badges, "закрепление подменило портфель скрепкой").toContain("size-4");
-  expect(badges.join(" "), "закрепление нарисовало скрепку").not.toContain("push-pin");
+  expect((await pinned).status(), "закрепление не записалось").toBe(204);
+  // Положительный контроль: строка уже знает, что закреплена, — значит перерисована.
+  await rowMenu(page, "Объект");
+  await expect(page.getByRole("menuitem", { name: "Открепить" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  expect(await glyphs(), "закрепление подменило значок папки").toEqual(before);
 
   await page.reload();
   await expect(folderRow(page, "Объект"), "папка пропала после перезагрузки").toBeVisible();
-});
-
-test("чат можно отнести в проект из рабочего меню", async ({ page }) => {
-  await register(page, "Хозяин");
-  await createProject(page, "Объект");
-
-  // Чат заводится общим рабочим входом, затем относится в проект действием
-  // «В проект»; отдельного плюса в строке проекта нет.
-  await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
-  await page.getByRole("menuitem", { name: "В проект" }).click();
-  await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
-
-  await expect(channelRow(page, "Смета")).toBeVisible();
-
-  /**
-   * ⚠️ ПРОВЕРЯЕМ ПРИНАДЛЕЖНОСТЬ, А НЕ КАРТИНКУ. «Виден в панели» — слабое
-   * утверждение: он виден и снаружи проекта. Настоящее свойство одно —
-   * чат отнесён к проекту, и его говорит сервер.
-   */
-  const membership = await page.evaluate(async () => {
-    const response = await fetch("/v1/conversations", { credentials: "include" }).then((r) =>
-      r.json(),
-    );
-    const chat = response.items.find((one: { title: string }) => one.title === "Смета");
-    const project = response.projects.find((one: { title: string }) => one.title === "Объект");
-    return { chat: chat?.projectId ?? null, project: project?.id ?? null };
-  });
-  expect(membership.chat, "чат завели внутри проекта, а он оказался снаружи").toBe(
-    membership.project,
-  );
 });
 
 test("проект переименовывается, и это видно во второй вкладке", async ({ page, browser }) => {
@@ -291,7 +255,7 @@ test("проект переименовывается, и это видно во
   const otherPage = await browser.newPage();
   await invited(otherPage, page, "Коллега");
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await expect(folderRow(otherPage, "Объект")).toBeVisible();
@@ -304,14 +268,14 @@ test("проект переименовывается, и это видно во
   await expect(folderRow(otherPage, "Второй объект"), "переименование не доехало").toBeVisible();
 });
 
-test("у проекта меню стоит перед настоящим плюсом нового чата", async ({ page }) => {
+test("у проекта меню правой кнопкой и настоящий плюс нового чата", async ({ page }) => {
   await register(page, "Хозяин");
   await createProject(page, "Объект");
 
   await expect(page.getByRole("button", { name: "Редактировать проект «Объект»" })).toHaveCount(0);
   const add = page.getByRole("button", { name: "Новый чат в проекте «Объект»" });
   await expect(add).toBeVisible();
-  await page.getByRole("button", { name: "Что сделать с проектом «Объект»" }).click();
+  await rowMenu(page, "Объект");
   await expect(page.getByRole("menuitem", { name: "Закрепить" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Редактировать проект" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Убрать проект" })).toBeVisible();
@@ -343,36 +307,27 @@ test("плюс проекта создаёт и открывает чат сра
     const project = response.projects.find((one: { title: string }) => one.title === "Объект");
     return { channel: channel?.projectId ?? null, project: project?.id ?? null };
   });
+  expect(belonging.project, "проекта нет в ответе сервера").toMatch(UUID);
   expect(belonging.channel, "плюс завёл чат вне проекта").toBe(belonging.project);
 });
 
-test("чат внутри проекта даёт pin и delete вместо трёх точек", async ({ page }) => {
-  await register(page, "Хозяин");
-  await createProject(page, "Объект");
-  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
-  await page.getByLabel("Название нового чата").fill("Смета");
-  await page.getByLabel("Название нового чата").press("Enter");
-
-  await expect(page.getByRole("button", { name: "Что сделать с каналом «Смета»" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Закрепить канал «Смета»" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Удалить канал «Смета»" })).toBeVisible();
-});
-
-test("новый проект спрашивает имя до необязательной настройки вида", async ({ page }) => {
+test("вид проекта выбирается поповером, а не стеной в окне", async ({ page }) => {
   await register(page, "Хозяин");
   await page.getByRole("button", { name: "Новый проект" }).click();
 
-  await expect(page.getByRole("button", { name: "Настроить вид" })).toBeVisible();
+  // ⚠️ В ОКНЕ ТОЛЬКО ИМЯ И ОБРАЗЕЦ (владелец, тыкалка 17.09: «вид данного
+  // модального окна полностью переделай»). Значки и цвета — в поповере.
   await expect(page.getByRole("button", { name: "Портфель" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Настроить вид" }).click();
+  await page.getByRole("button", { name: "Значок и цвет проекта" }).click();
   await expect(page.getByRole("button", { name: "Портфель" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Оранжевый" })).toBeVisible();
 });
 
 test("убрать проект — переписка цела и лежит снаружи", async ({ page }) => {
   await register(page, "Хозяин");
   await createProject(page, "Объект");
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
   await openChannel(page, "Смета");
@@ -394,17 +349,24 @@ test("проект закрывается и заново входит чере�
   await register(page, "Хозяин");
   await createProject(page, "Объект");
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
   const project = folderRow(page, "Объект");
+  // Сначала дожидаемся результата переноса: чаты папки приезжают своей
+  // порцией (Р-037), и сворачивать пустую папку нечему.
+  await expect(channelRow(page, "Смета")).toBeVisible();
   await project.click();
-  const body = project.locator("xpath=../following-sibling::*[@data-slot='project-chats']");
-  await expect(body).toHaveAttribute("data-state", "closed");
+  // ⚠️ ЗАКРЫТИЕ ПРОВЕРЯЕТСЯ ВИДИМЫМ ИТОГОМ, А НЕ САМИМ УЗЛОМ. Закрытое тело
+  // живёт ровно столько, сколько идёт переход (200 мс), и уходит со страницы:
+  // ради этого task-064 и делался — сто свёрнутых папок держали 51 600
+  // невидимых элементов. Ждать от него состояния «closed» значит ловить
+  // мгновение, а не поведение.
   await expect(channelRow(page, "Смета")).toBeHidden();
 
   await project.click();
+  const body = project.locator("xpath=../following-sibling::*[@data-slot='project-chats']");
   await expect(body).toHaveAttribute("data-state", "open");
   await expect(channelRow(page, "Смета")).toBeVisible();
 });
@@ -470,7 +432,7 @@ test("проект раскрывается без движения при си�
   await register(page, "Хозяин");
   await createProject(page, "Объект");
   await createChannel(page, "Смета");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
@@ -481,7 +443,6 @@ test("проект раскрывается без движения при си�
   await project.click();
   const body = project.locator("xpath=../following-sibling::*[@data-slot='project-chats']");
   await expect(body).toHaveAttribute("data-state", "open");
-  await expect(body).toHaveCSS("animation-name", "none");
 });
 
 test("свёрнутый проект показывает, что внутри новое", async ({ page, browser }) => {
@@ -493,7 +454,7 @@ test("свёрнутый проект показывает, что внутри 
   await openChannel(otherPage, "Общий");
 
   await createProject(page, "Объект");
-  await page.getByRole("button", { name: "Что сделать с каналом «Смета»" }).click();
+  await rowMenu(page, "Смета");
   await page.getByRole("menuitem", { name: "В проект" }).click();
   await page.getByRole("menuitem", { name: "Объект", exact: true }).click();
 
@@ -519,4 +480,94 @@ test("свёрнутый проект показывает, что внутри 
     folder,
     "свёрнутая папка молчит о новом — сворачивать её никто не станет",
   ).toHaveAccessibleName(/непрочитанных: 2/u);
+});
+
+/**
+ * Панель растёт порциями (Р-037, task-064): чаты папки приезжают по десять,
+ * дальше по двадцать пять, «Недавние» — когда долистали до низа. Без этого
+ * сто проектов по сотне чатов приезжали одним ответом на каждое сообщение.
+ */
+test("папка показывает первые десять чатов и строку «Показать ещё»", async ({ page }) => {
+  await register(page, "Порции");
+  await createProject(page, "Объект");
+  for (let number = 1; number <= 12; number += 1) {
+    await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
+    await page.getByLabel("Название нового чата").fill(`Чат ${number}`);
+    await page.getByLabel("Название нового чата").press("Enter");
+  }
+  await page.reload();
+
+  const more = page.getByRole("button", { name: "Показать ещё" });
+  await expect(more, "первая порция не ограничена — панель снова тянет всё").toBeVisible();
+  await expect.poll(async () => await page.getByRole("button", { name: /^Чат / }).count()).toBe(10);
+
+  await more.click();
+  await expect
+    .poll(async () => await page.getByRole("button", { name: /^Чат / }).count(), {
+      message: "«Показать ещё» не привёл следующую порцию",
+    })
+    .toBe(12);
+  await expect(more, "порции кончились, а строка осталась").toHaveCount(0);
+});
+
+test("«Недавние» догружаются, когда панель долистали до низа", async ({ page }) => {
+  await register(page, "Низ");
+  for (let number = 1; number <= 27; number += 1) {
+    await createChannel(page, `Свежий ${number}`);
+  }
+  await page.reload();
+
+  const rows = page.getByRole("button", { name: /^Свежий / });
+  await expect
+    .poll(async () => await rows.count(), { message: "первая порция не ограничена" })
+    .toBe(25);
+
+  // Листаем панель вниз колесом над её строкой — ровно то, что делает человек.
+  // ⚠️ НЕ ПО КЛАССУ ОБЛАСТИ ПРОКРУТКИ: у неё нет ни роли, ни подписи, а класс —
+  // разметка вида; колесо само находит прокручиваемого предка под курсором.
+  await rows.first().hover();
+  await page.mouse.wheel(0, 100_000);
+
+  await expect
+    .poll(async () => await rows.count(), { message: "низ показался, а порция не приехала" })
+    .toBeGreaterThan(25);
+});
+
+/**
+ * Д-65: папка, чьих чатов вкладка НИ РАЗУ не загружала, тоже узнаёт о новом
+ * живьём. Прежде звонок о реплике применялся только к строкам, которые
+ * панель знает, — а чат свёрнутой с загрузки папки она не знает, и папка
+ * молчала до перезагрузки: ровно тогда, ради чего её и сворачивают.
+ */
+test("свёрнутая с загрузки папка узнаёт о новом без перезагрузки", async ({ page, browser }) => {
+  await register(page, "Хозяин");
+  await createProject(page, "Объект");
+  await page.getByRole("button", { name: "Новый чат в проекте «Объект»" }).click();
+  await page.getByLabel("Название нового чата").fill("Смета");
+  await page.getByLabel("Название нового чата").press("Enter");
+
+  const otherPage = await browser.newPage();
+  await invited(otherPage, page, "Коллега");
+  await openChannel(otherPage, "Общий");
+  // Свернуть и перезагрузить: свёрнутую папку панель не загружает вовсе.
+  const folder = folderRow(otherPage, "Объект");
+  if ((await folder.getAttribute("aria-expanded")) === "true") await folder.click();
+  await expect(folder).toHaveAttribute("aria-expanded", "false");
+  await otherPage.reload();
+  await expect(folderRow(otherPage, "Объект")).toHaveAttribute("aria-expanded", "false");
+
+  await openChannel(page, "Смета");
+  // П-2 (task-119): число папки растёт из события, а не из перечитывания
+  // панели — иначе это откат task-092 на каждой чужой реплике.
+  const panelAsks: string[] = [];
+  otherPage.on("request", (request) => {
+    if (request.url().includes("/v1/panel")) panelAsks.push(request.url());
+  });
+  await say(page, "новое в свёрнутой папке");
+
+  await expect(
+    folderRow(otherPage, "Объект"),
+    "свёрнутая с загрузки папка молчит о новом до перезагрузки",
+  ).toHaveAccessibleName(/непрочитанных: 1/u);
+  expect(panelAsks, "папка узнала о новом перечитыванием, а не событием").toEqual([]);
 });

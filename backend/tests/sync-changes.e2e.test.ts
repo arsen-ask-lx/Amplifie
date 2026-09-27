@@ -7,12 +7,12 @@
  * доезжает: догон отбирает по `message.seq`, а он выдаётся один раз при
  * вставке и правкой не двигается.
  *
- * ⚠️ ВТОРАЯ ВКЛАДКА — ЭТО ВТОРОЙ КУРСОР, А НЕ ВТОРОЙ ЧЕЛОВЕК. Приглашений
- * в продукте нет, второму человеку в пространство войти неоткуда
- * (см. `message-actions.e2e.test.ts`). Но догон устроен так, что курсор
- * принадлежит КЛИЕНТУ, а не учётной записи: две вкладки одного человека
- * догоняют независимо. Именно это здесь и проверяется, и именно это
- * ломалось на экране. Появится второй человек — свойство то же.
+ * ⚠️ ВТОРАЯ ВКЛАДКА — ЭТО ВТОРОЙ КУРСОР, А НЕ ВТОРОЙ ЧЕЛОВЕК. Когда тест
+ * писался, приглашений в продукте не было; теперь они есть (`colleague`
+ * в `stand.ts`), но свойство здесь другое: курсор принадлежит КЛИЕНТУ,
+ * а не учётной записи, и две вкладки одного человека догоняют независимо.
+ * Именно это здесь и проверяется, и именно это ломалось на экране. Для
+ * второго человека свойство то же.
  *
  * ⚠️ ФАЙЛ ОТДЕЛЬНЫЙ, А НЕ ДОПИСАН В `stream.e2e.test.ts`. Тот проверяет
  * ЗВОНОК (доезжает ли событие через прокси), этот — СОДЕРЖИМОЕ ответа
@@ -23,53 +23,24 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { BASE, call, requireStand, newPerson as standPerson } from "./stand.js";
 
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-/**
- * Адрес для нового пространства.
- *
- * ⚠️ БЕЗ МЕТКИ ЧЕЛОВЕКА В АДРЕСЕ, И ЭТО НЕ МЕЛОЧЬ. Метки у нас русские
- * («Правящий», «Чужой»), а проверка адреса на сервере кириллицу в местной
- * части не принимает и отвечает 422. Первый прогон этих тестов упал именно
- * так — все семь разом и до всякой проверки свойства.
- */
-function freshEmail(): string {
-  return `sync-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
+/** Вид даты, который отдаёт сервер: `Date.toISOString()`. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 interface Person {
   cookie: string;
   roomId: string;
 }
 
+/** Человек стенда и его первый канал. */
 async function newPerson(tag: string): Promise<Person> {
-  const registered = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (registered.status !== 201) throw new Error(`регистрация: ${registered.status}`);
-  const cookie = sessionCookie(registered);
-
-  const list = await fetch(`${BASE}/v1/conversations`, { headers: { cookie } });
+  const person = await standPerson(tag);
+  const list = await call("GET", "/v1/conversations", person);
   const items = ((await list.json()) as { items: Array<{ id: string }> }).items;
   const roomId = items[0]?.id;
   if (!roomId) throw new Error("у нового пространства нет канала");
-  return { cookie, roomId };
+  return { cookie: person.cookie, roomId };
 }
 
 /** Как реплика выглядит в ответе догона. Надгробие — без текста. */
@@ -159,10 +130,7 @@ async function roomLines(person: Person): Promise<Line[]> {
 }
 
 describe("догон отдаёт изменения", () => {
-  beforeAll(async () => {
-    const health = await fetch(`${BASE}/health`);
-    if (!health.ok) throw new Error(`стек не поднят (${BASE}/health): make up`);
-  });
+  beforeAll(requireStand);
 
   it("правка доезжает до второй вкладки", async () => {
     const person = await newPerson("Правящий");
@@ -177,7 +145,7 @@ describe("догон отдаёт изменения", () => {
     const line = got.lines.find((l) => l.id === said.id);
     expect(line).toBeDefined();
     expect(line?.body).toBe("второй вариант");
-    expect(line?.editedAt).toBeTruthy();
+    expect(line?.editedAt, "у правки нет отметки времени").toMatch(ISO_DATE);
   });
 
   it("догон не задваивает: два раза подряд без изменений — второй пустой", async () => {
@@ -240,11 +208,16 @@ describe("догон отдаёт изменения", () => {
 
     await pin(person, said.id, true);
     const pinned = await syncFrom(person.cookie, cursor);
-    expect(pinned.lines.find((l) => l.id === said.id)?.pinnedAt).toBeTruthy();
+    expect(pinned.lines.find((l) => l.id === said.id)?.pinnedAt, "закреп без времени").toMatch(
+      ISO_DATE,
+    );
 
     await pin(person, said.id, false);
     const unpinned = await syncFrom(person.cookie, pinned.cursor);
-    expect(unpinned.lines.find((l) => l.id === said.id)).toBeDefined();
+    expect(
+      unpinned.lines.map((l) => l.id),
+      "открепление не доехало",
+    ).toContain(said.id);
     expect(unpinned.lines.find((l) => l.id === said.id)?.pinnedAt ?? null).toBeNull();
   });
 
@@ -295,7 +268,10 @@ describe("догон отдаёт изменения", () => {
     const theirs = await send(stranger, "не для тебя");
     await edit(stranger, theirs.id, "и это тоже");
 
+    // Положительный контроль: пустой догон проходит и на мёртвом догоне.
+    // Своя реплика с того же курсора приезжает — и приезжает одна.
+    await send(mine, "своё");
     const got = await syncFrom(mine.cookie, cursor);
-    expect(got.lines).toEqual([]);
+    expect(got.lines.map((l) => l.body)).toEqual(["своё"]);
   });
 });

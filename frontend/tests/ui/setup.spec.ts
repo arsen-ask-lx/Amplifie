@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { field, skipSetup } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * МАСТЕР ПЕРВОГО ЗАПУСКА (task-023).
@@ -96,6 +96,30 @@ test("пропустивший подключение оказывается в 
   await expect(field(page)).toBeVisible();
 });
 
+test("«Своя подписка» открывает одно окно, а не два", async ({ page }) => {
+  await install(page);
+  await page.getByRole("button", { name: /Своя подписка/u }).click();
+
+  // Ждём то, ради чего окно открывали: код подключения моста либо честный
+  // отказ выдачи. Без ожидания проверка числа окон успела бы до второго.
+  await expect(
+    page
+      .getByRole("button", { name: "Копировать строку запуска" })
+      .or(page.getByText(/Не удалось выдать код/u)),
+  ).toBeVisible();
+
+  /**
+   * ⚠️ ОДНО ОКНО, А НЕ ДВА (владелец 17.09: «нахрена там 2 окна»). Панель
+   * внутри окна открывала своё второе поверх первого.
+   *
+   * ⚠️ СЧИТАЕМ УЗЛЫ, А НЕ РОЛИ, И ЭТО НЕ ПРИДИРКА К РАЗМЕТКЕ. Radix помечает
+   * нижнее окно `aria-hidden`, поэтому поиск по роли видит ровно одно окно
+   * даже тогда, когда их два: первая редакция этой проверки была зелёной
+   * на сломанном экране. Человек видит две рамы — их и считаем.
+   */
+  await expect(page.locator('[role="dialog"]'), "окно поверх окна").toHaveCount(1);
+});
+
 test("поставщик выбирается с клавиатуры, Escape закрывает список, затем окно", async ({ page }) => {
   const { dialog, provider } = await openKeyDialog(page);
 
@@ -120,8 +144,9 @@ test("окно ключа помещается в узкий экран с по�
   await page.setViewportSize({ width: 390, height: 844 });
   const { dialog, provider, key, scope, save } = await openKeyDialog(page);
 
+  // Нет геометрии — окно не нарисовано: падение с причиной, а точные
+  // проверки ниже — поля по 16 точек с обеих сторон узкого экрана.
   const box = await dialog.boundingBox();
-  expect(box).not.toBeNull();
   if (!box) throw new Error("Модальное окно не имеет измеримой геометрии");
   expect(box.x).toBeGreaterThanOrEqual(16);
   expect(390 - (box.x + box.width)).toBeGreaterThanOrEqual(16);

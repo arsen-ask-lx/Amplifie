@@ -1,18 +1,62 @@
 import { Hash } from "@phosphor-icons/react";
-import { useEffect, useRef } from "react";
-import type { Conversation, Message } from "../../data/api.js";
+import { useEffect, useRef, useState } from "react";
+import { api, type Conversation, type Message } from "../../data/api.js";
+import { usePausedAsk } from "../../data/usePausedAsk.js";
+import { Button } from "../../shared/ui/button.js";
+import { CommandField } from "../../shared/ui/command-field.js";
+import { Dialog, DialogContent, DialogTitle } from "../../shared/ui/dialog.js";
+import { focusAfterClose, focusField } from "../../shared/ui/focusAfterClose.js";
 
 /**
- * Куда переслать: список каналов поверх ленты.
+ * Куда переслать: поле поиска и список чатов поверх ленты (task-117).
  *
- * ⚠️ СВОЙ СЛОЙ, А НЕ ДИАЛОГ ИЗ НАБОРА. Диалог набора тянет за собой
- * блокировку прокрутки страницы, наложение и возврат фокуса — всё это
- * ради списка из трёх строк. Здесь достаточно слоя, который закрывается
- * по Escape и по щелчку мимо; ровно два правила, и оба видны в коде.
+ * ⚠️ ПУСТОЕ ПОЛЕ СЕРВЕР НЕ СПРАШИВАЕТ. Прежде окно брало весь список
+ * пространства (Д-41: 1,4 МБ), а список «по свежести» стоит сервера дорого —
+ * свежесть считается у каждого чата. Пустое поле показывает то, что панель
+ * уже знает; свёрнутые папки находятся набором.
+ *
+ * ⚠️ ENTER ПЕРЕСЫЛАЕТ ТОЛЬКО ИЗ СПИСКА, КОТОРЫЙ СООТВЕТСТВУЕТ НАБРАННОМУ.
+ * Пока сервер думает, показаны чаты панели, отфильтрованные по строке на
+ * месте, а не прежняя выдача: реплика, ушедшая в первый попавшийся чат,
+ * уже прочитана получателями — отменить нечем.
+ *
+ * ⚠️ ОКНО НАБОРА (`Dialog`), А НЕ СВОЙ СЛОЙ (27.09). Свой слой держал только
+ * Escape и щелчок мимо — Tab уводил фокус в ленту под окном. У окна набора
+ * ловушка фокуса, Escape и возврат фокуса; после закрытия курсор — в поле
+ * ввода чата.
  *
  * Текущий разговор из списка не исключён намеренно: переслать себе же
  * в канал — обычный ход, когда реплику поднимают из глубины наверх.
  */
+
+/** Строка для сравнения: без регистра и без разницы ё и е — как ищет сервер. */
+function plain(text: string): string {
+  return text.trim().toLowerCase().replaceAll("ё", "е");
+}
+
+/** Строка состояния под полем: отказ с «Повторить» или «ничего». */
+function Status({
+  failed,
+  empty,
+  onRetry,
+}: {
+  failed: boolean;
+  empty: boolean;
+  onRetry: () => void;
+}) {
+  if (failed) {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 text-aside text-danger">
+        <p>Не удалось найти чаты</p>
+        <Button variant="outline" size="xs" onClick={onRetry}>
+          Повторить
+        </Button>
+      </div>
+    );
+  }
+  return empty ? <p className="px-4 py-3 text-aside text-muted">Ничего не нашлось</p> : null;
+}
+
 export function ForwardPicker({
   message,
   rooms,
@@ -20,60 +64,120 @@ export function ForwardPicker({
   onClose,
 }: {
   message: Message;
+  /** Чаты, которые уже знает панель, — список пустого поля. */
   rooms: Conversation[];
   onPick: (conversationId: string) => void;
   onClose: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const key = plain(query);
+  const asked = usePausedAsk<Conversation[]>({
+    key,
+    blank: key === "",
+    short: false,
+    ask: (signal) => api.findChats(query, signal).then((found) => found.items),
+  });
 
-  /**
-   * Два способа закрыть: Escape и щелчок мимо.
-   *
-   * ⚠️ ЩЕЛЧОК МИМО СЛУШАЕТ ДОКУМЕНТ, А НЕ ПОДЛОЖКА. Обработчик на самой
-   * подложке делает её интерактивной, не будучи кнопкой: программа чтения
-   * экрана объявит её обычным блоком, а нажать с клавиатуры будет нечем.
-   * Документ решает ту же задачу и никого не обманывает.
-   */
+  const known = rooms.filter((room) => room.parentId === null);
+  const answer = asked.state.kind === "найдено" && asked.state.key === key ? asked.state : null;
+  const found = answer !== null;
+  const shown: Conversation[] =
+    answer?.value ?? known.filter((room) => plain(room.title).includes(key));
+
+  // ⚠️ ОКНО ОТКРЫВАЮТ ИЗ МЕНЮ ПО ПРАВОЙ КНОПКЕ, А МЕНЮ, ЗАКРЫВАЯСЬ, РЕШАЕТ,
+  // КУДА ДЕТЬ ФОКУС. Своего `autoFocus` полю мало: меню доигрывает закрытие
+  // позже и отпускает фокус на страницу, а набор со страницы уходит в поле
+  // реплики — буквы «смета» оказывались в сообщении (пойман сценарием П-7).
   useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    function outside(event: MouseEvent) {
-      if (!box.current?.contains(event.target as Node)) onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", outside, true);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", outside, true);
-    };
-  }, [onClose]);
+    focusAfterClose(() => box.current?.querySelector("input")?.focus());
+  }, []);
+
+  // Новая строка — выбор снова сверху.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: сброс по смене строки и есть смысл
+  useEffect(() => setActive(0), [key]);
+
+  const pick = (room: Conversation | undefined) => {
+    if (!room) return;
+    onPick(room.id);
+    focusField();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/20 p-4">
-      <div
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
         ref={box}
-        className="flex max-h-[70vh] w-80 flex-col overflow-hidden rounded-xl border border-line bg-card shadow-float"
+        aria-describedby={undefined}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusField();
+        }}
+        className="flex max-h-[70vh] w-80 flex-col gap-0 overflow-hidden p-0 sm:max-w-80"
       >
-        <div className="border-b border-line px-4 py-3">
-          <p className="text-lead font-medium text-ink">Переслать</p>
+        <div className="px-4 pt-3">
+          <DialogTitle className="text-lead font-medium">Переслать</DialogTitle>
           <p className="mt-0.5 truncate text-aside text-muted">{message.body}</p>
         </div>
 
-        <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-1">
-          {rooms.map((room) => (
-            <button
-              key={room.id}
-              type="button"
-              onClick={() => onPick(room.id)}
-              className="flex w-auto items-center gap-2 rounded bg-transparent px-3 py-2 text-left text-body text-ink transition-colors hover:bg-raised"
-            >
-              <Hash className="size-4 shrink-0 opacity-60" />
-              <span className="truncate">{room.title}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
+        <CommandField
+          value={query}
+          label="Куда переслать"
+          placeholder="Найти чат"
+          onChange={setQuery}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setActive((at) => Math.min(at + 1, shown.length - 1));
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActive((at) => Math.max(at - 1, 0));
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              pick(shown[active]);
+            }
+          }}
+        />
+
+        <Status
+          failed={asked.state.kind === "отказ"}
+          empty={found && shown.length === 0}
+          onRetry={asked.retry}
+        />
+
+        {shown.length > 0 ? (
+          <div
+            role="listbox"
+            aria-label="Чаты"
+            className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-1"
+          >
+            {shown.map((room, at) => (
+              <div
+                key={room.id}
+                role="option"
+                aria-selected={at === active}
+                tabIndex={-1}
+                onClick={() => pick(room)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") pick(room);
+                }}
+                className={[
+                  "flex cursor-pointer items-center gap-2 rounded px-3 py-2 text-body text-ink transition-colors",
+                  at === active ? "bg-raised" : "hover:bg-raised",
+                ].join(" ")}
+              >
+                <Hash className="size-4 shrink-0 opacity-60" />
+                <span className="truncate">{room.title}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }

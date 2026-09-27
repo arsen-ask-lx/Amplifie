@@ -7,11 +7,14 @@
         "tools/arbiter/*.mjs",
         "tools/dev/*.mjs",
         "tools/load/*.mjs",
-        "tools/dependency-cruiser.cjs"
+        "tools/agent/trace-audit.mjs",
+        "tools/agent/review-audit.mjs",
+        "tools/agent/ci-red-audit.mjs",
+        ".claude/hooks/*.mjs"
       ],
       "project": ["tools/**/*.{mjs,ts,cjs}"],
       "ignore": ["tools/gates/**"],
-      "ignoreDependencies": ["dependency-cruiser", "@types/react"]
+      "ignoreDependencies": ["@types/react", "pg"]
     },
     "backend": {
       "entry": ["tests/**/*.test.ts", "src/**/*.test.ts"],

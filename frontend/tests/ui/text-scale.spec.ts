@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { register } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 test("размер текста 125% делает текст крупнее и переживает перезагрузку", async ({ page }) => {
   await register(page, "Хозяин");

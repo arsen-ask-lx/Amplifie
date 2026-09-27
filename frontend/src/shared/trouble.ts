@@ -46,6 +46,86 @@ export function troubleOf(error: unknown): Trouble {
   }
 }
 
+/** Отказ живых обновлений — потока и догона (task-093). */
+export type LiveTrouble =
+  /** Сервер больше не узнаёт сессию: повторять бессмысленно, нужен вход. */
+  | "сессии-нет"
+  /** Всё остальное — повод попробовать снова. */
+  | "иное";
+
+/**
+ * По коду ответа. Отдельно от `liveTroubleOf`, потому что поток читает
+ * `fetch` сам и до `ApiError` не доходит.
+ */
+export function liveTroubleOfStatus(status: number | null): LiveTrouble {
+  return status === 401 ? "сессии-нет" : "иное";
+}
+
+export function liveTroubleOf(error: unknown): LiveTrouble {
+  return liveTroubleOfStatus(statusOf(error));
+}
+
+/**
+ * Отказ загрузки, без которой нет экрана: кто я, панель, лента (task-096).
+ *
+ * ⚠️ «СЕРВЕР НЕДОСТУПЕН» — ЕДИНСТВЕННОЕ, ЧТО СТОИТ ПОВТОРЯТЬ. Ответа нет
+ * вовсе (сеть, истёк предел ожидания) или сервер ответил 5xx — это выкладка
+ * или короткий сбой, и через секунды пройдёт. 4xx повтор не лечит, а 429 —
+ * прямая просьба сервера не торопиться.
+ */
+export type ScreenTrouble = "сессии-нет" | "сервер-недоступен" | "иное";
+
+export function screenTroubleOf(error: unknown): ScreenTrouble {
+  if (liveTroubleOf(error) === "сессии-нет") return "сессии-нет";
+  const status = statusOf(error);
+  if (status === null) return error instanceof Error ? "сервер-недоступен" : "иное";
+  return status >= 500 ? "сервер-недоступен" : "иное";
+}
+
+/**
+ * Отказ отправки своей реплики (task-111).
+ *
+ * ⚠️ 429 ЗДЕСЬ — НЕ ОТКАЗ, А «ПОДОЖДИ». У загрузок экрана он не повторяется
+ * (там он — просьба не торопиться), а реплика обязана дойти: очередь ждёт
+ * срок, который назвал сервер. Сеть и 5xx терпятся так же, как у загрузок.
+ */
+export type SendTrouble =
+  /** Порог частоты: сервер назвал, через сколько можно. */
+  | "подождать"
+  /** Ответа нет вовсе, истёк предел попытки или 5xx — выкладка, короткий сбой. */
+  | "сервер-недоступен"
+  /** Сессии нет — не уйдёт ни одна реплика. */
+  | "сессии-нет"
+  /** Сервер отказал именно этой реплике: нет доступа, нет чата, не та форма. */
+  | "отказ";
+
+export function sendTroubleOf(error: unknown): SendTrouble {
+  if (statusOf(error) === 429) return "подождать";
+  const screen = screenTroubleOf(error);
+  return screen === "иное" ? "отказ" : screen;
+}
+
+/** Отказ при загрузке ленты разговора. */
+export type FeedTrouble =
+  /**
+   * Такого разговора для этого человека нет: удалён, стёрта база, вошёл
+   * другим. Снаружи «нет такого» и «не твой» — один ответ (Р-010).
+   */
+  | "нет-такого"
+  /** Сервер больше не узнаёт сессию: истекла или вышли в другой вкладке (task-093). */
+  | "сессии-нет"
+  | "иное";
+
+export function feedTroubleOf(error: unknown): FeedTrouble {
+  if (liveTroubleOf(error) === "сессии-нет") return "сессии-нет";
+  switch (statusOf(error)) {
+    case 404:
+      return "нет-такого";
+    default:
+      return "иное";
+  }
+}
+
 /** Отказ при сохранении ключа поставщика. */
 export type KeyTrouble =
   /** Ключ не той формы: не тот префикс или слишком короткий. */
@@ -86,6 +166,20 @@ export function authTroubleOf(error: unknown): AuthTrouble {
       return "почта-занята";
     case 429:
       return "слишком-часто";
+    default:
+      return "иное";
+  }
+}
+
+/** Отказ закрепа (Р-045): потолок в сто закреплённых или порог частоты. */
+export type PinTrouble = "потолок" | "подождать" | "иное";
+
+export function pinTroubleOf(error: unknown): PinTrouble {
+  switch (statusOf(error)) {
+    case 409:
+      return "потолок";
+    case 429:
+      return "подождать";
     default:
       return "иное";
   }

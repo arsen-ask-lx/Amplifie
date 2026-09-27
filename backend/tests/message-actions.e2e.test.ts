@@ -5,53 +5,22 @@
  * рубежи доступа и мягкое удаление. Ни вида цитаты, ни вида полоски здесь
  * нет — это работа живого прогона, а не приёмочного теста.
  *
- * ⚠️ ВТОРОЙ ЧЕЛОВЕК ЗАВОДИТСЯ КАК ВЛАДЕЛЕЦ ЧУЖОГО ПРОСТРАНСТВА, а не как
- * сосед по нашему: приглашений в продукте больше нет, и другой двери
- * для второго человека тоже. Поэтому «чужое» здесь — это чужое
- * пространство, а не чужая реплика в общем канале. Разница существенная,
- * и она названа: проверка «сосед не может править мою реплику» у нас
- * сейчас недоказуема, и это долг, а не забытая мелочь.
+ * «Чужое» здесь — реплика ЧУЖОГО ПРОСТРАНСТВА: когда файл писался,
+ * второго человека в том же пространстве завести было нельзя. Теперь можно
+ * (`colleague` в `stand.ts`), и «сосед по пространству не правит и не
+ * удаляет мою реплику» стережёт `moderation.e2e.test.ts`.
  *
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-/**
- * Адрес для нового пространства.
- *
- * ⚠️ БЕЗ МЕТКИ ЧЕЛОВЕКА В АДРЕСЕ. Метки у нас русские («Хозяин»,
- * «Чужой»), а проверка адреса на сервере кириллицу в местной части
- * не принимает и отвечает 422 — то есть весь файл падал ещё до первой
- * проверки свойства. Та же ловушка поймала и набор проверок догона.
- */
-function freshEmail(): string {
-  return `actions-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
+import { BASE, newPerson, requireStand } from "./stand.js";
 
 async function newOwner(tag: string): Promise<string> {
-  const response = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (response.status !== 201) throw new Error(`регистрация: ${response.status}`);
-  return sessionCookie(response);
+  return (await newPerson(tag)).cookie;
 }
+
+/** Время из ответа: `Date.toISOString()` сервера — миллисекунды и `Z`. */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 
 async function firstRoom(cookie: string): Promise<string> {
   const response = await fetch(`${BASE}/v1/conversations`, { headers: { cookie } });
@@ -65,9 +34,10 @@ interface Reply {
   id: string;
   seq: number;
   body: string;
+  createdAt: string;
   editedAt: string | null;
   pinnedAt: string | null;
-  replyTo: { id: string; excerpt: string } | null;
+  replyTo: { id: string; seq: number; author: string; excerpt: string } | null;
   forwardedFrom: string | null;
 }
 
@@ -101,6 +71,7 @@ describe("действия над репликой", () => {
   let strangerRoom = "";
 
   beforeAll(async () => {
+    await requireStand();
     cookie = await newOwner("Свой");
     room = await firstRoom(cookie);
     stranger = await newOwner("Чужой");
@@ -113,6 +84,15 @@ describe("действия над репликой", () => {
 
     expect(answer.replyTo?.id).toBe(target.id);
     expect(answer.replyTo?.excerpt).toBe("исходная реплика");
+
+    // «В ленте» — и при чтении ленты, а не только в ответе отправки.
+    const inFeed = (await feed(cookie, room)).find((one) => one.id === answer.id);
+    expect(inFeed?.replyTo).toEqual({
+      id: target.id,
+      seq: target.seq,
+      author: "Свой",
+      excerpt: "исходная реплика",
+    });
   });
 
   it("не отвечает на сообщение из чужого пространства", async () => {
@@ -146,7 +126,13 @@ describe("действия над репликой", () => {
     const changed = (await response.json()) as Reply;
     expect(changed.body).toBe("стало");
     // Поле заведено давно и до task-014 никем не писалось.
-    expect(changed.editedAt).not.toBeNull();
+    expect(changed.editedAt).toMatch(ISO_TIME);
+    // Отметка — время правки: не раньше, чем реплику написали. Часы разные: `createdAt`
+    // ставит база (`defaultNow()`), `editedAt` — процесс (`new Date()`); секунда запаса —
+    // на расхождение часов двух контейнеров, а не на поведение.
+    expect(Date.parse(changed.editedAt ?? "")).toBeGreaterThanOrEqual(
+      Date.parse(mine.createdAt) - 1_000,
+    );
   });
 
   it("не правит и не удаляет чужое — и отвечает 404, а не 403", async () => {
@@ -166,6 +152,10 @@ describe("действия над репликой", () => {
     // чужие разговоры. Один код на «нет такого» и «не твоё» намеренно.
     expect(edit.status).toBe(404);
     expect(remove.status).toBe(404);
+
+    // Положительный контроль: реплика цела и не подменена — у хозяина она есть.
+    const kept = (await feed(stranger, strangerRoom)).find((one) => one.id === theirs.id);
+    expect(kept?.body).toBe("чужая реплика");
   });
 
   it("удаляет своё: реплика уходит из ленты, а цитата на неё пустеет", async () => {
@@ -173,7 +163,12 @@ describe("действия над репликой", () => {
     const answer = await say(cookie, room, "ответ на удаляемую", { replyToId: doomed.id });
 
     const before = await feed(cookie, room);
-    expect(before.find((one) => one.id === answer.id)?.replyTo).not.toBeNull();
+    expect(before.find((one) => one.id === answer.id)?.replyTo).toEqual({
+      id: doomed.id,
+      seq: doomed.seq,
+      author: "Свой",
+      excerpt: "эту удалим",
+    });
 
     const removed = await fetch(`${BASE}/v1/messages/${doomed.id}`, {
       method: "DELETE",

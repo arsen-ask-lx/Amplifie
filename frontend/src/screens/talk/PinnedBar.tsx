@@ -1,6 +1,7 @@
 import { CaretUp, List, PushPin, X } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Message } from "../../data/api.js";
+import { focusField } from "../../shared/ui/focusAfterClose.js";
 
 /**
  * Полоска закреплённого над лентой.
@@ -55,7 +56,7 @@ function Icon({
       aria-label={label}
       title={label}
       {...(pressed === undefined ? {} : { "aria-expanded": pressed })}
-      className="grid size-7 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink"
+      className="grid size-7 shrink-0 place-items-center rounded bg-transparent text-muted outline-none transition-colors hover:bg-raised hover:text-ink focus-visible:bg-raised focus-visible:text-ink"
     >
       {children}
     </button>
@@ -124,12 +125,15 @@ export function PinnedBar({
           type="button"
           onClick={() => {
             onGo(shown.seq);
+            // Как в Telegram: перешёл к закреплённому — и сразу печатаешь.
+            // Фокус на кнопке полоски рисовал на ней рамку (владелец 26.09).
+            focusField();
             // Перелистываем ПОСЛЕ перехода: следующее нажатие ведёт
             // к следующему закреплённому, как у них.
             if (pinned.length > 1) setAt((was) => (was + 1) % pinned.length);
           }}
           title="Перейти к закреплённому"
-          className="flex min-w-0 flex-1 flex-col items-start bg-transparent text-left"
+          className="flex min-w-0 flex-1 flex-col items-start rounded bg-transparent text-left outline-none focus-visible:bg-raised"
         >
           <span className="text-mark font-medium text-accent-ink">{label}</span>
           <span className="w-full truncate text-aside text-muted">{shown.body}</span>

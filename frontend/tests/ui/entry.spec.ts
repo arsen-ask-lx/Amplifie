@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./guard.js";
 
 /**
  * ВИД ВХОДА (task-022): растр совпадает с пикселями экрана.

@@ -23,12 +23,33 @@
 const UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
 /**
+ * Подпись в квадратных скобках — у упоминания и у ссылки.
+ *
+ * ⚠️ СКОБКА В ИМЕНИ ЭКРАНИРУЕТСЯ, КАК В MARKDOWN (`\]`). Подпись раньше была
+ * «всё, кроме `]`», а имя человека скобку содержать может: упоминание
+ * «Анна]» не находилось, и позванный не получал ничего — ни ошибки, ни следа
+ * (найдено проверкой свойств, task-121). Одна захватывающая скобка — счёт
+ * групп у разборщиков не меняется.
+ */
+export const LABEL_SOURCE = String.raw`((?:[^\]\\\n]|\\.)+)`;
+
+/** Подпись → запись: `\`, `[`, `]` экранируются, перевод строки — пробел. */
+export function escapeLabel(label: string): string {
+  return label.replace(/[\\[\]]/gu, "\\$&").replace(/\r?\n/gu, " ");
+}
+
+/** Запись → подпись, как её видит человек. */
+export function unescapeLabel(label: string): string {
+  return label.replace(/\\([\\[\]])/gu, "$1");
+}
+
+/**
  * Выражение упоминания одной строкой — для тех, кто собирает свою
  * регулярку из кусков (разборщик разметки на фронте).
  *
  * Две скобки: подпись и номер. Порядок значим — на нём стоит разбор.
  */
-export const MENTION_SOURCE = `\\[([^\\]\\n]+)\\]\\(@(${UUID_PATTERN})\\)`;
+export const MENTION_SOURCE = `\\[${LABEL_SOURCE}\\]\\(@(${UUID_PATTERN})\\)`;
 
 /**
  * Собрать упоминание.
@@ -38,7 +59,7 @@ export const MENTION_SOURCE = `\\[([^\\]\\n]+)\\]\\(@(${UUID_PATTERN})\\)`;
  * автор, а переход идёт по номеру.
  */
 export function mentionMarkup(name: string, participantId: string): string {
-  return `[${name}](@${participantId})`;
+  return `[${escapeLabel(name)}](@${participantId})`;
 }
 
 /**

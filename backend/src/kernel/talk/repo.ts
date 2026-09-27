@@ -13,15 +13,22 @@ import {
   type SQLWrapper,
   sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { alias, type SelectedFields } from "drizzle-orm/pg-core";
 import type { Executor } from "../../platform/db.js";
 import { participant } from "../identity/schema.js";
 import { workspace } from "../space/schema.js";
-import { conversation, conversationMember, conversationRead, message, pin } from "./schema.js";
+import {
+  conversation,
+  conversationMember,
+  conversationRead,
+  message,
+  messageSearch,
+  pin,
+} from "./schema.js";
 import { mentionsOf, unreadOf } from "./unread.js";
 
 /** Хранилище модуля talk: только запросы. Непрочитанное — в `unread.ts`, отдаётся отсюда. */
-export { countUnread, markRead } from "./unread.js";
+export { countUnread, markRead, readStateOf } from "./unread.js";
 
 /** Курсор панели — последнее место в серверном порядке, не номер строки. */
 export interface PanelCursor {
@@ -166,6 +173,20 @@ export async function insertConversation(
   return row;
 }
 
+/**
+ * Завести членство.
+ *
+ * ⚠️ СМЕНА ЧЛЕНСТВА ОБЯЗАНА СБРАСЫВАТЬ ХВОСТ ИЗМЕНЕНИЙ
+ * (`platform/tail.ts`, task-084). Адресаты лежат там снимком на момент
+ * записи реплики. Добавь человека в закрытый канал без сброса —
+ * и у него с открытой вкладкой база отдала бы реплики по видимости
+ * «сейчас», а хвост их отфильтрует и сдвинет курсор вперёд: реплики
+ * исчезнут навсегда и молча.
+ *
+ * Сегодня выполняется по построению: членство заводится только
+ * при создании разговора, а оно идёт через `change()`, который зовёт
+ * `forget`. Новый вызов отсюда обязан это сохранить.
+ */
 export async function insertMember(
   tx: Executor,
   input: { conversationId: string; participantId: string; workspaceId: string; role?: string },
@@ -192,7 +213,18 @@ export function listConversationsFor(
   tx: Executor,
   participantId: string,
   workspaceId: string,
-  options: { projectId?: string; rootOnly?: boolean; limit?: number; after?: PanelCursor } = {},
+  options: {
+    projectId?: string;
+    /** Только чаты без папки — «Недавние» (Р-033). */
+    loose?: boolean;
+    /** Одна строка по имени — её просит лента открытого чата. */
+    onlyId?: string;
+    rootOnly?: boolean;
+    limit?: number;
+    after?: PanelCursor;
+    /** Поиск по названию (task-117): шаблон LIKE, уже экранированный, без регистра и ё. */
+    titleLike?: { anywhere: string; start: string };
+  } = {},
 ) {
   // Подзапросом, а не соединением: список разговоров не должен размножаться.
   const pinned = sql<boolean>`EXISTS (
@@ -217,6 +249,7 @@ export function listConversationsFor(
     ), ${conversation.createdAt})
   )`;
 
+  const titled = options.titleLike && sql`replace(lower(${conversation.title}), 'ё', 'е')`;
   const after = options.after
     ? sql`(
         ${pinned} < ${options.after.pinned}
@@ -264,13 +297,54 @@ export function listConversationsFor(
         // догон. Постраничная навигация проекта — только корневые чаты.
         options.rootOnly ? isNull(conversation.parentId) : undefined,
         options.projectId === undefined ? undefined : eq(conversation.projectId, options.projectId),
+        options.loose ? isNull(conversation.projectId) : undefined,
+        options.onlyId === undefined ? undefined : eq(conversation.id, options.onlyId),
+        titled ? sql`${titled} LIKE ${options.titleLike?.anywhere}` : undefined,
         after,
       ),
     )
-    // Порядок панели считает только сервер: клиент его не переупорядочивает.
-    .orderBy(desc(pinned), desc(lastAt), desc(conversation.id));
+    /**
+     * Порядок панели считает сервер. Клиент его не пересортировывает,
+     * но с task-092 двигает СВОЮ строку на один известный шаг по применённой
+     * реплике — и только доказав её непрерывность номером. Разрыв — берёт
+     * панель отсюда заново. Разбор: Р-037, правка 16.09.2026.
+     */
+    // Поиск — по названию: подсчёты свежести тогда идут только для строк
+    // выдачи, а не для каждого чата пространства (замер в task-117).
+    .orderBy(
+      ...(titled
+        ? [desc(sql`${titled} LIKE ${options.titleLike?.start}`), asc(conversation.title)]
+        : [desc(pinned), desc(lastAt)]),
+      desc(conversation.id),
+    );
 
   return options.limit === undefined ? query : query.limit(options.limit);
+}
+
+/**
+ * Непрочитанное и упоминания по каждому проекту — одним запросом.
+ *
+ * ⚠️ СЧЁТ ИДЁТ ПО ВИДИМЫМ ЧАТАМ, И ЭТО НЕ МЕЛОЧЬ. Сложи он все, число
+ * у папки рассказывало бы о приватном чате, которого человек не видит,
+ * — счётчик стал бы боковым каналом (Р-010).
+ */
+export function projectCountsFor(tx: Executor, participantId: string, workspaceId: string) {
+  return tx
+    .select({
+      projectId: conversation.projectId,
+      unread: sql<number>`COALESCE(SUM(${unreadOf(THIS_CONVERSATION, participantId)}), 0)::int`,
+      mentions: sql<number>`COALESCE(SUM(${mentionsOf(THIS_CONVERSATION, participantId)}), 0)::int`,
+    })
+    .from(conversation)
+    .where(
+      and(
+        eq(conversation.workspaceId, workspaceId),
+        isNull(conversation.deletedAt),
+        isNotNull(conversation.projectId),
+        visibleTo(participantId),
+      ),
+    )
+    .groupBy(conversation.projectId);
 }
 
 /** Мягко удалить разговор. «Ещё не удалён» — в самом запросе: повтор ничего не двигает. */
@@ -389,10 +463,15 @@ const MESSAGE_VIEW = {
 /**
  * Начало любого запроса за видом сообщения: поля и все связки — одно знание
  * «из чего собрана реплика». Условия и порядок дописывает вызывающий.
+ *
+ * `extra` — поля сверх вида, которые нужны одному вызывающему (поиску —
+ * название чата). Вид при этом остаётся одним: второй сборки реплики
+ * рядом с этой не заводится (task-100).
  */
-function selectMessages(tx: Executor) {
+// biome-ignore lint/complexity/noBannedTypes: пустой набор полей — законное «без добавок»
+function selectMessages<Extra extends SelectedFields = {}>(tx: Executor, extra?: Extra) {
   return tx
-    .select({ ...MESSAGE_VIEW, updatedSeq: message.updatedSeq })
+    .select({ ...MESSAGE_VIEW, updatedSeq: message.updatedSeq, ...(extra ?? ({} as Extra)) })
     .from(message)
     .innerJoin(participant, eq(participant.id, message.authorParticipantId))
     .leftJoin(quoted, eq(quoted.id, message.replyToId))
@@ -468,17 +547,36 @@ export async function setPinned(
   return rows[0] ?? null;
 }
 
-/** Закреплённые разговора, свежие сверху. Их единицы — предел не нужен. */
-export async function listPinned(tx: Executor, conversationId: string) {
+/**
+ * Закреплённые разговора, свежие сверху, не больше потолка (Р-045).
+ *
+ * ⚠️ ПРЕДЕЛ НУЖЕН, ХОТЯ ОБЫЧНО ИХ ЕДИНИЦЫ. Список читается при каждом
+ * открытии чата: без потолка закреплённый спамом чат открывался бы всё
+ * медленнее. Потолок держит и запись (`pinMessage`), а предел здесь —
+ * страховка от того, что лежит в базе с тех времён, когда его не было.
+ */
+export async function listPinned(tx: Executor, conversationId: string, limit: number) {
   return selectMessages(tx)
-    .where(
-      and(
-        eq(message.conversationId, conversationId),
-        isNotNull(message.pinnedAt),
-        isNull(message.deletedAt),
-      ),
-    )
-    .orderBy(desc(message.pinnedAt));
+    .where(pinnedIn(conversationId))
+    .orderBy(desc(message.pinnedAt))
+    .limit(limit);
+}
+
+/** Сколько закреплено в разговоре — по тому же частичному индексу, что и список. */
+export async function countPinned(tx: Executor, conversationId: string): Promise<number> {
+  const rows = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(message)
+    .where(pinnedIn(conversationId));
+  return rows[0]?.n ?? 0;
+}
+
+function pinnedIn(conversationId: string) {
+  return and(
+    eq(message.conversationId, conversationId),
+    isNotNull(message.pinnedAt),
+    isNull(message.deletedAt),
+  );
 }
 
 /**
@@ -503,6 +601,112 @@ export async function listMessages(
     .orderBy(desc(message.seq))
     .limit(limit);
   return rows.reverse();
+}
+
+/**
+ * Лента вперёд: первые N строго новее номера, по возрастанию (task-099).
+ * Тот же индекс `(conversation_id, seq)`, что у страницы назад, — прямым ходом.
+ *
+ * Не `async`: отдаётся строитель запроса, и гейт цены меряет его `.toSQL()`.
+ */
+export function listMessagesNewer(
+  tx: Executor,
+  conversationId: string,
+  limit: number,
+  after: number,
+) {
+  return selectMessages(tx)
+    .where(
+      and(
+        eq(message.conversationId, conversationId),
+        isNull(message.deletedAt),
+        gt(message.seq, after),
+      ),
+    )
+    .orderBy(asc(message.seq))
+    .limit(limit);
+}
+
+/**
+ * Страница поиска по сообщениям (task-100): новые сверху, одна строка сверх
+ * предела — «есть ли ещё». Слова уже собраны в `query` (`search.ts`).
+ *
+ * Не `async`: отдаётся строитель запроса, и гейт цены меряет его `.toSQL()`.
+ *
+ * ⚠️ ПОРЯДОК И КУРСОР — ПО НОМЕРУ ТАБЛИЦЫ ПОИСКА, А НЕ РЕПЛИКИ. Значение то же,
+ * но индекс `(workspace_id, seq)` лежит на ней: сортировка по номеру реплики
+ * лишила бы планировщик обхода «новые сверху» для частого слова. Какой путь
+ * выбрать — обход или выборку из индекса слов — решает планировщик по
+ * статистике слов (точность 1000, миграция 0027; замер шага 0 — 22 мс худший
+ * случай на миллионе реплик).
+ *
+ * ⚠️ ПРАВА — ТЕ ЖЕ, ЧТО У ЛЕНТЫ (`visibleTo`), и в момент поиска: в таблице
+ * поиска прав нет.
+ */
+export function searchMessagesPage(
+  tx: Executor,
+  viewer: { participantId: string; workspaceId: string },
+  query: SQL,
+  limit: number,
+  before?: number,
+  conversationId?: string,
+) {
+  return selectMessages(tx, { conversationTitle: conversation.title })
+    .innerJoin(messageSearch, eq(messageSearch.messageId, message.id))
+    .innerJoin(conversation, eq(conversation.id, message.conversationId))
+    .where(
+      and(
+        eq(messageSearch.workspaceId, viewer.workspaceId),
+        sql`${messageSearch.doc} @@ (${query})`,
+        isNull(message.deletedAt),
+        isNull(conversation.deletedAt),
+        visibleTo(viewer.participantId),
+        before === undefined ? undefined : lt(messageSearch.seq, before),
+        /**
+         * Поиск в одном чате (task-106). Фильтр стоит по таблице ПОИСКА,
+         * а не по сообщению: индекс `(conversation_id, seq)` лежит на ней,
+         * и без него частое слово в маленьком чате читало 11 704 буфера
+         * вместо 24 (замер 18.09 на 200 тыс. реплик).
+         */
+        conversationId === undefined ? undefined : eq(messageSearch.conversationId, conversationId),
+      ),
+    )
+    .orderBy(desc(messageSearch.seq))
+    .limit(limit + 1);
+}
+
+/**
+ * Сколько всего попаданий в одном чате — для счётчика «3 из 17» (task-106).
+ *
+ * ⚠️ С ПОТОЛКОМ, А НЕ ЦЕЛИКОМ. Считать все попадания частого слова — это
+ * прочитать их все: на замере подсчёт с потолком 1000 стоил 447 буферов,
+ * без потолка он растёт вместе с чатом. Выше потолка счётчик говорит «1000+».
+ */
+export async function countMatchesIn(
+  tx: Executor,
+  viewer: { participantId: string; workspaceId: string },
+  query: SQL,
+  conversationId: string,
+  cap: number,
+): Promise<number> {
+  const capped = tx
+    .select({ one: sql`1` })
+    .from(messageSearch)
+    .innerJoin(message, eq(message.id, messageSearch.messageId))
+    .innerJoin(conversation, eq(conversation.id, message.conversationId))
+    .where(
+      and(
+        eq(messageSearch.workspaceId, viewer.workspaceId),
+        eq(messageSearch.conversationId, conversationId),
+        sql`${messageSearch.doc} @@ (${query})`,
+        isNull(message.deletedAt),
+        isNull(conversation.deletedAt),
+        visibleTo(viewer.participantId),
+      ),
+    )
+    .limit(cap);
+  const rows = await tx.select({ total: sql<number>`count(*)::int` }).from(capped.as("found"));
+  return rows[0]?.total ?? 0;
 }
 
 /**
@@ -561,4 +765,31 @@ export async function currentSeq(tx: Executor, workspaceId: string): Promise<num
     .where(eq(workspace.id, workspaceId))
     .limit(1);
   return Number(rows[0]?.seq ?? 0);
+}
+
+/**
+ * Кому виден разговор: `null` — всем в пространстве, иначе участники корня.
+ *
+ * Нужен звонку с адресом (task-067): адрес закрытого разговора уходит только
+ * тем, кто его видит. Один запрос на изменение, а не на слушателя, — в этом
+ * весь выигрыш.
+ *
+ * ⚠️ ВИДИМОСТЬ ЧИТАЕТСЯ У КОРНЯ. У ветки своих участников нет (Р-010),
+ * поэтому и видимость, и членство берутся у `coalesce(parent_id, id)`.
+ * Иначе ветка закрытого канала звонила бы всему пространству.
+ */
+export async function audienceOf(tx: Executor, conversationId: string): Promise<string[] | null> {
+  const root = alias(conversation, "root");
+  const rows = await tx
+    .select({ visibility: root.visibility, participantId: conversationMember.participantId })
+    .from(conversation)
+    .innerJoin(root, eq(root.id, sql`coalesce(${conversation.parentId}, ${conversation.id})`))
+    .leftJoin(conversationMember, eq(conversationMember.conversationId, root.id))
+    .where(eq(conversation.id, conversationId));
+
+  const first = rows[0];
+  // Разговора нет — звонить некому. Это не ошибка: он мог быть только что снесён.
+  if (!first) return [];
+  if (first.visibility === "workspace") return null;
+  return rows.map((one) => one.participantId).filter((one): one is string => one !== null);
 }

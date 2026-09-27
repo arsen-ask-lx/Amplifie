@@ -1,4 +1,4 @@
-import { MENTION_SOURCE } from "@amplifie/contract";
+import { LABEL_SOURCE, MENTION_SOURCE, unescapeLabel } from "@amplifie/contract";
 
 /**
  * Разбор разметки сообщения (Р-002).
@@ -134,7 +134,7 @@ const PATTERN = new RegExp(
     "\\|\\|([^\\n]+?)\\|\\|", // скрытый
     "\\*([^\\n]+?)\\*", // курсив
     MENTION_SOURCE, // упоминание человека — обязано стоять ПЕРЕД ссылкой
-    "\\[([^\\]\\n]+)\\]\\(([^)\\s]+)\\)", // ссылка с подписью
+    `\\[${LABEL_SOURCE}\\]\\(([^)\\s]+)\\)`, // ссылка с подписью; подпись экранируется (task-121)
     "(https?://[^\\s<>()]+)", // голый адрес
   ].join("|"),
   "gu",
@@ -260,13 +260,16 @@ function tokenOf(match: RegExpExecArray, depth: number): { token: Token; tail: s
   const mentionText = match[mentionGroup];
   const mentionId = match[mentionGroup + 1];
   if (mentionText !== undefined && mentionId !== undefined) {
-    return { token: { kind: "mention", text: mentionText, id: mentionId }, tail: "" };
+    return {
+      token: { kind: "mention", text: unescapeLabel(mentionText), id: mentionId },
+      tail: "",
+    };
   }
 
   const linkText = match[linkGroup];
   const linkHref = match[linkGroup + 1];
   if (linkText !== undefined && linkHref !== undefined) {
-    return { token: linkToken(match[0], linkText, linkHref), tail: "" };
+    return { token: linkToken(match[0], unescapeLabel(linkText), linkHref), tail: "" };
   }
 
   const bare = match[bareUrlGroup];

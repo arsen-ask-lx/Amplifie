@@ -1,14 +1,24 @@
 import { useEffect, useState } from "react";
 import { Navigate, useMatch, useNavigate } from "react-router";
 import { api, type Me } from "../data/api.js";
+import { sendQueue } from "../data/sendQueue.js";
 import { AuthScreen } from "../screens/AuthScreen.js";
 import { JoinScreen } from "../screens/JoinScreen.js";
+import { messagesWord } from "../screens/talk/SelectionBar.js";
+import { screenTroubleOf } from "../shared/trouble.js";
+import { Button } from "../shared/ui/button.js";
 import { ChatScreen } from "./ChatScreen.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 import { Setup } from "./Setup.js";
 
 type State =
   | { status: "loading" }
+  /**
+   * Сервер не отвечает дольше, чем терпит загрузка (task-096). Это не «не
+   * вошёл»: сеанс, скорее всего, жив, и экран входа заставил бы человека
+   * вводить пароль ради сбоя, который пройдёт сам.
+   */
+  | { status: "unreachable" }
   /** notice — то, что человек обязан узнать при возврате на экран входа. */
   | { status: "anon"; notice?: string }
   /**
@@ -50,14 +60,51 @@ export function App() {
 
   // Кто пришёл — спрашиваем у сервера, а не у localStorage: печенька
   // HttpOnly, и это единственный честный источник ответа.
+  const [asked, setAsked] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: счётчик попытки — сам повод спросить заново («Повторить»)
   useEffect(() => {
+    const stop = new AbortController();
     api
-      .me()
+      .me(stop.signal)
       .then((me) => setState({ status: "entered", me }))
-      .catch(() => setState({ status: "anon" }));
-  }, []);
+      .catch((error: unknown) => {
+        if (stop.signal.aborted) return;
+        // Недоступен — не повод выгонять на вход; всё остальное (нет сессии,
+        // 429 за общим адресом) ведёт на вход, как и раньше.
+        setState({
+          status: screenTroubleOf(error) === "сервер-недоступен" ? "unreachable" : "anon",
+        });
+      });
+    return () => stop.abort();
+  }, [asked]);
+
+  /**
+   * Неотправленное живёт только у вошедшего (task-111). Вышел, кончился
+   * сеанс — очередь пуста: реплики прежнего человека не уйдут с печенькой
+   * следующего, вошедшего в той же вкладке.
+   */
+  useEffect(() => {
+    if (state.status !== "entered") sendQueue.clear();
+  }, [state.status]);
 
   if (state.status === "loading") return null;
+
+  if (state.status === "unreachable") {
+    return (
+      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-bg text-ink">
+        <p className="text-body">Не удаётся связаться с сервером.</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setState({ status: "loading" });
+            setAsked((n) => n + 1);
+          }}
+        >
+          Повторить
+        </Button>
+      </div>
+    );
+  }
 
   const token = invited?.params.token;
   if (token && state.status !== "entered") {
@@ -108,6 +155,12 @@ export function App() {
   return (
     <ChatScreen
       me={state.me}
+      // Сессия кончилась, пока вкладка была открыта: истёк срок или вышли
+      // в другой вкладке (task-093). Живые обновления без неё не приходят,
+      // и молчащий экран хуже честного входа.
+      onSessionEnded={() =>
+        setState({ status: "anon", notice: withUnsent("Сеанс закончился — войдите снова.") })
+      }
       onLeave={async () => {
         // Выйти локально обязаны в любом случае: человек нажал «выйти», и
         // держать его в приложении из-за сетевой ошибки — худшее из решений.
@@ -119,16 +172,35 @@ export function App() {
         );
         // Поле не подставляем как undefined: при exactOptionalPropertyTypes
         // «нет поля» и «поле равно undefined» — разные вещи, и это правильно.
-        setState(
-          reachedServer
-            ? { status: "anon" }
-            : {
-                status: "anon",
-                notice:
-                  "Мы вышли на этом устройстве, но сервер не ответил: сеанс мог остаться открытым.",
-              },
-        );
+        const unsent = unsentNotice();
+        if (reachedServer) {
+          setState(unsent ? { status: "anon", notice: unsent } : { status: "anon" });
+          return;
+        }
+        setState({
+          status: "anon",
+          notice: withUnsent(
+            "Мы вышли на этом устройстве, но сервер не ответил: сеанс мог остаться открытым.",
+          ),
+        });
       }}
     />
   );
+}
+
+/**
+ * Сколько своих реплик так и не ушло (task-111). Вне состояния «вошёл»
+ * очередь очищается, и набранное пропадает — сказать об этом при выходе,
+ * а не стереть молча.
+ */
+function unsentNotice(): string | null {
+  const count = sendQueue.current().length;
+  if (count === 0) return null;
+  const one = count % 10 === 1 && count % 100 !== 11;
+  return `${count} ${messagesWord(count)} так и не ${one ? "ушло" : "ушли"}.`;
+}
+
+function withUnsent(text: string): string {
+  const unsent = unsentNotice();
+  return unsent ? `${text} ${unsent}` : text;
 }

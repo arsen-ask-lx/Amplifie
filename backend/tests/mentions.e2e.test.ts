@@ -16,26 +16,7 @@
  * Бьёт по живому стеку через настоящий порт. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-function freshEmail(): string {
-  return `mention-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-interface Person {
-  cookie: string;
-  participantId: string;
-  name: string;
-}
+import { call, colleague, newPerson, type Person, requireStand } from "./stand.js";
 
 interface Conversation {
   id: string;
@@ -59,45 +40,11 @@ function mention(person: Person): string {
 }
 
 async function get(path: string, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, { headers: person ? { cookie: person.cookie } : {} });
+  return call("GET", path, person);
 }
 
 async function post(path: string, body: unknown, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(person ? { cookie: person.cookie } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-}
-
-async function newPerson(tag: string): Promise<Person> {
-  const response = await post("/v1/auth/register", {
-    email: freshEmail(),
-    password: PASSWORD,
-    displayName: tag,
-    workspaceName: `Пространство ${tag}`,
-  });
-  if (response.status !== 201) throw new Error(`регистрация не удалась: ${response.status}`);
-  const body = (await response.json()) as { participant: { id: string } };
-  return { cookie: sessionCookie(response), participantId: body.participant.id, name: tag };
-}
-
-/** Позвать второго в то же пространство. */
-async function invite(owner: Person, tag: string): Promise<Person> {
-  const created = await post("/v1/invites", { maxUses: 50 }, owner);
-  const { token } = (await created.json()) as { token: string };
-  const entered = await post("/v1/auth/join", {
-    token,
-    email: freshEmail(),
-    password: PASSWORD,
-    displayName: tag,
-  });
-  if (entered.status !== 201) throw new Error(`вход по ссылке не удался: ${entered.status}`);
-  const body = (await entered.json()) as { participant: { id: string } };
-  return { cookie: sessionCookie(entered), participantId: body.participant.id, name: tag };
+  return call("POST", path, person, body);
 }
 
 async function conversations(person: Person): Promise<Conversation[]> {
@@ -151,10 +98,7 @@ async function messageCount(person: Person, conversationId: string): Promise<num
 }
 
 describe("упоминания", () => {
-  beforeAll(async () => {
-    const health = await get("/health");
-    if (!health.ok) throw new Error(`Стек не поднят (${BASE}/health). Запусти: make up`);
-  });
+  beforeAll(requireStand);
 
   describe("кого можно позвать", () => {
     it("чужого из другого пространства позвать нельзя", async () => {
@@ -169,6 +113,7 @@ describe("упоминания", () => {
         response.status,
         "упоминание участника ЧУЖОГО пространства прошло — это утечка имени",
       ).toBe(422);
+      expect(((await response.json()) as { error: string }).error).toBe("mention_not_allowed");
       expect(
         await messageCount(owner, channel.id),
         "сообщение с негодным упоминанием всё-таки появилось в разговоре",
@@ -177,7 +122,7 @@ describe("упоминания", () => {
 
     it("того, кто не видит приватный канал, позвать нельзя", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
 
       const created = await post(
         "/v1/conversations",
@@ -192,11 +137,13 @@ describe("упоминания", () => {
         response.status,
         "позвали того, кто этого канала не видит: он получит значок на невидимый разговор",
       ).toBe(422);
+      // Именно отказ зова, а не иная поломка отправки.
+      expect(((await response.json()) as { error: string }).error).toBe("mention_not_allowed");
     });
 
     it("своего из того же пространства позвать можно", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
       const channel = await channelOf(owner);
 
       const response = await trySay(owner, channel.id, `привет, ${mention(guest)}`);
@@ -207,7 +154,7 @@ describe("упоминания", () => {
   describe("счётчик", () => {
     it("считается отдельно от непрочитанного", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
       const channel = await channelOf(owner);
 
       for (let i = 0; i < 9; i++) await say(owner, channel.id, `обычная ${i}`);
@@ -215,6 +162,23 @@ describe("упоминания", () => {
 
       const room = await roomOf(guest, channel.id);
       expect(room.unread, "непрочитанных должно быть десять").toBe(10);
+      expect(room.mentions, "упоминание должно быть одно, а не столько же, сколько сообщений").toBe(
+        1,
+      );
+    });
+
+    it("зовёт и того, у кого в имени скобка: подпись экранируется, как в markdown", async () => {
+      // Найдено проверкой свойств (task-121): подпись была «всё, кроме `]`», и
+      // «Анна]» не находилась — позванный не получал ничего. Запись — руками,
+      // по протоколу: `\]` внутри подписи.
+      const owner = await newPerson("Хозяин");
+      const guest = await colleague(owner, "Анна]");
+      const channel = await channelOf(owner);
+
+      const label = guest.name.replace(/[\\[\]]/gu, "\\$&");
+      await say(owner, channel.id, `зову [${label}](@${guest.participantId})`);
+
+      const room = await roomOf(guest, channel.id);
       expect(room.mentions, "упоминание должно быть одно, а не столько же, сколько сообщений").toBe(
         1,
       );
@@ -232,7 +196,7 @@ describe("упоминания", () => {
 
     it("гаснет, когда разговор прочитан", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
       const channel = await channelOf(owner);
 
       const seq = await say(owner, channel.id, `зову ${mention(guest)}`);
@@ -247,7 +211,7 @@ describe("упоминания", () => {
 
     it("набранное руками упоминанием не становится", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
       const channel = await channelOf(owner);
 
       // Ровно то написание, которое человек набрал бы сам, не выбирая
@@ -264,7 +228,7 @@ describe("упоминания", () => {
   describe("переход к упоминанию", () => {
     it("называет самое раннее неувиденное", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
       const channel = await channelOf(owner);
 
       const firstMessage = await say(owner, channel.id, `раз ${mention(guest)}`);
@@ -292,9 +256,9 @@ describe("упоминания", () => {
   });
 
   describe("список тех, кого можно позвать", () => {
-    it("содержит соседей по пространству и агента", async () => {
+    it("содержит соседей по пространству и не содержит себя", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
       const channel = await channelOf(owner);
 
       const response = await get(`/v1/conversations/${channel.id}/people`, owner);
@@ -308,16 +272,23 @@ describe("упоминания", () => {
       expect(ids, "себя в списке быть не должно: сам себя не зовут").not.toContain(
         owner.participantId,
       );
+      // Весь список: в свежем пространстве кроме хозяина только гость
+      // (агента нет, пока его не звали, — agents.e2e «чтение не создаёт агента»).
+      expect(body.items).toEqual([{ id: guest.participantId, name: "Гость", kind: "human" }]);
     });
 
     it("не содержит людей из другого пространства", async () => {
       const owner = await newPerson("Хозяин");
+      const guest = await colleague(owner, "Гость");
       const stranger = await newPerson("Чужой");
       const channel = await channelOf(owner);
 
       const response = await get(`/v1/conversations/${channel.id}/people`, owner);
+      expect(response.status).toBe(200);
       const body = (await response.json()) as { items: { id: string }[] };
 
+      // Положительный контроль: список не пуст — сосед в нём есть.
+      expect(body.items.map((one) => one.id)).toEqual([guest.participantId]);
       expect(
         body.items.map((one) => one.id),
         "в списке оказался человек из другого пространства",

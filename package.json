@@ -19,15 +19,27 @@
     "decisions": "node tools/checks/check-decisions.mjs",
     "contrast": "node tools/checks/check-contrast.mjs",
     "unit": "vitest run --config tools/vitest.unit.ts",
+    "field-from-ui": "node tools/checks/check-field-from-ui.mjs",
     "no-raw-html": "node tools/checks/check-no-raw-html.mjs",
     "failure-map": "node tools/checks/check-failure-map.mjs",
     "favicon": "node tools/checks/check-favicon.mjs",
     "map": "node tools/checks/check-map.mjs",
     "map:check": "node --test tools/checks/map-rule.test.mjs",
+    "cycle": "node tools/checks/check-cycle.mjs",
+    "cycle:check": "node --test tools/checks/cycle-rule.test.mjs tools/checks/git-paths.test.mjs",
+    "arch:check": "node --test tools/checks/arch-rules.test.mjs",
+    "weak-asserts": "node tools/checks/check-weak-asserts.mjs",
+    "weak-asserts:check": "node --test tools/checks/weak-asserts-rule.test.mjs",
+    "biome-rules:check": "node --test tools/checks/biome-rules.test.mjs",
+    "rules-paths": "node tools/checks/check-rules-paths.mjs",
+    "rules-paths:check": "node --test tools/checks/rules-paths-rule.test.mjs",
+    "ci-red:check": "node --test tools/agent/ci-red-rules.test.mjs",
     "env:check": "node --test tools/ops/*.test.mjs",
     "openspec": "node tools/checks/check-openspec.mjs",
     "model": "node tools/checks/check-model.mjs",
     "cost": "tsc --build backend && node tools/checks/check-cost.mjs",
+    "openapi": "tsc --build backend && node tools/checks/openapi.mjs",
+    "openapi:check": "tsc --build backend && node tools/checks/openapi.mjs --check",
     "duplicates": "node tools/checks/check-duplicates.mjs",
     "arbiter:check": "node --test tools/arbiter/*.test.mjs",
     "arbiter": "node tools/arbiter/report.mjs",
@@ -38,12 +50,16 @@
     "bridge:pack": "node bridge/pack.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.12",
+    "@axe-core/playwright": "4.13.0",
+    "@biomejs/biome": "2.5.14",
     "@playwright/test": "1.63.0",
-    "@types/react": "^19.2.18",
-    "dependency-cruiser": "^18.2.0",
-    "drizzle-kit": "0.31.10",
-    "typescript": "^6.0.3",
-    "vitest": "^5.0.0"
+    "@types/react": "^19.3.0",
+    "drizzle-kit": "0.31.11",
+    "fast-check": "4.10.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  },
+  "overrides": {
+    "fastify": "5.12.5"
   }
 }

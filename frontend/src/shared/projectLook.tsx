@@ -1,4 +1,4 @@
-import { PROJECT_ICONS, type ProjectIcon } from "@amplifie/contract";
+import { inkOn, PROJECT_ICONS, type ProjectIcon } from "@amplifie/contract";
 import {
   Airplane,
   Anchor,
@@ -206,17 +206,32 @@ const ICONS: Record<ProjectIcon, React.ComponentType<{ className?: string }>> = 
 
 export { PROJECT_ICONS };
 
-/** Цвет метки значением из темы. Пусто — приглушённый цвет темы. */
-export function labelColor(color: string | null | undefined): string | undefined {
-  return color ? `var(--tag-${color})` : undefined;
+/**
+ * Цвет заливки. Пусто — заливки нет вовсе, значок берёт приглушённый цвет темы.
+ *
+ * ⚠️ ЗНАЧЕНИЕ, А НЕ ТОКЕН (task-104, отмена Р-041). Цвет выбирается пипеткой
+ * и приезжает из базы как `#rrggbb`; токен темы подставить сюда нельзя —
+ * он меняется вместе с темой, а цвет проекта у всех один.
+ */
+function labelColor(color: string | null | undefined): string | undefined {
+  return color ?? undefined;
 }
 
 /**
- * Значок папки — с выбранным цветом либо как раньше.
+ * Значок папки — белым на заливке выбранного цвета либо как раньше.
  *
  * ⚠️ ОДНА ФУНКЦИЯ НА ВСЕ МЕСТА, ГДЕ ПАПКА ПОКАЗЫВАЕТСЯ: строка панели,
  * выбор в окне, будущая карточка. Три копии разъехались бы на первой же
  * правке — у одной появился бы новый значок, у другой нет.
+ *
+ * ⚠️ ЗАЛИВКА, А НЕ ЦВЕТНОЙ ЗНАЧОК (task-103, владелец 17.09). Тонкая
+ * цветная линия на панели почти не различалась; квадрат цвета узнаётся
+ * с первого взгляда, как списки в Apple Reminders. Без цвета — прежний
+ * приглушённый значок, с тем же отступом: строки с цветом и без стоят ровно.
+ *
+ * ⚠️ ЦВЕТ ЗНАЧКА СЧИТАЕТСЯ, А НЕ ЗАДАН (task-104). Заливку называет человек
+ * пипеткой, и белый на светло-жёлтом не прочтёт никто: `inkOn` берёт из белого
+ * и чёрного тот, что читается, — правило проверено перебором куба RGB.
  */
 export function ProjectGlyph({
   icon,
@@ -230,7 +245,10 @@ export function ProjectGlyph({
   const Glyph = icon && icon in ICONS ? ICONS[icon as ProjectIcon] : FolderSimple;
   const tint = labelColor(color);
   return (
-    <span className="grid shrink-0 place-items-center" style={tint ? { color: tint } : undefined}>
+    <span
+      className="grid shrink-0 place-items-center rounded-sm p-0.5"
+      style={tint ? { backgroundColor: tint, color: inkOn(tint) } : undefined}
+    >
       <Glyph className={className ?? "size-4"} />
     </span>
   );

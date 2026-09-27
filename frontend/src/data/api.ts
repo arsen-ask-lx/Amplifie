@@ -1,20 +1,60 @@
+import { retryAfterMs } from "@amplifie/contract";
 import type {
+  AgentsView,
+  AnswerView,
+  Bridge,
+  BridgeIssued,
+  ChangeEvent,
   Conversation,
+  InviteCreated,
+  Me,
   Message,
+  ModelCheck,
+  ModelKey,
+  PanelSnapshot,
   Person,
   Project,
   Quote,
+  SearchHit,
+  SearchPage,
   SyncLine,
   Tombstone,
 } from "@amplifie/contract/api";
 import { ApiError, type FieldErrors } from "../shared/failure.js";
+import { patient } from "./patient.js";
 
 /**
  * Формы ответов чата — из общего контракта (Р-034), а не своими копиями:
  * сменился ответ сервера — фронт перестаёт собираться там, где читает
  * старое поле. Только типы: zod в сборку фронта не едет.
  */
-export type { Conversation, Message, Person, Project, Quote, SyncLine, Tombstone };
+export type {
+  AgentsView,
+  AnswerView,
+  Bridge,
+  BridgeIssued,
+  ChangeEvent,
+  Conversation,
+  InviteCreated,
+  Me,
+  Message,
+  ModelCheck,
+  ModelKey,
+  PanelSnapshot,
+  Person,
+  Project,
+  Quote,
+  SearchHit,
+  SearchPage,
+  SyncLine,
+  Tombstone,
+};
+
+/** Порция строк панели: сами строки и курсор продолжения (`null` — конец). */
+export interface Page {
+  items: Conversation[];
+  next: string | null;
+}
 
 /**
  * Единственное место, где фронт ходит на сервер.
@@ -23,12 +63,6 @@ export type { Conversation, Message, Person, Project, Quote, SyncLine, Tombstone
  * шлёт её сам при credentials: "include". Хранить токен в localStorage
  * запрещено — это первое, что забирают при XSS.
  */
-
-export interface Me {
-  account: { id: string; email: string };
-  participant: { id: string; displayName: string; kind: string; role: string };
-  workspace: { id: string; name: string };
-}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // ⚠️ content-type ТОЛЬКО там, где есть тело.
@@ -52,25 +86,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 204) return undefined as T;
 
   const body = await response.json().catch(() => ({ error: "bad_response" }));
-  if (!response.ok) throw new ApiError(response.status, body as FieldErrors);
+  if (!response.ok) {
+    // Срок сервера — тем же разбором, что у потока (`retryAfterMs`): второй
+    // разборщик однажды понял бы «Retry-After» иначе (task-111).
+    const wait = retryAfterMs(response.headers.get("retry-after"), Date.now());
+    throw new ApiError(response.status, body as FieldErrors, wait);
+  }
   return body as T;
 }
 
-export interface AgentsView {
-  items: Array<{ id: string; name: string; kind: string; answersOn: string }>;
-  /** Мост СПРАШИВАЮЩЕГО: агент отвечает через его подписку, не через чужую. */
-  bridge: { connected: boolean; online: boolean; name: string | null };
-  /** Чем будет оплачен вызов, если позвать агента прямо сейчас. */
-  answersVia: { kind: string; hint: string | null };
-}
-
-/** Ключ поставщика. Самого ключа здесь нет и не будет — только подсказка. */
-export interface ModelKey {
-  id: string;
-  provider: string;
-  hint: string;
-  scope: "участник" | "пространство";
-  createdAt: string;
+/**
+ * Загрузка, без которой нет экрана, — терпит короткий сбой сервера (task-096).
+ *
+ * ⚠️ ЯВНЫЙ СПИСОК, А НЕ ВСЕ ЧТЕНИЯ. Терпят четыре двери ниже: кто я,
+ * панель, первая страница ленты, закреплённое. У догона и потока свой
+ * хозяин повтора, у опросов — свой таймер, порции панели перечитываются
+ * по звонку: повтор внутри них умножил бы запросы.
+ */
+function patiently<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return patient((attempt) => request<T>(path, { signal: attempt }), signal);
 }
 
 /** Надгробие ли это. Разбор в одном месте, а не по «if» у каждого читателя. */
@@ -78,27 +112,44 @@ export function isTombstone(line: SyncLine): line is Tombstone {
   return "deleted" in line && line.deleted;
 }
 
-/** Мост — машина участника, на которой живёт его подписка (task-001). */
-export interface Bridge {
-  id: string;
-  name: string | null;
-  /** Код погашен, машина подключалась хотя бы раз. */
-  joined: boolean;
-  /** Приходил за работой недавно — значит спросить можно прямо сейчас. */
-  online: boolean;
-  lastSeenAt: string | null;
-  createdAt: string;
-}
-
 export const api = {
-  me: () => request<Me>("/v1/me"),
+  me: (signal?: AbortSignal) => patiently<Me>("/v1/me", signal),
   /**
-   * Панель целиком: разговоры И проекты одним ответом (Р-032).
+   * Поиск чата по названию — окно «Переслать» (task-117, закрыл Д-41).
    *
-   * Одним, а не двумя запросами: панель перечитывается на каждый звонок
-   * потока, и второй запрос удваивал бы самый частый обмен в продукте.
+   * Раньше окно брало весь список пространства одним ответом: на засеянной
+   * базе 1,4 МБ и 5 241 строка. Решение владельца 16.09.2026 — «найди чат,
+   * а не отдай всё». Текст в теле, а не в адресе, как у поиска по сообщениям:
+   * названия приватных чатов — тоже переписка людей.
    */
-  conversations: () => request<{ items: Conversation[]; projects: Project[] }>("/v1/conversations"),
+  findChats: (q: string, signal?: AbortSignal) =>
+    request<{ items: Conversation[] }>("/v1/search/chats", {
+      method: "POST",
+      body: JSON.stringify({ q }),
+      ...(signal ? { signal } : {}),
+    }),
+
+  /**
+   * Сводный ответ панели (Р-037): папки со счётчиками, первая порция
+   * «Недавних» и строка открытого чата. Чаты папки приезжают отдельно —
+   * когда её раскрыли.
+   *
+   * ⚠️ ЭТО ЗАМЕНА ПОЛНОМУ СПИСКУ, А НЕ ДОБАВКА К НЕМУ. Полный ответ вёз
+   * все разговоры пространства: 1,4 МБ на каждое сообщение в любом чате
+   * (замер 11.09 на 5 241 чате). Сводный — 20 КБ.
+   */
+  panel: (open?: string | null) =>
+    patiently<PanelSnapshot>(`/v1/panel${open ? `?open=${encodeURIComponent(open)}` : ""}`),
+
+  /** Следующая порция «Недавних» — чатов без папки. */
+  recent: (cursor: string) =>
+    request<Page>(`/v1/conversations/recent?cursor=${encodeURIComponent(cursor)}`),
+
+  /** Порция чатов проекта: первая — 10, следующие — по 25. */
+  projectChats: (projectId: string, cursor?: string | null) =>
+    request<Page>(
+      `/v1/projects/${projectId}/conversations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
 
   /** Завести проект. Прав он не несёт, поэтому заводить может любой. */
   addProject: (title: string, look?: { icon?: string | null; color?: string | null }) =>
@@ -137,34 +188,64 @@ export const api = {
       body: JSON.stringify({ projectId }),
     }),
 
-  /** Лента разговора. `before` — номер, старше которого нужна страница. */
-  messages: (id: string, options: { limit?: number; before?: number } = {}) => {
+  /**
+   * Лента разговора. `before` — страница старше номера, `after` — новее
+   * (task-099). `patient` — терпеть короткий сбой сервера: так грузится
+   * то, без чего экрана нет; листание краёв не терпит.
+   */
+  messages: (
+    id: string,
+    options: {
+      limit?: number;
+      before?: number;
+      after?: number;
+      /** Открыть ленту на первом непрочитанном (task-107) — считает сервер. */
+      around?: "unread";
+      patient?: boolean;
+      signal?: AbortSignal;
+    } = {},
+  ) => {
     const query = new URLSearchParams();
     if (options.limit) query.set("limit", String(options.limit));
     if (options.before) query.set("before", String(options.before));
-    const tail = query.size > 0 ? `?${query}` : "";
-    return request<{ items: Message[]; hasMore: boolean; head: number }>(
-      `/v1/conversations/${id}/messages${tail}`,
-    );
+    if (options.around) query.set("around", options.around);
+    if (options.after !== undefined) query.set("after", String(options.after));
+    const path = `/v1/conversations/${id}/messages${query.size > 0 ? `?${query}` : ""}`;
+    type FeedPage = {
+      items: Message[];
+      hasMore: boolean;
+      head: number;
+      /** Оба поля приходят только у окна «на непрочитанном» (task-107). */
+      hasNewer?: boolean;
+      readSeq?: number;
+    };
+    const patientByDefault = !options.before && options.after === undefined;
+    return (options.patient ?? patientByDefault)
+      ? patiently<FeedPage>(path, options.signal)
+      : request<FeedPage>(path, options.signal ? { signal: options.signal } : undefined);
   },
 
   /**
    * Отправка. `clientMsgId` рождается в момент набора и не меняется при
    * повторе: сервер по нему узнаёт то же самое сообщение и не заводит второе.
+   * `signal` — предел попытки: зависший ответ не держит очередь (task-111).
    */
   send: (
     id: string,
     body: string,
     clientMsgId: string,
     links: { replyToId?: string; forwardedFromId?: string } = {},
+    signal?: AbortSignal,
   ) =>
     request<Message>(`/v1/conversations/${id}/messages`, {
       method: "POST",
       body: JSON.stringify({ body, clientMsgId, ...links }),
+      ...(signal ? { signal } : {}),
     }),
 
   /** Закреплённое разговора. Отдельной дверью: полоска нужна с первого кадра. */
-  pinned: (id: string) => request<{ items: Message[] }>(`/v1/conversations/${id}/pinned`),
+  pinned: (id: string, signal?: AbortSignal) =>
+    patiently<{ items: Message[] }>(`/v1/conversations/${id}/pinned`, signal),
 
   edit: (messageId: string, body: string) =>
     request<Message>(`/v1/messages/${messageId}`, {
@@ -204,7 +285,7 @@ export const api = {
    * этот разговор либо весь проект.
    */
   ask: (id: string, scope: "conversation" | "project" = "conversation") =>
-    request<{ messageId: string; body: string; ms: number } | null>(`/v1/conversations/${id}/ask`, {
+    request<AnswerView | null>(`/v1/conversations/${id}/ask`, {
       method: "POST",
       body: JSON.stringify({ scope }),
     }),
@@ -219,6 +300,30 @@ export const api = {
    * Возвращает остаток, пересчитанный сервером: клиент видит только окно
    * ленты и посчитать сам не может (Р-029).
    */
+  /**
+   * Поиск по сообщениям всех видимых разговоров (task-100). Текст — в теле:
+   * в адресе он попал бы в журналы. `before` — курсор следующей страницы.
+   * Не терпит сбой: человек набирает дальше, и новый запрос отменит этот.
+   */
+  /**
+   * Поиск по сообщениям. `conversationId` — искать только в этом чате
+   * (task-106): тогда ответ несёт ещё и число всех попаданий для счётчика
+   * «3 из 17». Без него — поиск по всем видимым чатам, как окно Ctrl+K.
+   */
+  search: (
+    q: string,
+    options: { before?: number; conversationId?: string; signal?: AbortSignal } = {},
+  ) =>
+    request<SearchPage>("/v1/search/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        q,
+        ...(options.before ? { before: options.before } : {}),
+        ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+      }),
+      ...(options.signal ? { signal: options.signal } : {}),
+    }),
+
   markRead: (id: string, seq: number) =>
     request<{ unread: number }>(`/v1/conversations/${id}/read`, {
       method: "POST",
@@ -289,7 +394,7 @@ export const api = {
    * невозможно ни нам, ни кому-либо ещё. Потерял — сделай новую.
    */
   invite: () =>
-    request<{ id: string; token: string; expiresAt: string; maxUses: number }>("/v1/invites", {
+    request<InviteCreated>("/v1/invites", {
       method: "POST",
       body: "{}",
     }),
@@ -312,14 +417,14 @@ export const api = {
    * в базе только хеш, как у приглашения (Р-009).
    */
   createBridgeCode: () =>
-    request<{ id: string; code: string; command: string; expiresAt: string }>("/v1/bridges", {
+    request<BridgeIssued>("/v1/bridges", {
       method: "POST",
       body: "{}",
     }),
 
   /** Живая проверка: спросить настоящую модель через свой мост. */
   checkModel: (prompt?: string) =>
-    request<{ text: string; ms: number }>("/v1/model/check", {
+    request<ModelCheck>("/v1/model/check", {
       method: "POST",
       body: JSON.stringify(prompt ? { prompt } : {}),
     }),

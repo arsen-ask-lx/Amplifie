@@ -70,9 +70,13 @@ export function ConfirmDialog({
  * из окон отдавало его мимо `finally` необработанным обещанием: окно
  * оставалось открытым и молчало, будто кнопка не работает. Что именно
  * сказать, решает хозяин окна (`explain`) — он знает свои поля.
+ *
+ * ⚠️ ВСЕГДА ОТКРЫТО, КАК `ConfirmDialog` (task-103). Хозяин ставит окно
+ * на страницу на время вопроса и снимает после. Прежде окно пряталось
+ * свойством `open` и помнило поля между открытиями: второй «+» показывал
+ * прежний проект, «Новый чат» после «Отмены» — набранное.
  */
 export function FormDialog({
-  open,
   title,
   submitLabel,
   canSubmit,
@@ -81,7 +85,6 @@ export function FormDialog({
   onClose,
   children,
 }: {
-  open: boolean;
   title: React.ReactNode;
   submitLabel: string;
   /** Можно ли жать главную кнопку — например, поле не пустое. */
@@ -113,7 +116,7 @@ export function FormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+    <Dialog open onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="sm:max-w-96">
         <form onSubmit={(event) => void submit(event)}>
           <DialogHeader>

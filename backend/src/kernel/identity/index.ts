@@ -13,6 +13,7 @@ export {
 } from "./invites.js";
 export {
   BadKeyFormatError,
+  type KeyView,
   keyFor,
   listKeys,
   NoSecretKeyError,

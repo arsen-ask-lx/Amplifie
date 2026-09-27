@@ -9,34 +9,10 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-function freshEmail(): string {
-  return `room-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
+import { BASE, newPerson, requireStand } from "./stand.js";
 
 async function newOwner(tag: string): Promise<string> {
-  const response = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (response.status !== 201) throw new Error(`регистрация: ${response.status}`);
-  return sessionCookie(response);
+  return (await newPerson(tag)).cookie;
 }
 
 async function addChannel(cookie: string, title: string): Promise<string> {
@@ -58,10 +34,7 @@ const remove = (cookie: string, id: string) =>
   fetch(`${BASE}/v1/conversations/${id}`, { method: "DELETE", headers: { cookie } });
 
 describe("удаление канала", () => {
-  beforeAll(async () => {
-    const health = await fetch(`${BASE}/health`);
-    if (!health.ok) throw new Error(`стек не поднят (${BASE}/health): make up`);
-  });
+  beforeAll(requireStand);
 
   it("свой канал удаляется и пропадает из списка", async () => {
     const cookie = await newOwner("Хозяин");
@@ -75,12 +48,14 @@ describe("удаление канала", () => {
   it("удалённый канал больше не читается", async () => {
     const cookie = await newOwner("Читатель");
     const id = await addChannel(cookie, "Исчезнет");
-    await remove(cookie, id);
+    const read = () => fetch(`${BASE}/v1/conversations/${id}/messages`, { headers: { cookie } });
 
-    const response = await fetch(`${BASE}/v1/conversations/${id}/messages`, {
-      headers: { cookie },
-    });
-    expect(response.status).toBe(404);
+    // Положительный контроль: до удаления канал читается — 404 ниже
+    // говорит об удалении, а не о неверном адресе.
+    expect((await read()).status).toBe(200);
+    expect((await remove(cookie, id)).status).toBe(204);
+
+    expect((await read()).status).toBe(404);
   });
 
   it("чужой канал не удаляется, и отказ не выдаёт его существования", async () => {
@@ -95,8 +70,15 @@ describe("удаление канала", () => {
 
   it("несуществующий канал отвечает так же, как чужой", async () => {
     const cookie = await newOwner("Гадающий");
-    const response = await remove(cookie, "01a00000-0000-7000-8000-000000000000");
-    expect(response.status).toBe(404);
+    const stranger = await newOwner("Сосед");
+    const theirs = await addChannel(stranger, "Чужой, но есть");
+
+    const missing = await remove(cookie, "01a00000-0000-7000-8000-000000000000");
+    const foreign = await remove(cookie, theirs);
+    expect(missing.status).toBe(404);
+    expect(foreign.status).toBe(404);
+    // «Так же» — и тело ответа: по разнице в словах перебирают чужие адреса.
+    expect(await missing.json()).toEqual(await foreign.json());
   });
 
   it("повторное удаление не притворяется успешным", async () => {

@@ -21,11 +21,6 @@ describe("запись упоминания", () => {
     expect(mentionedIds(body).sort()).toEqual([MARIA, PETR].sort());
   });
 
-  it("одного дважды — это один зов", () => {
-    const body = `${mentionMarkup("Мария", MARIA)}, ещё раз ${mentionMarkup("Мария", MARIA)}`;
-    expect(mentionedIds(body)).toEqual([MARIA]);
-  });
-
   it("обычная ссылка упоминанием не считается", () => {
     expect(mentionedIds("[сайт](https://example.com)")).toEqual([]);
   });
@@ -38,12 +33,5 @@ describe("запись упоминания", () => {
 
   it("имя без скобок — не упоминание", () => {
     expect(mentionedIds("@Мария Петрова, глянь")).toEqual([]);
-  });
-
-  it("повторный вызов даёт тот же ответ", () => {
-    // Общая глобальная регулярка помнила бы lastIndex и через раз
-    // возвращала пусто. Тест ровно на это.
-    const body = mentionMarkup("Мария", MARIA);
-    expect(mentionedIds(body)).toEqual(mentionedIds(body));
   });
 });

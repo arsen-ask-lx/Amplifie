@@ -233,8 +233,9 @@ export async function login(
 
   return withTransaction(async (tx) => {
     await repo.insertSession(tx, { accountId: found.id, tokenHash, expiresAt });
-    const actor = await repo.findLiveSession(tx, tokenHash, new Date());
-    if (!actor) throw new InvalidCredentialsError();
+    const live = await repo.findLiveSession(tx, tokenHash, new Date());
+    if (!live) throw new InvalidCredentialsError();
+    const { actor } = live;
 
     await appendEvent(tx, {
       kind: "session.opened",
@@ -253,9 +254,10 @@ export async function login(
 export async function logout(token: string): Promise<void> {
   const tokenHash = hashToken(token);
   await withTransaction(async (tx) => {
-    const actor = await repo.findLiveSession(tx, tokenHash, new Date());
+    const live = await repo.findLiveSession(tx, tokenHash, new Date());
     await repo.deleteSessionByTokenHash(tx, tokenHash);
-    if (actor) {
+    if (live) {
+      const { actor } = live;
       await appendEvent(tx, {
         kind: "session.closed",
         workspaceId: actor.workspaceId,
@@ -296,15 +298,31 @@ export async function resolveActor(token: string | undefined): Promise<Actor | n
   // Сравнение с равным временем здесь НЕ нужно и было бы театром: мы не
   // сличаем строки в коде, а ищем по индексу в базе. Утечки по времени
   // на поиске по хешу нет — сам хеш случаен и неугадываем.
-  const actor = await repo.findLiveSession(db, hashToken(token), new Date());
-  if (!actor) return null;
+  const now = new Date();
+  const live = await repo.findLiveSession(db, hashToken(token), now);
+  if (!live) return null;
 
-  // Не ждём: отметка «жив» не должна задерживать ответ. Но и не глотаем
-  // молча — проглоченная ошибка это ошибка, которой нет в логах.
-  void repo.touchSession(db, actor.sessionId, new Date()).catch((error: unknown) => {
-    onTouchFailed(error);
-  });
-  return actor;
+  /**
+   * ⚠️ ОТМЕТКА СТАВИТСЯ ТОЛЬКО КОГДА УСТАРЕЛА, И ЭТО ГЛАВНОЕ
+   * ЗДЕСЬ. Условие стояло в самом `UPDATE` — письма не было, а круг
+   * до базы был, на каждый запрос к любой двери. Замерено: догон
+   * после task-067 не читает реплик вовсе, и вся его цена была в этих
+   * двух запросах (Д-39). Отметку мы и так прочли вместе с правами —
+   * значит решить «пора ли» можно до запроса, а не запросом.
+   *
+   * Кеша здесь НЕТ и не появляется: права по-прежнему читаются
+   * из базы на каждый запрос. Выход из системы действует немедленно,
+   * как и раньше.
+   *
+   * Не ждём: отметка «жив» не должна задерживать ответ. Но и не глотаем
+   * молча — проглоченная ошибка это ошибка, которой нет в логах.
+   */
+  if (repo.staleTouch(live.lastSeenAt, now)) {
+    void repo.touchSession(db, live.actor.sessionId, now).catch((error: unknown) => {
+      onTouchFailed(error);
+    });
+  }
+  return live.actor;
 }
 
 /**

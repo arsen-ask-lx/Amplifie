@@ -9,21 +9,40 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ⚠️ ИМЕНА ОБРАЗОВ СТЕНДА — ДЛЯ ГОЛЫХ `docker compose` В ШАГАХ (task-118).
+# У compose.yml значения по умолчанию больше нет (было `latest`), и шаг
+# журналов при падении падал бы сам. Makefile берёт те же имена (`?=`),
+# сборка выпуска называет свои.
+env:
+  AMPLIFIE_IMAGE_API: amplifie/api:dev
+  AMPLIFIE_IMAGE_WEB: amplifie/web:dev
+
+# Конвейер только читает код; кому нужно больше — просит в своём задании
+# (security). Без строки ниже токен получал права по умолчанию (zizmor).
+permissions:
+  contents: read
+
+# ⚠️ ПРЕДЕЛ ВРЕМЕНИ У КАЖДОЙ РАБОТЫ (task-123): по умолчанию GitHub ждёт шесть часов,
+# и зависший кусок на приватном репозитории сжёг бы их минутами. Числа — около
+# двойного замера; фаззер — с запасом до первого замера по кускам.
 jobs:
   # Дешёвое первым (fail fast): секунды, без базы и без Docker.
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      # ⚠️ ГЛУБИНА ДВА, А НЕ ОДИН. Гейт карты сравнивает коммит с родителем;
-      # в обрезанном до одного коммита клоне родителя нет, и `git show`
-      # считает коммит корневым — то есть перечисляет ВЕСЬ репозиторий.
-      # Гейт это распознаёт и падает с объяснением, а не врёт зелёным.
-      - uses: actions/checkout@v5
+      # ⚠️ ПОЛНАЯ ИСТОРИЯ, А НЕ ДВА КОММИТА (task-116). Гейт цикла проверяет
+      # все коммиты от появления своего правила; в обрезанном клоне начала
+      # не видно, и гейт падает с объяснением, а не врёт зелёным. Гейту карты
+      # хватало двух — полная история ему тоже годится.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          fetch-depth: 2
-      - uses: actions/setup-node@v5
+          # Токен не остаётся в .git/config: дальше его никто не читает (zizmor, artipacked).
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
       - run: npm ci
       - name: Формат и линтер
@@ -47,29 +66,36 @@ jobs:
       # Ровно эту дыру нашёл гейт `gates-run-in-ci`: четыре наши проверки
       # (rhythm, failure-map, stages, duplicates) объявлены давно и НИ РАЗУ
       # не гонялись конвейером.
+      # Гейт ci-not-hijackable делегирует разбор zizmor; версия закреплена:
+      # обёртка читает его итоговую строку, и смена формата должна быть видна.
+      - name: zizmor для проверки конвейера
+        run: pipx install zizmor==1.30.1
       - name: Все объявленные проверки
-        run: npx --yes agent-quality-kit@0.12.0 doctor --run
+        run: npx --yes agent-quality-kit@0.18.0 doctor --run
       - name: Счётчик согласия арбитра К2
         run: npm run arbiter:check
 
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # На запросе слияния gitleaks берёт список его коммитов через API,
     # а токен нового репозитория по умолчанию читает только код.
     permissions:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          # Токен не остаётся в .git/config: дальше его никто не читает (zizmor, artipacked).
+          persist-credentials: false
           fetch-depth: 0
       - name: Секреты в истории
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
       - run: npm ci
       - name: Уязвимости в зависимостях
@@ -90,15 +116,18 @@ jobs:
   # `compose.override.yml` и лежит рядом.
   delivery:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # Полная история: версия берётся из тега git, а в обрезанном клоне
       # `git describe` не находит ни одного и врёт голым хешем.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          # Токен не остаётся в .git/config: дальше его никто не читает (zizmor, artipacked).
+          persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
       - run: npm ci
       - name: Путь клиента от архива до живой установки
@@ -107,30 +136,27 @@ jobs:
         if: failure()
         run: docker compose -p amplifie_postavka logs --tail=200 || true
 
+  # ⚠️ ТЯЖЁЛОЕ — ПАРАЛЛЕЛЬНО, У КАЖДОЙ РАБОТЫ СВОЙ СТЕНД (task-123). Одной очередью
+  # это шло 45+ минут (фаззер — 44), и почти каждый пуш отменял прогон раньше конца:
+  # CI неделями был красным, а внутрь никто не смотрел. Проверки те же, ни одна не
+  # ослаблена — поделено только, КТО и ГДЕ их гоняет. Своя машина — своя база,
+  # поэтому параллель не даёт мигания, ради которого Playwright идёт в один поток.
+
   # Живой стек + приёмочные тесты через настоящий порт, не test client.
-  stack:
+  acceptance:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      # Тем же `make up`, что и руками: своя копия этих строк отстала,
-      # когда стенд переехал в compose.dev.yml (Р-030), и голый
-      # `docker compose up` искал образ веба в реестре вместо сборки.
-      - name: Поднять стек
-        run: make up
-      - name: Миграции
-        run: make migrate
+          persist-credentials: false
+      - uses: $/.github/actions/stand
       # Цена горячего запроса. Стоит ДО приёмочных: он сеет объём
       # и откатывает, поэтому база после него та же, а падает он быстрее
       # и говорит понятнее, чем упавший через минуту сценарий.
       - name: Цена горячих запросов
         id: cost
         run: npm run cost
-
       # ⚠️ ТЕСТЫ ИДУТ И ПОСЛЕ ПАДЕНИЯ ЦЕНЫ. Это разные вердикты: дорогая
       # панель не делает сценарии неверными, а молчание тестов прячет,
       # сломано ли что-то ещё. Работа всё равно красная. Шаги ниже
@@ -138,22 +164,76 @@ jobs:
       - name: Приёмочные тесты
         if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
         run: npm test
+      # Двери чтения под нагрузкой (task-122, Р-051): официальный образ k6 по
+      # отпечатку, без сборки. Пороги грубые — машина CI шумная. Та же команда
+      # краснела на подсадках локально: панель +2 с и 500 в догоне (журнал task-122).
+      - name: Нагрузка на двери чтения (k6)
+        if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
+        run: make k6
+      - name: Логи при падении
+        if: failure()
+        run: docker compose logs --tail=200
+
+  # Арбитр описания API (task-120): фазы examples, coverage и fuzzing — по четверти
+  # дверей на машину (деление — tools/ops/fuzz-shards.mjs, тест: куски вместе дают все
+  # двери). Фаза stateful ходит по связям между дверями и в куске потеряла бы цепочки —
+  # она идёт отдельной работой по всем дверям.
+  api-fuzz:
+    name: api-fuzz (${{ matrix.part }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      # Упал один кусок — остальные досказывают: иначе видно одно падение из пяти.
+      fail-fast: false
+      matrix:
+        include:
+          - { part: "1/4", shard: "1/4", phases: "examples,coverage,fuzzing" }
+          - { part: "2/4", shard: "2/4", phases: "examples,coverage,fuzzing" }
+          - { part: "3/4", shard: "3/4", phases: "examples,coverage,fuzzing" }
+          - { part: "4/4", shard: "4/4", phases: "examples,coverage,fuzzing" }
+          - { part: "stateful", shard: "", phases: "stateful" }
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/stand
+      - name: Арбитр описания API
+        env:
+          FUZZ_SHARD: ${{ matrix.shard }}
+          FUZZ_PHASES: ${{ matrix.phases }}
+        run: make api-fuzz
+      - name: Логи при падении
+        if: failure()
+        run: docker compose logs --tail=200
+
+  # Проверки интерфейса настоящим браузером — тремя кусками (`--shard`), у каждого
+  # свой стенд. Внутри куска — по-прежнему один поток и ноль повторов.
+  ui:
+    name: ui (${{ matrix.part }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/stand
       # ⚠️ БРАУЗЕР СТАВИТСЯ ОТДЕЛЬНЫМ ШАГОМ, А НЕ ВНУТРИ ТЕСТА. Так его
       # отказ виден отказом СВОЕГО шага: «не смог скачать Chromium»
       # и «сценарий не прошёл» — разные новости, и путать их нельзя.
       # Версия браузера берётся от закреплённой версии пакета.
       - name: Браузер для проверок интерфейса
-        id: browser
-        if: ${{ !cancelled() && steps.cost.conclusion != 'skipped' }}
         run: npx playwright install --with-deps chromium
       - name: Проверки интерфейса
-        if: ${{ !cancelled() && steps.browser.conclusion == 'success' }}
-        run: npm run test-ui
+        run: npm run test-ui -- --shard=${{ matrix.part }}/3
       - name: Следы прогона при падении
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.part }}
           path: |
             test-results/
             playwright-report/

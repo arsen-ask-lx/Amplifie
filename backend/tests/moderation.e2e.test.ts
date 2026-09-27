@@ -37,6 +37,16 @@ async function feedIds(person: Person, conversationId: string): Promise<string[]
   return ((await response.json()) as { items: Said[] }).items.map((one) => one.id);
 }
 
+async function feedBody(
+  person: Person,
+  conversationId: string,
+  messageId: string,
+): Promise<string | undefined> {
+  const response = await call("GET", `/v1/conversations/${conversationId}/messages`, person);
+  const items = ((await response.json()) as { items: { id: string; body?: string }[] }).items;
+  return items.find((one) => one.id === messageId)?.body;
+}
+
 async function moderatorIn(person: Person, conversationId: string): Promise<boolean | undefined> {
   const list = (await (await call("GET", "/v1/conversations", person)).json()) as {
     items: { id: string; moderator?: boolean }[];
@@ -74,8 +84,12 @@ describe("удаление чужого (Р-035)", () => {
     expect(created.status).toBe(201);
     const channel = ((await created.json()) as Said).id;
     const theirs = await say(guest, channel, "в своём канале");
+    // Положительный контроль: до удаления реплика видна автору.
+    expect(await feedIds(guest, channel)).toContain(theirs);
 
     expect((await call("DELETE", `/v1/messages/${theirs}`, owner)).status).toBe(204);
+    // Код 204 без состояния — это слово сервера. Реплика ушла у автора тоже.
+    expect(await feedIds(guest, channel), "реплика жива после удаления").not.toContain(theirs);
   });
 
   it("владелец канала удаляет и в его ветке — права ветки у корня", async () => {
@@ -86,9 +100,15 @@ describe("удаление чужого (Р-035)", () => {
       title: "Ветка",
     });
     const threadId = ((await thread.json()) as Said).id;
+    expect(thread.status, "ветка не завелась").toBe(201);
     const theirs = await say(guest, threadId, "в ветке");
+    // Положительный контроль: до удаления реплика в ветке видна автору.
+    expect(await feedIds(guest, threadId)).toContain(theirs);
 
     expect((await call("DELETE", `/v1/messages/${theirs}`, owner)).status).toBe(204);
+    expect(await feedIds(guest, threadId), "реплика в ветке жива после удаления").not.toContain(
+      theirs,
+    );
   });
 
   it("чужое не правит никто — даже владелец канала", async () => {
@@ -99,6 +119,9 @@ describe("удаление чужого (Р-035)", () => {
 
     const edit = await call("PATCH", `/v1/messages/${theirs}`, owner, { body: "подмена" });
     expect(edit.status).toBe(404);
+    expect(await feedBody(guest, channel, theirs), "текст подменён, хоть ответ и 404").toBe(
+      "как было",
+    );
   });
 
   it("панель говорит, где человек может убирать чужое", async () => {

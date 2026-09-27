@@ -42,9 +42,26 @@ trap cleanup EXIT
 
 cd "$ROOT"
 
-step "Собираем образы"
-AMPLIFIE_VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo "")" \
-  docker compose -f compose.yml -f compose.dev.yml build >/dev/null
+# ⚠️ ВЕРСИЯ — В ИМЕНИ ОБРАЗА И В compose.yml ПОСТАВКИ, А НЕ В .env КЛИЕНТА
+# (task-118). `.env` не перезаписывается никогда, а обновление — это новый
+# compose.yml и `up`: версия в `.env` молча держала бы старые образы.
+VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+export AMPLIFIE_VERSION="$VERSION"
+export AMPLIFIE_IMAGE_API="amplifie/api:$VERSION"
+export AMPLIFIE_IMAGE_WEB="amplifie/web:$VERSION"
+
+step "Без названного образа базовый файл не поднимается — никакого latest"
+BARE="$(mktemp -d)"
+cp compose.yml "$BARE/"
+if (cd "$BARE" && env -u AMPLIFIE_IMAGE_API -u AMPLIFIE_IMAGE_WEB docker compose config >/dev/null 2>"$BARE/err"); then
+  fail "compose.yml поднялся без названного образа — у клиента взялся бы любой с диска"
+fi
+grep -q "не назван образ" "$BARE/err" || fail "отказ без объяснения: $(cat "$BARE/err")"
+rm -rf "$BARE"
+ok_ "без названного образа — отказ с объяснением"
+
+step "Собираем образы $VERSION"
+docker compose -f compose.yml -f compose.dev.yml build >/dev/null
 
 # ⚠️ СПИСОК БЕРЁТСЯ ИЗ РАЗОБРАННОГО БАЗОВОГО ФАЙЛА, А НЕ ПИШЕТСЯ РУКАМИ.
 # «Образы» здесь значит ВСЕ рантаймовые образы установки, включая postgres.
@@ -75,7 +92,12 @@ ok_ "локальных образов не осталось: взять их м
 step "Собираем каталог поставки"
 # Ровно то, что получает клиент. Ничего больше: ни исходников, ни дев-файла.
 mkdir -p "$SHIPDIR"
-cp compose.yml "$SHIPDIR/"
+# Имена образов — строкой в compose.yml поставки; в .env только секреты.
+sed -e "s#\${AMPLIFIE_IMAGE_API:?[^}]*}#$AMPLIFIE_IMAGE_API#" \
+  -e "s#\${AMPLIFIE_IMAGE_WEB:?[^}]*}#$AMPLIFIE_IMAGE_WEB#" compose.yml >"$SHIPDIR/compose.yml"
+if grep -q "AMPLIFIE_IMAGE" "$SHIPDIR/compose.yml"; then
+  fail "в compose.yml поставки осталась переменная образа"
+fi
 ( cd "$SHIPDIR" && node "$ROOT/tools/ops/make-env.mjs" box "$PORT" >/dev/null )
 printf '   в каталоге: %s\n' "$(ls -A "$SHIPDIR" | tr '\n' ' ')"
 
@@ -84,7 +106,10 @@ docker load -i "$ARCHIVE" >/dev/null
 (
   cd "$SHIPDIR"
   # Голое `docker compose up` — то самое, что наберёт клиент. Никаких `-f`.
-  docker compose -p "$PROJECT" up -d --pull never
+  # И без переменных окружения make: установка обязана подняться ТОЛЬКО
+  # своими файлами — иначе зелёный был бы по чужой причине.
+  env -u AMPLIFIE_IMAGE_API -u AMPLIFIE_IMAGE_WEB -u AMPLIFIE_VERSION \
+    docker compose -p "$PROJECT" up -d --pull never
 )
 
 step "Ждём здоровья"
@@ -166,10 +191,9 @@ printf '\n\033[32m════ путь клиента пройден целик
 # прошедший путь клиента: любой отказ выше уже вышел из скрипта.
 if [ -n "${RELEASE_DIR:-}" ]; then
   step "Складываем выпуск в $RELEASE_DIR"
-  VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
   mkdir -p "$RELEASE_DIR"
   gzip -c "$ARCHIVE" > "$RELEASE_DIR/amplifie-$VERSION-images.tar.gz"
-  cp compose.yml tools/ops/make-env.mjs "$RELEASE_DIR/"
+  cp "$SHIPDIR/compose.yml" tools/ops/make-env.mjs "$RELEASE_DIR/"
   ( cd "$RELEASE_DIR" && sha256sum -- * > SHA256SUMS )
   ok_ "выпуск: $(ls "$RELEASE_DIR" | tr '\n' ' ')"
 fi

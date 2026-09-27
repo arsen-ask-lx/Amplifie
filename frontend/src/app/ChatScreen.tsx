@@ -1,8 +1,11 @@
-import { Sidebar } from "@phosphor-icons/react";
-import { useCallback, useEffect, useState } from "react";
+import { MagnifyingGlass, Sidebar } from "@phosphor-icons/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Me } from "../data/api.js";
 import { useChat } from "../data/useChat.js";
+import { ChatSearchBar } from "../screens/talk/ChatSearchBar.js";
 import { Room } from "../screens/talk/Room.js";
+import { SearchDialog } from "../screens/talk/SearchDialog.js";
+import { Button } from "../shared/ui/button.js";
 import { Rail } from "./Rail.js";
 import { ThemePicker } from "./ThemePicker.js";
 
@@ -17,7 +20,20 @@ const PANEL_KEY = "amplifie.панель";
  * окне или ему мешает список. Возвращать панель на место при каждой
  * перезагрузке значит спорить с человеком.
  */
+/**
+ * Узкий экран — телефон или узкая боковая панель браузера (Д-28). Там панель
+ * чатов выезжает поверх переписки, а не делит с ней ширину: 256 px из 390
+ * оставляли ленте 124. Порог — тот же `md`, что у классов панели.
+ */
+const NARROW = "(max-width: 767px)";
+
+function narrowNow(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(NARROW).matches;
+}
+
 function railWasOpen(): boolean {
+  // На узком экране панель по умолчанию задвинута: человек пришёл читать.
+  if (narrowNow()) return false;
   try {
     return localStorage.getItem(PANEL_KEY) !== "нет";
   } catch {
@@ -27,13 +43,39 @@ function railWasOpen(): boolean {
   }
 }
 
-export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
-  const chat = useChat(me);
-
+/**
+ * Панель чатов: открыта ли, как переключается и что делает на узком экране.
+ * Отдельным хуком — оболочка и без неё держит много состояний (Д-28).
+ */
+function useRail(chat: ReturnType<typeof useChat>) {
   const [railOpen, setRailOpen] = useState(railWasOpen);
+
+  // Выбрал чат на узком экране — панель уезжает: дальше читают переписку.
+  const currentId = chat.panel.currentId;
+  useEffect(() => {
+    if (currentId && narrowNow()) setRailOpen(false);
+  }, [currentId]);
+
+  // Тот же чат, что открыт, адреса не меняет — выбор из панели задвигает её
+  // сам, иначе на телефоне панель не уезжала по щелчку на свой же чат.
+  const railChat = useMemo(
+    () => ({
+      ...chat,
+      panel: {
+        ...chat.panel,
+        select: (id: string) => {
+          chat.panel.select(id);
+          if (narrowNow()) setRailOpen(false);
+        },
+      },
+    }),
+    [chat],
+  );
 
   const toggleRail = useCallback(() => {
     setRailOpen((was) => {
+      // Выбор на узком экране не запоминается: он про телефон, а не про вкус.
+      if (narrowNow()) return !was;
       try {
         localStorage.setItem(PANEL_KEY, was ? "нет" : "да");
       } catch {
@@ -41,6 +83,59 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
       }
       return !was;
     });
+  }, []);
+
+  return { railOpen, setRailOpen, toggleRail, railChat };
+}
+
+/**
+ * Затемнение под панелью на узком экране (Д-28). Жест для мыши и пальца:
+ * с клавиатуры панель закрывает её кнопка в шапке, а читалке второй
+ * «Задвинуть панель» не нужен.
+ */
+function RailShade({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <button
+      type="button"
+      aria-hidden="true"
+      tabIndex={-1}
+      onClick={onClose}
+      className="fixed inset-0 z-30 bg-ink/20 md:hidden"
+    />
+  );
+}
+
+export function ChatScreen({
+  me,
+  onLeave,
+  onSessionEnded,
+}: {
+  me: Me;
+  onLeave: () => void;
+  /** Сервер перестал узнавать сессию — показывать вход решает приложение. */
+  onSessionEnded: () => void;
+}) {
+  const chat = useChat(me, onSessionEnded);
+  /**
+   * Куда вести взгляд из полосы поиска. Ссылкой: `openAt` меняется
+   * с каждым адресом, а следствие в полосе не должно из-за этого
+   * перезапускаться и прыгать к тому же попаданию второй раз.
+   */
+  const openAtRef = useRef<((seq: number) => void) | null>(null);
+  openAtRef.current = (seq) => chat.openAt(chat.panel.currentId ?? "", seq);
+
+  const { railOpen, setRailOpen, toggleRail, railChat } = useRail(chat);
+  /** Открыто ли окно общего поиска по всем чатам (task-100, Ctrl+K). */
+  const [searching, setSearching] = useState(false);
+  const closeSearch = useCallback(() => setSearching(false), []);
+  /** Открыта ли полоса поиска в этом чате (task-106, лупа и Ctrl+F). */
+  const [findingHere, setFindingHere] = useState(false);
+  const closeHere = useCallback(() => setFindingHere(false), []);
+  const openHere = useCallback((seq: number) => {
+    // Переход к попаданию — тем же адресом, что цитата: второго способа
+    // доехать до реплики не заводим.
+    openAtRef.current?.(seq);
   }, []);
 
   // Ctrl+B — тот же способ, что в Слаке, VS Code и Дискорде. Своего
@@ -69,9 +164,52 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleRail]);
 
+  /**
+   * Ctrl+F — поиск в ОТКРЫТОМ чате (task-106), как в Telegram и в браузере.
+   *
+   * ⚠️ ОТБИРАЕМ У БРАУЗЕРА, И ЭТО ОСОЗНАННО. Родной поиск браузера ищет
+   * по видимому куску ленты — а лента держит окно в 300 реплик, то есть
+   * находит он «сколько повезло». Наш ищет по всему чату на сервере.
+   */
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.code !== "KeyF") return;
+      event.preventDefault();
+      setFindingHere(true);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /**
+   * Ctrl+K — поиск, как в Слаке, Дискорде и VS Code (task-100).
+   *
+   * ⚠️ И ИЗ ПОЛЯ ВВОДА ТОЖЕ, в отличие от Ctrl+B. У редактора это сочетание
+   * не занято (`fieldKeys.ts`), а искать хочется ровно тогда, когда пишешь.
+   * `preventDefault` обязателен: иначе браузер уводит фокус в свою строку
+   * поиска.
+   */
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.code !== "KeyK") return;
+      event.preventDefault();
+      setSearching(true);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
-    <div className="flex h-dvh overflow-hidden bg-bg text-ink">
-      <Rail me={me} chat={chat} open={railOpen} onLeave={onLeave} />
+    // ⚠️ ОБОЛОЧКА НЕ ПРОКРУЧИВАЕТСЯ НИЧЕМ (task-101), и нужны оба слова.
+    // `relative`: подписи для чтения с экрана (`sr-only`) стоят абсолютно и без
+    // опоры отсчитывались от корня — документ вырастал выше окна (замер на засеве:
+    // 1087 px при 800), страницу крутило колесом. `overflow-clip`, а не `hidden`:
+    // скрытое переполнение прокручивается из кода, и `scrollIntoView` перехода
+    // уводил всю оболочку вместе с шапкой на 253 px (замер в `jump-calm.spec.ts`).
+    <div className="relative flex h-dvh overflow-clip bg-bg text-ink">
+      <Rail me={me} chat={railChat} open={railOpen} onLeave={onLeave} />
+      {/* Узкий экран: панель поверх, щелчок мимо её задвигает (Д-28). */}
+      <RailShade open={railOpen} onClose={() => setRailOpen(false)} />
 
       {/* ⚠️ `min-h-0` ЗДЕСЬ И НА ЛЕНТЕ — НЕ УКРАШЕНИЕ. У flex-ребёнка
           минимальная высота по умолчанию равна содержимому, поэтому лента
@@ -95,19 +233,48 @@ export function ChatScreen({ me, onLeave }: { me: Me; onLeave: () => void }) {
             {chat.current?.title ?? "Канал"}
           </h2>
 
-          <div className="ml-auto flex shrink-0 items-center">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              // Второе нажатие закрывает — лупа переключатель, как у Telegram.
+              onClick={() => setFindingHere((open) => !open)}
+              aria-pressed={findingHere}
+              aria-label="Поиск в этом чате"
+              title="Поиск в этом чате (Ctrl+F) · по всем чатам — Ctrl+K"
+              className="grid size-9 shrink-0 place-items-center rounded bg-transparent text-muted transition-colors hover:bg-raised hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink"
+            >
+              <MagnifyingGlass className="size-[18px]" />
+            </button>
             <ThemePicker />
           </div>
         </header>
 
-        {chat.failure ? (
+        {findingHere && chat.panel.currentId ? (
+          <ChatSearchBar room={chat.panel.currentId} onOpen={openHere} onClose={closeHere} />
+        ) : null}
+
+        {/* Две строки, а не одна (task-096): беда живых обновлений гаснет
+            сама и не должна стирать отказ загрузки вместе с «Повторить». */}
+        {chat.trouble ? (
           <p className="border-b border-line bg-panel px-5 py-2 text-aside text-danger">
-            {chat.failure}
+            {chat.trouble}
           </p>
+        ) : null}
+        {chat.failure ? (
+          <div className="flex items-center gap-3 border-b border-line bg-panel px-5 py-2 text-aside text-danger">
+            <p>{chat.failure.text}</p>
+            {chat.failure.retry ? (
+              <Button variant="outline" size="xs" onClick={chat.failure.retry}>
+                Повторить
+              </Button>
+            ) : null}
+          </div>
         ) : null}
 
         <Room chat={chat} meId={me.participant.id} />
       </main>
+
+      {searching ? <SearchDialog onOpen={chat.openAt} onClose={closeSearch} /> : null}
     </div>
   );
 }

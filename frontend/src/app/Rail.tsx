@@ -47,6 +47,8 @@ export function Rail({
       aria-hidden={!open}
       className={[
         "h-full shrink-0 overflow-hidden border-r bg-panel transition-[width] duration-200",
+        // Узкий экран (Д-28): поверх переписки, а не рядом с ней.
+        "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-float",
         open ? "w-64 border-line" : "w-0 border-transparent",
       ].join(" ")}
     >
@@ -78,28 +80,31 @@ export function Rail({
           <button
             type="button"
             onClick={() => setCreatingFor(null)}
-            className="flex items-center gap-2.5 rounded bg-transparent px-2.5 py-2 text-left text-body text-muted transition-colors hover:bg-raised hover:text-ink"
+            className="flex items-center gap-2.5 rounded bg-transparent px-2.5 py-2 text-left text-body text-muted outline-none transition-colors hover:bg-raised hover:text-ink focus-visible:bg-raised focus-visible:text-ink"
           >
             <NotePencil className="size-4 shrink-0" />
             Новый чат
           </button>
         </div>
 
-        <NewChatDialog
-          open={creatingFor !== undefined}
-          folderTitle={creatingFor?.title}
-          onCreate={async (title) => {
-            const projectId = creatingFor?.id;
-            await chat.panel.addChannel(title, projectId);
-            if (projectId) {
-              setProjectToReveal((before) => ({
-                id: projectId,
-                revision: (before?.revision ?? 0) + 1,
-              }));
-            }
-          }}
-          onClose={() => setCreatingFor(undefined)}
-        />
+        {/* Окно на странице, только пока спрашивает (task-103): иначе оно
+            помнило набранное после «Отмены». */}
+        {creatingFor === undefined ? null : (
+          <NewChatDialog
+            folderTitle={creatingFor?.title}
+            onCreate={async (title) => {
+              const projectId = creatingFor?.id;
+              await chat.panel.addChannel(title, projectId);
+              if (projectId) {
+                setProjectToReveal((before) => ({
+                  id: projectId,
+                  revision: (before?.revision ?? 0) + 1,
+                }));
+              }
+            }}
+            onClose={() => setCreatingFor(undefined)}
+          />
+        )}
 
         {/* ⚠️ СПИСОК РАЗГОВОРОВ СТОИТ ВСЕГДА, А НЕ ТОЛЬКО В «ЧАТЕ», И ЭТО
             ОТМЕНА ПРЕЖНЕГО РЕШЕНИЯ. Раньше он прятался в «Доске»

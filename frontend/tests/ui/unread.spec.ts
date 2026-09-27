@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
   bubble,
   createChannel,
@@ -10,6 +9,7 @@ import {
   say,
   typeInto,
 } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * НЕПРОЧИТАННОЕ ГЛАЗАМИ ЧЕЛОВЕКА (task-024, Р-029).
@@ -86,6 +86,8 @@ test("непрочитанное видно числом у канала и че
 });
 
 test("вкладка в фоне не помечает прочитанным ничего", async ({ page, browser }) => {
+  // Часы подделаны, чтобы проверить тишину без сна: до прыжка идут как настоящие.
+  await page.clock.install();
   await register(page);
   await createChannel(page, "Тихий");
 
@@ -111,12 +113,27 @@ test("вкладка в фоне не помечает прочитанным н
     document.dispatchEvent(new Event("visibilitychange"));
   });
 
+  const marks: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/read")) marks.push(request.url());
+  });
+
   await say(otherPage, "пока тебя нет");
   await expect(bubble(page, "пока тебя нет")).toBeVisible();
 
-  // Ждём дольше задержки отправки (3 секунды): если бы отметка ушла,
-  // она бы уже ушла.
-  await page.waitForTimeout(4000);
+  /**
+   * ⚠️ ОКНО — ПРЫЖКОМ ЧАСОВ, А НЕ СНОМ В 4 С. Прыжок дальше окна отметок
+   * (3 с, Р-029) срабатывает отложенная отметка, будь она. Запрос-метка
+   * после прыжка — признак, что всё, начатое вкладкой до неё, уже посчитано:
+   * запросы приходят по порядку.
+   */
+  await page.clock.fastForward(3_500);
+  const probe = page.waitForRequest((request) => request.url().includes("probe=unread"));
+  await page.evaluate(async () => {
+    await fetch("/v1/me?probe=unread", { credentials: "include" });
+  });
+  await probe;
+  expect(marks, "фоновая вкладка отправила отметку прочтения").toEqual([]);
 
   /**
    * ⚠️ СПРАШИВАЕМ СЕРВЕР, А НЕ СМОТРИМ НА ЗНАЧОК, И ЭТО ИСПРАВЛЕНИЕ САМОЙ

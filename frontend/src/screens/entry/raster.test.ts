@@ -10,26 +10,48 @@ import { bayer, ordered, toGray } from "./raster.js";
  */
 
 describe("матрица Байера", () => {
-  it("порядок 2: четыре порога без повторов", () => {
-    const m = bayer(2);
-    expect(m.length).toBe(2);
-    expect(m.every((row) => row.length === 2)).toBe(true);
-    expect([...m.flat()].sort((a, b) => a - b)).toEqual([0, 1, 2, 3]);
+  /**
+   * ⚠️ «БЕЗ ПОВТОРОВ» МАЛО: полосы даёт и перестановка тех же чисел. Эталон —
+   * определение матрицы Байера (Wikipedia, «Ordered dithering»): M₂ = [[0,2],[3,1]],
+   * M₂ₙ = [[4Mₙ, 4Mₙ+2], [4Mₙ+3, 4Mₙ+1]]. Порядок 4 посчитан вручную по нему.
+   */
+  it("порядок 2: ровно исходная матрица", () => {
+    expect(bayer(2)).toEqual([
+      [0, 2],
+      [3, 1],
+    ]);
   });
 
-  it("порядок 4: шестнадцать порогов без повторов", () => {
-    const m = bayer(4);
-    expect(m.length).toBe(4);
-    const all = [...m.flat()].sort((a, b) => a - b);
-    expect(all).toEqual(Array.from({ length: 16 }, (_, i) => i));
+  it("порядок 4: ровно удвоение по определению", () => {
+    expect(bayer(4)).toEqual([
+      [0, 8, 2, 10],
+      [12, 4, 14, 6],
+      [3, 11, 1, 9],
+      [15, 7, 13, 5],
+    ]);
   });
 
-  it("порядок 8: шестьдесят четыре порога без повторов", () => {
-    const m = bayer(8);
-    expect(m.length).toBe(8);
-    expect(m.every((row) => row.length === 8)).toBe(true);
-    const all = [...m.flat()].sort((a, b) => a - b);
-    expect(all).toEqual(Array.from({ length: 64 }, (_, i) => i));
+  it("порядок 8 — тот, что рисует экран, — по определению от рукописной M₄", () => {
+    // Ожидание строится из литерала M₄ выше, а не из `bayer(4)`: иначе неверное
+    // удвоение совпало бы само с собой (ревью task-125).
+    const m4 = [
+      [0, 8, 2, 10],
+      [12, 4, 14, 6],
+      [3, 11, 1, 9],
+      [15, 7, 13, 5],
+    ];
+    const shift = [
+      [0, 2],
+      [3, 1],
+    ];
+    const expected = Array.from({ length: 8 }, (_, y) =>
+      Array.from(
+        { length: 8 },
+        (_, x) =>
+          4 * (m4[y % 4]?.[x % 4] ?? 0) + (shift[Math.floor(y / 4)]?.[Math.floor(x / 4)] ?? 0),
+      ),
+    );
+    expect(bayer(8)).toEqual(expected);
   });
 });
 

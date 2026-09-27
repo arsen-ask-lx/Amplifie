@@ -1,9 +1,12 @@
 import { Gear, Plus, PushPin, PushPinSlash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
-import type { Conversation, Project } from "../data/api.js";
+import type { Conversation } from "../data/api.js";
+import type { PanelProject } from "../data/useRooms.js";
 import { ProjectGlyph } from "../shared/projectLook.js";
-import { DropdownMenuItem, DropdownMenuSeparator } from "../shared/ui/dropdown-menu.js";
-import { RowMenu } from "./RowMenu.js";
+import { ContextMenu, ContextMenuTrigger } from "../shared/ui/context-menu.js";
+import { DropdownMenu, DropdownMenuTrigger } from "../shared/ui/dropdown-menu.js";
+import { contextKit, dropdownKit, type MenuKit } from "../shared/ui/menuKit.js";
+import { rowState, SpokenCounts, StatusMark } from "./RowStatus.js";
 
 /**
  * Проект в боковой панели: заголовок и его чаты (Р-032).
@@ -21,68 +24,56 @@ import { RowMenu } from "./RowMenu.js";
 /**
  * Что показывает свёрнутый проект.
  *
- * ⚠️ СУММА, А НЕ ПРИЗНАК. Свёрнутая папка обязана сказать, сколько внутри
- * нового и звали ли тебя, — иначе сворачивать её никто не станет: свернул
- * и ослеп. Числа складываются по тем же правилам, что у канала, и берутся
- * у тех же счётчиков — второго способа считать непрочитанное здесь нет.
+ * ⚠️ СВОДКА, А НЕ ПРИЗНАК. Свёрнутая папка обязана сказать, есть ли внутри
+ * новое и звали ли тебя, — иначе сворачивать её никто не станет: свернул
+ * и ослеп. Правило то же, что у чата (`RowStatus`), числа — только для
+ * читалки (Р-044): плашка «5» посреди строки владельцу не понравилась.
  */
 function Summary({ unread, mentions }: { unread: number; mentions: number }) {
-  if (mentions <= 0 && unread <= 0) return null;
+  const state = rowState({ unread, mentions });
+  if (state === "none") return null;
   return (
-    <span className="ml-auto flex shrink-0 items-center gap-1">
-      {mentions > 0 ? (
-        <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
-          <span className="sr-only">упоминаний: {mentions}</span>
-          <span aria-hidden="true">@</span>
-        </span>
-      ) : null}
-      {unread > 0 ? (
-        <span className="shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-mark text-on-accent tabular-nums">
-          <span className="sr-only">непрочитанных: </span>
-          {unread > 999 ? "999+" : unread}
-        </span>
-      ) : null}
-    </span>
+    <>
+      <StatusMark state={state} />
+      <SpokenCounts unread={unread} mentions={mentions} />
+    </>
   );
 }
 
 /**
  * Меню проекта: только действия, которые уже существуют в продукте.
  *
- * ⚠️ ТРИ ТОЧКИ, КАК У КАНАЛА, И НЕ СЛУЧАЙНО. Действия над строкой панели
- * живут в одном и том же месте — иначе человеку приходится помнить,
- * у чего они справа, а у чего по правой кнопке.
+ * ⚠️ ПРАВОЙ КНОПКОЙ, КАК У ЧАТА (владелец 17.09, task-102), И ЗНАЧКОМ
+ * НАСТРОЕК ПОСЛЕ ПЛЮСА (владелец 26.09). Оба пути открывают одно меню —
+ * иначе человеку пришлось бы помнить, где какие действия.
  */
 function ProjectMenu({
+  kit: { Content, Item },
   project,
   onPin,
   onRename,
   onRemove,
 }: {
-  project: Project;
+  kit: MenuKit;
+  project: PanelProject;
   onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
   onRemove: () => void;
 }) {
   return (
-    <RowMenu
-      label={`Что сделать с проектом «${project.title}»`}
-      reveal="group-hover/project:opacity-100"
-    >
-      <DropdownMenuItem onSelect={() => void onPin(!project.pinned)}>
+    <Content className="w-52">
+      <Item onSelect={() => void onPin(!project.pinned)}>
         {project.pinned ? <PushPinSlash /> : <PushPin />}
         {project.pinned ? "Открепить" : "Закрепить"}
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={onRename}>
+      </Item>
+      <Item onSelect={onRename}>
         <Gear />
         Редактировать проект
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+      </Item>
+      <Item variant="destructive" onSelect={onRemove}>
         Убрать проект
-      </DropdownMenuItem>
-    </RowMenu>
+      </Item>
+    </Content>
   );
 }
 
@@ -95,11 +86,11 @@ export function ProjectRow({
   onPin,
   onRename,
   onRemove,
-  unreadOf,
-  mentionsOf,
+  more,
+  onMore,
   renderChannel,
 }: {
-  project: Project;
+  project: PanelProject;
   /** Чаты этого проекта — только те, что человеку видны. Отбирает сервер. */
   channels: Conversation[];
   collapsed: boolean;
@@ -109,16 +100,16 @@ export function ProjectRow({
   onPin: (pinned: boolean) => Promise<void>;
   onRename: () => void;
   onRemove: () => void;
-  unreadOf: (conversationId: string) => number;
-  mentionsOf: (conversationId: string) => number;
+  /** Есть ли в папке чаты ниже загруженных — тогда рисуем «Показать ещё». */
+  more: boolean;
+  onMore: () => void;
   renderChannel: (channel: Conversation) => React.ReactNode;
 }) {
   // Тело остаётся в потоке лишь на время закрытия. Открытию не нужна
   // вторая React-фаза: первый кадр задаёт CSS `@starting-style`.
   const [bodyInFlow, setBodyInFlow] = useState(!collapsed);
+  const menu = { project, onPin, onRename, onRemove };
   const body = useRef<HTMLDivElement>(null);
-  const sum = (countOf: (id: string) => number) =>
-    channels.reduce((total, one) => total + countOf(one.id), 0);
 
   /**
    * ⚠️ ЗАКРЫТИЕ БЕЗ ДВИЖЕНИЯ КОНЦА ПЕРЕХОДА НЕ ДАЁТ, И ТЕЛО ОСТАВАЛОСЬ.
@@ -144,37 +135,60 @@ export function ProjectRow({
           исчез только значок. Признак «свёрнута» остался и он честнее
           стрелки: у свёрнутой видны числа непрочитанного, у развёрнутой —
           сами чаты. */}
-      <div className="group/project flex items-center rounded pr-1 transition-colors hover:bg-raised">
-        <button
-          type="button"
-          aria-expanded={!collapsed}
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors hover:text-ink"
-        >
-          <ProjectGlyph icon={project.icon} color={project.color} className="size-4" />
-          <span className="truncate font-medium">{project.title}</span>
-          {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
-            на самих чатах, и повторять их сверху значит сказать дважды. */}
-          {collapsed ? <Summary unread={sum(unreadOf)} mentions={sum(mentionsOf)} /> : null}
-        </button>
+      {/* ⚠️ ОБЛАСТЬ МЕНЮ — ТОЛЬКО ЗАГОЛОВОК ПАПКИ. Чаты внутри — снаружи неё:
+          иначе правая кнопка по чату открыла бы меню проекта. */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="group/project flex items-center rounded pr-1 transition-colors hover:bg-raised has-[button:focus-visible]:bg-raised">
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              onClick={onToggle}
+              className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-transparent px-2 py-1.5 text-left text-body text-muted transition-colors outline-none hover:text-ink focus-visible:text-ink"
+            >
+              <ProjectGlyph icon={project.icon} color={project.color} className="size-4" />
+              <span
+                className={[
+                  "truncate font-medium",
+                  collapsed && project.unread > 0 ? "text-ink" : "",
+                ].join(" ")}
+              >
+                {project.title}
+              </span>
+              {/* Свёрнутый говорит числами; развёрнутый молчит — числа видны
+                на самих чатах, и повторять их сверху значит сказать дважды. */}
+              {collapsed ? <Summary unread={project.unread} mentions={project.mentions} /> : null}
+            </button>
 
-        <ProjectMenu project={project} onPin={onPin} onRename={onRename} onRemove={onRemove} />
-        <button
-          type="button"
-          aria-label={`Новый чат в проекте «${project.title}»`}
-          onClick={onAddChannel}
-          className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 transition-opacity hover:bg-selected hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100"
-        >
-          <Plus className="size-3.5" weight="bold" />
-        </button>
-      </div>
+            <button
+              type="button"
+              aria-label={`Новый чат в проекте «${project.title}»`}
+              onClick={onAddChannel}
+              className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 outline-none transition-opacity hover:bg-selected hover:text-ink focus-visible:bg-selected focus-visible:text-ink focus-visible:opacity-100 group-hover/project:opacity-100"
+            >
+              <Plus className="size-3.5" weight="bold" />
+            </button>
+            <DropdownMenu>
+              {/* Как плюс: виден при наведении и фокусе; открытое меню его держит. */}
+              <DropdownMenuTrigger
+                aria-label={`Настройки проекта «${project.title}»`}
+                className="grid size-6 shrink-0 place-items-center rounded bg-transparent text-muted opacity-0 outline-none transition-opacity hover:bg-selected hover:text-ink focus-visible:bg-selected focus-visible:text-ink focus-visible:opacity-100 group-hover/project:opacity-100 data-[state=open]:opacity-100"
+              >
+                <Gear className="size-3.5" weight="bold" />
+              </DropdownMenuTrigger>
+              <ProjectMenu kit={dropdownKit} {...menu} />
+            </DropdownMenu>
+          </div>
+        </ContextMenuTrigger>
+        <ProjectMenu kit={contextKit} {...menu} />
+      </ContextMenu>
 
       {/* ⚠️ У ПУСТОЙ ПАПКИ ТЕЛА НЕТ ВОВСЕ, А НЕ «ПУСТОЕ ТЕЛО». Пустой
           столбец всё равно занимает просвет между собой и заголовком —
           и папка без чатов дёргалась на каждое нажатие, будто что-то
           раскрывается (владелец увидел это на экране). Показывать
           нечего — значит и места занимать нечем. */}
-      {channels.length === 0 || !bodyInFlow ? null : (
+      {(channels.length === 0 && !more) || !bodyInFlow ? null : (
         <div
           ref={body}
           aria-hidden={collapsed}
@@ -192,8 +206,21 @@ export function ProjectRow({
           className="project-chats"
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="flex flex-col gap-0.5 pl-3">
+            <div className="flex flex-col gap-0.5">
               {channels.map((channel) => renderChannel(channel))}
+              {/* ⚠️ ЯВНАЯ СТРОКА, А НЕ ДОГРУЗКА ПО ПРОКРУТКЕ (Р-037). Папка
+                  живёт внутри общего списка: подгружай она себя сама,
+                  человек, листающий панель мимо, тянул бы за собой сотню
+                  чатов чужого проекта. */}
+              {more ? (
+                <button
+                  type="button"
+                  onClick={onMore}
+                  className="rounded bg-transparent px-2.5 py-1.5 text-left text-aside text-muted outline-none transition-colors hover:bg-raised hover:text-ink focus-visible:bg-raised focus-visible:text-ink"
+                >
+                  Показать ещё
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

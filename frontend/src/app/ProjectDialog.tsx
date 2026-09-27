@@ -1,12 +1,10 @@
-import type { ProjectColor, ProjectIcon } from "@amplifie/contract";
 import { useState } from "react";
 import type { Project } from "../data/api.js";
 import type { Panel } from "../data/usePanel.js";
 import { fieldsOf, statusOf } from "../shared/failure.js";
-import { iconByName, labelColor, PROJECT_ICONS, ProjectGlyph } from "../shared/projectLook.js";
-import { COLOR_LABELS, ICON_LABELS } from "../shared/projectLookNames.js";
 import { ConfirmDialog, FormDialog } from "../shared/ui/ask-dialog.js";
 import { Input } from "../shared/ui/input.js";
+import { LookPicker } from "./LookPicker.js";
 
 /**
  * Отказ сервера человеческими словами.
@@ -20,7 +18,7 @@ function explain(failure: unknown): string {
   const fields = fieldsOf(failure);
   if (fields.title) return "Название не подошло: слишком длинное или пустое.";
   if (fields.icon || fields.color) {
-    return "Такого значка или цвета сервер не знает — обновите страницу и выберите заново.";
+    return "Такой значок или цвет сервер не принял — обновите страницу и выберите заново.";
   }
   return statusOf(failure) === null
     ? "Сервер не ответил. Проверьте связь и повторите."
@@ -41,166 +39,60 @@ function explain(failure: unknown): string {
  * у другого нет.
  */
 function ProjectDialog({
-  open,
   title,
   before,
   lookBefore,
-  creating,
   submitLabel,
   onSubmit,
   onClose,
 }: {
-  open: boolean;
-  /** Заголовок окна: «Новый проект» либо «Переименовать проект». */
+  /** Заголовок окна: «Новый проект» либо «Редактировать проект». */
   title: string;
   /** Прежнее название. Пусто — заводим новый. */
   before?: string;
   /** Прежний вид папки. Пусто — вид по умолчанию. */
   lookBefore?: { icon?: string | null; color?: string | null } | undefined;
-  creating: boolean;
   submitLabel: string;
   onSubmit: (edit: { title: string; icon: string | null; color: string | null }) => Promise<void>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(before ?? "");
-  const [icon, setIcon] = useState<ProjectIcon | null>(
-    (lookBefore?.icon as ProjectIcon | undefined) ?? null,
-  );
-  const [color, setColor] = useState<ProjectColor | null>(
-    (lookBefore?.color as ProjectColor | undefined) ?? null,
-  );
-  const [lookOpen, setLookOpen] = useState(!creating);
+  const [icon, setIcon] = useState<string | null>(lookBefore?.icon ?? null);
+  const [color, setColor] = useState<string | null>(lookBefore?.color ?? null);
 
   return (
     <FormDialog
-      open={open}
       title={title}
       submitLabel={submitLabel}
       canSubmit={name.trim() !== ""}
-      onSubmit={() => onSubmit({ title: name.trim(), icon: icon, color: color })}
+      onSubmit={() => onSubmit({ title: name.trim(), icon, color })}
       explain={explain}
       onClose={onClose}
     >
       {(busy) => (
-        <>
-          <div className="flex items-center gap-2">
-            {/* Образец строки показывает результат до сохранения, но не
-                заставляет выбирать оформление ради создания проекта. */}
-            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-edge">
-              <ProjectGlyph icon={icon} color={color} className="size-5" />
-            </span>
-            <Input
-              autoFocus
-              value={name}
-              disabled={busy}
-              maxLength={120}
-              placeholder="например, Объект на Ленина"
-              aria-label="Название проекта"
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-
-          {creating ? (
-            <p className="text-aside text-muted">
-              Сначала назовите проект. Вид можно настроить сейчас или позже.
-            </p>
-          ) : null}
-
-          {creating && !lookOpen ? (
-            <button
-              type="button"
-              disabled={busy}
-              aria-expanded={lookOpen}
-              onClick={() => setLookOpen(true)}
-              className="w-fit rounded bg-raised px-2.5 py-1.5 text-aside text-muted transition-colors hover:text-ink disabled:opacity-50"
-            >
-              Настроить вид
-            </button>
-          ) : null}
-
-          {lookOpen ? (
-            <Picker icon={icon} color={color} setIcon={setIcon} setColor={setColor} />
-          ) : null}
-        </>
+        // ⚠️ В ОКНЕ ТОЛЬКО ИМЯ И ОБРАЗЕЦ (task-104). Выбор вида уехал
+        // в поповер: стена из цветов и значков была тем, что владелец
+        // попросил «полностью переделать».
+        <div className="flex items-center gap-2">
+          <LookPicker
+            icon={icon}
+            color={color}
+            disabled={busy}
+            onIcon={setIcon}
+            onColor={setColor}
+          />
+          <Input
+            autoFocus
+            value={name}
+            disabled={busy}
+            maxLength={120}
+            placeholder="например, Объект на Ленина"
+            aria-label="Название проекта"
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
       )}
     </FormDialog>
-  );
-}
-
-/**
- * Выбор цвета и значка папки (task-038).
- *
- * ⚠️ ИЗ НАШИХ НАБОРОВ, А НЕ ПРОИЗВОЛЬНЫЙ ЦВЕТ. Семь цветов проверены
- * гейтом контраста на всех девятнадцати темах; произвольный `#hex`
- * из окна выбора прошёл бы мимо любой проверки и стал бы невидимым
- * на половине тем. Значков девять десятков — список в общем пакете.
- *
- * ⚠️ У КАЖДОЙ КНОПКИ ЕСТЬ ИМЯ СЛОВАМИ. Кружок без имени недоступен
- * тому, кто цвета не различает: для него это семь одинаковых точек.
- */
-function Picker({
-  icon,
-  color,
-  setIcon,
-  setColor,
-}: {
-  icon: ProjectIcon | null;
-  color: ProjectColor | null;
-  setIcon: (one: ProjectIcon | null) => void;
-  setColor: (one: ProjectColor | null) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
-        {(Object.keys(COLOR_LABELS) as ProjectColor[]).map((one) => (
-          <button
-            key={one}
-            type="button"
-            aria-label={COLOR_LABELS[one]}
-            aria-pressed={color === one}
-            title={COLOR_LABELS[one]}
-            // Нажатие по выбранному снимает цвет: второй кнопки «без
-            // цвета» не нужно, а вернуться к обычному виду человек хочет.
-            onClick={() => setColor(color === one ? null : one)}
-            className={[
-              "size-6 rounded-pill border transition-colors",
-              color === one ? "border-ink" : "border-transparent",
-            ].join(" ")}
-            style={{ backgroundColor: labelColor(one) }}
-          />
-        ))}
-      </div>
-
-      {/* ⚠️ ВЫСОТА ОГРАНИЧЕНА, А НЕ «СКОЛЬКО ВЫЙДЕТ». Девяносто значков
-          в шесть колонок дали пятнадцать рядов: окно перестало помещаться
-          в экран, и кнопка «Завести» уехала за нижний край — завести
-          проект стало нечем вовсе. Поймано живым прогоном, не глазами.
-
-          Восемь колонок вместо шести и своя прокрутка: окно остаётся
-          размером с окно, а список растёт внутрь. */}
-      <div className="hide-scroll grid max-h-44 grid-cols-8 gap-1 overflow-y-auto">
-        {PROJECT_ICONS.map((one) => {
-          const Glyph = iconByName(one);
-          return (
-            <button
-              key={one}
-              type="button"
-              aria-label={ICON_LABELS[one]}
-              aria-pressed={icon === one}
-              title={ICON_LABELS[one]}
-              onClick={() => setIcon(icon === one ? null : one)}
-              className={[
-                "grid size-8 place-items-center rounded-lg border transition-colors",
-                icon === one ? "border-accent bg-raised text-ink" : "border-transparent text-muted",
-                "hover:bg-raised hover:text-ink",
-              ].join(" ")}
-            >
-              <Glyph className="size-5" />
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -233,22 +125,28 @@ export function ProjectAsks({
 
   return (
     <>
-      <ProjectDialog
-        open={asking?.kind === "create" || renaming !== null}
-        title={renaming ? "Редактировать проект" : "Новый проект"}
-        before={renaming?.title ?? ""}
-        lookBefore={renaming ?? undefined}
-        creating={!renaming}
-        submitLabel={renaming ? "Сохранить" : "Создать проект"}
-        // ⚠️ КЛЮЧ ПО СЛУЧАЮ: без него поле помнит прежнее имя, когда окно
-        // открывают второй раз с другим проектом.
-        key={renaming?.id ?? "create"}
-        onSubmit={async (edit) => {
-          if (renaming) await panel.renameProject(renaming.id, edit);
-          else await panel.addProject(edit.title, { icon: edit.icon, color: edit.color });
-        }}
-        onClose={onClose}
-      />
+      {/* ⚠️ ОКНО НА СТРАНИЦЕ, ТОЛЬКО ПОКА СПРАШИВАЕТ (task-103). Спрятанное
+          окно помнило поля: второй «+» открывал прежний проект, будто его
+          редактируют (владелец 17.09). Ключ по случаю лечил только смену
+          проекта, а не повтор того же вопроса. */}
+      {asking?.kind === "create" ? (
+        <ProjectDialog
+          title="Новый проект"
+          submitLabel="Создать проект"
+          onSubmit={(edit) => panel.addProject(edit.title, { icon: edit.icon, color: edit.color })}
+          onClose={onClose}
+        />
+      ) : null}
+      {renaming ? (
+        <ProjectDialog
+          title="Редактировать проект"
+          before={renaming.title}
+          lookBefore={renaming}
+          submitLabel="Сохранить"
+          onSubmit={(edit) => panel.renameProject(renaming.id, edit)}
+          onClose={onClose}
+        />
+      ) : null}
 
       {removing ? (
         <ConfirmDialog

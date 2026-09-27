@@ -2,6 +2,9 @@ import { Check, Clock, WarningCircle } from "@phosphor-icons/react";
 import { dayFormat, timeFormat } from "../../shared/when.js";
 import type { Row } from "./rows.js";
 
+/** Отправить «не ушедшие» ещё раз. Нет — «!» остаётся просто значком. */
+type Retry = (() => void) | undefined;
+
 /**
  * Подпись в углу реплики: изменено, время, состояние доставки.
  *
@@ -22,7 +25,7 @@ import type { Row } from "./rows.js";
  *
  * У чужих реплик значка нет вовсе: их доставка — не наше дело.
  */
-function State({ row, shadow = false }: { row: Row; shadow?: boolean }) {
+function State({ row, shadow = false, onRetry }: { row: Row; shadow?: boolean; onRetry?: Retry }) {
   if (!row.mine) return null;
   /**
    * ⚠️ У НЕВИДИМОЙ КОПИИ ПОДПИСИ БЫТЬ НЕ ДОЛЖНО. `aria-hidden` на обёртке
@@ -35,9 +38,38 @@ function State({ row, shadow = false }: { row: Row; shadow?: boolean }) {
     return <Clock {...ariaLabel("отправляется")} className="size-3 opacity-70" />;
   }
   if (row.message.state === "не ушло") {
-    return <WarningCircle {...ariaLabel("не ушло")} className="size-3 text-danger" />;
+    if (shadow || !onRetry) {
+      return <WarningCircle {...ariaLabel("не ушло")} className="size-3 text-danger" />;
+    }
+    return <RetryButton onRetry={onRetry} />;
   }
   return <Check {...ariaLabel("доставлено")} className="size-3 opacity-70" />;
+}
+
+/**
+ * «!» — кнопка, а не приговор (task-111). Уходят заново все «не ушедшие»
+ * вкладки, в порядке набора и тем же ключом: сервер их не задвоит.
+ *
+ * ⚠️ БЕЗ ПОЛЕЙ И РАМКИ, И ЭТО НЕ НЕБРЕЖНОСТЬ. Невидимая копия подписи
+ * держит место одним значком; кнопка шире значка сдвинула бы время
+ * и наехала на текст.
+ */
+function RetryButton({ onRetry }: { onRetry: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Не ушло — повторить отправку"
+      title="Не ушло. Нажмите, чтобы отправить ещё раз"
+      className="inline-flex cursor-pointer text-danger"
+      onClick={(event) => {
+        // Строка в режиме выделения слушает тот же щелчок.
+        event.stopPropagation();
+        onRetry();
+      }}
+    >
+      <WarningCircle aria-hidden="true" className="size-3" />
+    </button>
+  );
 }
 
 /**
@@ -93,7 +125,7 @@ function editedTitle(editedAt: string): string {
   return today ? `изменено ${time}` : `изменено ${dayFormat.format(at)}, ${time}`;
 }
 
-function Marks({ row, shadow = false }: { row: Row; shadow?: boolean }) {
+function Marks({ row, shadow = false, onRetry }: { row: Row; shadow?: boolean; onRetry?: Retry }) {
   const text = timeFormat.format(new Date(row.message.createdAt));
   return (
     <>
@@ -101,13 +133,13 @@ function Marks({ row, shadow = false }: { row: Row; shadow?: boolean }) {
         <span title={shadow ? undefined : editedTitle(row.message.editedAt)}>изм.</span>
       ) : null}
       {shadow ? <span>{text}</span> : <time dateTime={row.message.createdAt}>{text}</time>}
-      <State row={row} shadow={shadow} />
+      <State row={row} shadow={shadow} onRetry={onRetry} />
     </>
   );
 }
 
 /** Подпись в углу: изменено, время, состояние доставки. */
-export function Corner({ row }: { row: Row }) {
+export function Corner({ row, onRetry }: { row: Row; onRetry?: Retry }) {
   return (
     <span
       className={[
@@ -117,7 +149,7 @@ export function Corner({ row }: { row: Row }) {
         row.mine ? "text-muted-on-soft" : "text-muted",
       ].join(" ")}
     >
-      <Marks row={row} />
+      <Marks row={row} onRetry={onRetry} />
     </span>
   );
 }

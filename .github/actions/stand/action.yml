@@ -1,0 +1,24 @@
+name: Стенд
+description: >-
+  Node, зависимости и живой стенд тем же `make up`, что руками, плюс миграции.
+  Общий шаг тяжёлых работ CI (task-123): у каждой своя машина и своя база, копия
+  этих строк в пяти работах разошлась бы, как уже расходилась с compose.dev.yml.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      with:
+        node-version: 26
+        cache: npm
+    - run: npm ci
+      shell: bash
+    # Тем же `make up`, что и руками: своя копия этих строк отстала,
+    # когда стенд переехал в compose.dev.yml (Р-030), и голый
+    # `docker compose up` искал образ веба в реестре вместо сборки.
+    - name: Поднять стек
+      run: make up
+      shell: bash
+    - name: Миграции
+      run: make migrate
+      shell: bash

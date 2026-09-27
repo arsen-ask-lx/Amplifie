@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, bubbles, createChannel, register, typeInto } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * П-1: первая реплика в новом канале не мерцает.
@@ -23,6 +23,8 @@ import { bubble, bubbles, createChannel, register, typeInto } from "./fixtures.j
 /** Что записал наблюдатель за страницей. */
 interface Removals {
   texts: string[];
+  /** Тексты реплик, на которых запускалась анимация самой реплики. */
+  animated: string[];
 }
 
 /**
@@ -32,8 +34,17 @@ interface Removals {
  * узла, на котором можно стоять всё время сценария, внутри разговора нет.
  */
 const WATCH = () => {
-  const seen: Removals = { texts: [] };
+  const seen: Removals = { texts: [], animated: [] };
   (window as unknown as { amplifieRemovals: Removals }).amplifieRemovals = seen;
+
+  // Появление — это анимация на самом узле реплики, как бы её ни назвали
+  // и каким бы классом ни повесили. Анимации внутри реплики (значки) не в счёт.
+  document.addEventListener("animationstart", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.tagName === "ARTICLE") {
+      seen.animated.push(target.textContent ?? "");
+    }
+  });
 
   // Считаем только реплики: пропажа приглашения «здесь пока пусто» —
   // нормальная смена состояния, а не пересоздание реплики. `closest`
@@ -70,16 +81,22 @@ test("первая реплика в новом канале не пересоз
   // проверять нечего. Значок «доставлено» — то же, что видит человек.
   await expect(bubble(page, body).getByLabel("доставлено")).toBeVisible();
 
-  const removed = await page.evaluate(
-    () => (window as unknown as { amplifieRemovals: Removals }).amplifieRemovals.texts,
+  const { texts: removed, animated } = await page.evaluate(
+    () => (window as unknown as { amplifieRemovals: Removals }).amplifieRemovals,
   );
   expect(
     removed.filter((text) => text.includes(body)),
     "узел реплики удалялся — значит React пересоздал его, и появление проиграется заново",
   ).toEqual([]);
 
-  await expect(
-    bubble(page, body),
+  /**
+   * ⚠️ ПО ЗАПУСКУ АНИМАЦИИ, А НЕ ПО КЛАССУ `msg-fresh` (ревизия 27.09). Класс —
+   * разметка: переименуй его — и «класса нет» зеленеет при всплывающей
+   * реплике. Человек видит само движение; наблюдатель стоит с отправки,
+   * поэтому ловит и появление, которое уже отыграло и снято.
+   */
+  expect(
+    animated.filter((text) => text.includes(body)),
     "на свою реплику повешено появление: в Телеграме своя реплика не всплывает",
-  ).not.toHaveClass(/msg-fresh/);
+  ).toEqual([]);
 });

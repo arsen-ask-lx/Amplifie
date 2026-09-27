@@ -41,37 +41,18 @@
  * в `make check`: быстрые проверки обязаны оставаться быстрыми.
  */
 import { readFileSync } from "node:fs";
+import { hostDatabaseUrl } from "../load/host-database.mjs";
+import { planRows } from "../load/plan-rows.mjs";
 
-/**
- * Строка подключения СНАРУЖИ контейнера.
- *
- * ⚠️ ТА, ЧТО В `.env`, СЮДА НЕ ГОДИТСЯ. Там адрес внутри сети docker
- * (`postgres:5432`) — им ходят api и мигратор, живущие в контейнерах.
- * Гейт запускается с машины, как приёмочные тесты, и ему нужен
- * опубликованный порт. Собираем строку из тех же кусков `.env`,
- * а не заводим вторую переменную: два ответа на «где база» однажды
- * разойдутся.
- */
-function connectionString() {
-  const env = Object.fromEntries(
-    readFileSync(".env", "utf8")
-      .split(/\r?\n/u)
-      .filter((line) => line && !line.startsWith("#") && line.includes("="))
-      .map((line) => {
-        const at = line.indexOf("=");
-        return [line.slice(0, at).trim(), line.slice(at + 1).trim()];
-      }),
-  );
-  const port = env.POSTGRES_HOST_PORT ?? "5432";
-  return `postgres://${env.POSTGRES_USER}:${env.POSTGRES_PASSWORD}@127.0.0.1:${port}/${env.POSTGRES_DB}`;
-}
-
-const DATABASE_URL = process.env.COST_DATABASE_URL ?? connectionString();
+// Строка подключения снаружи контейнера — одна на все замеры (`host-database.mjs`).
+const DATABASE_URL = process.env.COST_DATABASE_URL ?? hostDatabaseUrl();
 
 // ⚠️ ПЕРЕМЕННАЯ СТАВИТСЯ ДО ЗАГРУЗКИ СЛОЯ БАЗЫ. `platform/db.js` читает
 // её на импорте; статический импорт выполнился бы раньше этой строки.
 process.env.DATABASE_URL = DATABASE_URL;
-const { listConversationsFor } = await import("../../backend/dist/kernel/talk/repo.js");
+const { listConversationsFor, listMessagesNewer, projectCountsFor, searchMessagesPage } =
+  await import("../../backend/dist/kernel/talk/repo.js");
+const { tsqueryOf } = await import("../../backend/dist/kernel/talk/tsquery.js");
 /**
  * ⚠️ ПУЛ БЕРЁТСЯ У САМОГО СЛОЯ БАЗЫ, А НЕ ЗАВОДИТСЯ СВОЙ. Свой означал бы
  * вторую зависимость от драйвера и второй ответ на вопрос «как мы ходим
@@ -94,36 +75,6 @@ const LARGE = 50_000;
  * никакой запас. Храповик крутится только вниз.
  */
 const RATCHET = "tools/ratchets/panel-rows.txt";
-
-/**
- * Сумма прочитанных строк по всему плану.
- *
- * Складываем по каждому узлу выданные строки И ОТБРОШЕННЫЕ фильтром:
- * столько Postgres действительно потрогал, чтобы ответить. Верхнее число
- * одного узла обмануло бы — обход прячется внутри.
- *
- * ⚠️ ОТБРОШЕННЫЕ СЧИТАЮТСЯ, И ЭТО ИСПРАВЛЕНИЕ СЛЕПОТЫ. Первая редакция
- * брала только `Actual Rows`, а это строки ПОСЛЕ фильтра. Обход индекса,
- * который читал пятьдесят тысяч своих реплик и выбрасывал их условием
- * «не свои», выглядел нулём — гейт был зелёным на стенде и покраснел
- * только в чистой базе конвейера, где планировщик выбрал обход таблицы.
- * Числа — на узел за один проход, как и `Actual Rows`; проходов — `Loops`.
- */
-const DISCARDED = [
-  "Rows Removed by Filter",
-  "Rows Removed by Index Recheck",
-  "Rows Removed by Join Filter",
-];
-
-function planRows(node) {
-  const touched = DISCARDED.reduce(
-    (total, key) => total + (node[key] ?? 0),
-    node["Actual Rows"] ?? 0,
-  );
-  const own = touched * (node["Actual Loops"] ?? 1);
-  const children = [...(node.Plans ?? []), ...(node.Subplans ?? [])];
-  return children.reduce((total, one) => total + planRows(one), own);
-}
 
 async function main() {
   const client = await pool.connect();
@@ -160,14 +111,99 @@ async function main() {
        VALUES ($1, $2, $3, 'owner')`,
       [cid, pid, wid],
     );
-    const { sql, params } = listConversationsFor(db, pid, wid).toSQL();
+    /**
+     * Маленький чат рядом с большим (task-106): поиск ВНУТРИ него — тот
+     * случай, где обход по номеру пространства читает чужую переписку
+     * целиком. Замер 18.09 на 200 тыс. реплик: 11 704 буфера без индекса
+     * `(conversation_id, seq)` против 24 с ним.
+     */
+    const { rows: small } = await client.query(
+      `INSERT INTO conversation (workspace_id, kind, title) VALUES ($1, 'channel', 'Маленький')
+       RETURNING id`,
+      [wid],
+    );
+    const smallCid = small[0].id;
+    await client.query(
+      `INSERT INTO conversation_member (conversation_id, participant_id, workspace_id, role)
+       VALUES ($1, $2, $3, 'owner')`,
+      [smallCid, pid, wid],
+    );
+    await client.query(
+      `INSERT INTO message (workspace_id, conversation_id, author_participant_id, body,
+                            client_msg_id, seq, updated_seq, created_at)
+       SELECT $1, $2, $3, 'замер в маленьком чате ' || g, gen_random_uuid(),
+              900000 + g, 900000 + g, now()
+       FROM generate_series(1, 3) g`,
+      [wid, smallCid, pid],
+    );
+
+    /**
+     * Горячих запросов панели два, и мерить надо оба (task-064): старый
+     * полный список ещё кормит ленту и догон, а сводный ответ считает
+     * непрочитанное по каждому проекту. Обход переписки в любом из них
+     * одинаково кладёт панель.
+     */
+    const hot = [
+      { name: "список панели", ...listConversationsFor(db, pid, wid).toSQL() },
+      { name: "счётчики проектов", ...projectCountsFor(db, pid, wid).toSQL() },
+      /**
+       * Лента вперёд от давнего номера (task-099): переход к сообщению годичной
+       * давности обязан читать страницу, а не всё, что новее него. Номер —
+       * из начала истории, чтобы на большом объёме «новее» было десятками тысяч.
+       */
+      { name: "лента вперёд", ...listMessagesNewer(db, cid, 50, 100).toSQL() },
+      /**
+       * Поиск (task-100) — частое и редкое слово: у них разные дешёвые пути
+       * (обход по номеру и выборка из индекса слов), и обход всей переписки
+       * прячется ровно в неверном выборе пути для одного из них.
+       */
+      {
+        name: "поиск частого слова",
+        ...searchMessagesPage(
+          db,
+          { participantId: pid, workspaceId: wid },
+          tsqueryOf(["замер"]),
+          20,
+        ).toSQL(),
+      },
+      {
+        /**
+         * Поиск частого слова В МАЛЕНЬКОМ ЧАТЕ (task-106). Без индекса
+         * по чату план идёт по номеру пространства назад и отбрасывает
+         * чужие чаты — то есть читает всю переписку, чтобы найти три строки.
+         */
+        name: "поиск в маленьком чате",
+        ...searchMessagesPage(
+          db,
+          { participantId: pid, workspaceId: wid },
+          tsqueryOf(["замер"]),
+          20,
+          undefined,
+          smallCid,
+        ).toSQL(),
+      },
+      {
+        name: "поиск редкого слова",
+        ...searchMessagesPage(
+          db,
+          { participantId: pid, workspaceId: wid },
+          tsqueryOf(["лиственница"]),
+          20,
+        ).toSQL(),
+      },
+    ];
 
     /** Досеять переписку до нужного объёма и померить панель. */
     const measure = async (from, to) => {
       await client.query(
         `INSERT INTO message (workspace_id, conversation_id, author_participant_id, body,
                               client_msg_id, seq, updated_seq, created_at)
-         SELECT $1, $2, $3, 'замер ' || g, gen_random_uuid(), g, g,
+         SELECT $1, $2, $3,
+                -- Редкое слово — ровно в одной реплике на любом объёме (task-100):
+                -- выборка из индекса слов законно стоит по числу совпадений, и гейт
+                -- стережёт рост от объёма переписки, а не от числа найденного.
+                'замер ' || g || CASE WHEN g = 7 THEN ' лиственница' ELSE '' END,
+                gen_random_uuid(), g, g,
                 now() - (g || ' seconds')::interval
          FROM generate_series($4::int, $5::int) g`,
         [wid, cid, pid, from, to],
@@ -182,13 +218,28 @@ async function main() {
         [cid, pid, to],
       );
       await client.query("ANALYZE message");
-      const { rows: plan } = await client.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params);
-      return planRows(plan[0]["QUERY PLAN"][0].Plan);
+      // Таблицу поиска наполняет триггер; путь поиска выбирается по её статистике.
+      await client.query("ANALYZE message_search");
+      const measured = [];
+      for (const one of hot) {
+        const { rows: plan } = await client.query(
+          `EXPLAIN (ANALYZE, FORMAT JSON) ${one.sql}`,
+          one.params,
+        );
+        measured.push({ name: one.name, rows: planRows(plan[0]["QUERY PLAN"][0].Plan) });
+      }
+      return measured;
     };
 
     const onSmall = await measure(1, SMALL);
     const onLarge = await measure(SMALL + 1, LARGE);
-    const growth = onLarge - onSmall;
+    const grown = onSmall.map((one, at) => ({
+      name: one.name,
+      small: one.rows,
+      large: onLarge[at].rows,
+      growth: onLarge[at].rows - one.rows,
+    }));
+    const worst = grown.reduce((most, one) => (one.growth > most.growth ? one : most));
 
     await client.query("ROLLBACK");
 
@@ -198,15 +249,15 @@ async function main() {
       process.exit(1);
     }
 
-    if (growth > limit) {
+    if (worst.growth > limit) {
       console.error(
         [
           "",
-          "Цена панели растёт с объёмом переписки.",
+          `Цена панели растёт с объёмом переписки: ${worst.name}.`,
           "",
-          `  на ${SMALL} репликах — ${onSmall} строк`,
-          `  на ${LARGE} репликах — ${onLarge} строк`,
-          `  прирост ${growth} при разрешённых ${limit}`,
+          `  на ${SMALL} репликах — ${worst.small} строк`,
+          `  на ${LARGE} репликах — ${worst.large} строк`,
+          `  прирост ${worst.growth} при разрешённых ${limit}`,
           "",
           "  ПОЧИНИТЬ: посмотри план запроса и найди узел, который читает всё.",
           "  Так уже было: свежесть канала считалась обходом всей переписки,",
@@ -218,8 +269,13 @@ async function main() {
     }
 
     console.log(
-      `цена панели: ${onSmall} строк на ${SMALL} репликах, ${onLarge} на ${LARGE} — ` +
-        `прирост ${growth} при разрешённых ${limit}, от объёма не зависит — OK`,
+      `${grown
+        .map(
+          (one) =>
+            `${one.name}: ${one.small} строк на ${SMALL}, ${one.large} на ${LARGE} ` +
+            `(прирост ${one.growth})`,
+        )
+        .join("; ")} — при разрешённых ${limit} от объёма не зависит — OK`,
     );
   } finally {
     client.release();

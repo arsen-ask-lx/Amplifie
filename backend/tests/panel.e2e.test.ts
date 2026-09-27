@@ -18,102 +18,41 @@
  * Бьёт по живому стеку. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-function freshEmail(): string {
-  return `panel-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-interface Person {
-  cookie: string;
-}
-
-async function get(path: string, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, { headers: person ? { cookie: person.cookie } : {} });
-}
-
-async function post(path: string, body: unknown, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(person ? { cookie: person.cookie } : {}) },
-    body: JSON.stringify(body),
-  });
-}
-
-async function newPerson(): Promise<Person> {
-  const response = await post("/v1/auth/register", {
-    email: freshEmail(),
-    password: PASSWORD,
-    displayName: "Смотрящий",
-    workspaceName: "Пространство порядка",
-  });
-  if (response.status !== 201) throw new Error(`регистрация не удалась: ${response.status}`);
-  return { cookie: sessionCookie(response) };
-}
+import { call, colleague, newPerson, type Person, requireStand } from "./stand.js";
 
 async function newChannel(person: Person, title: string): Promise<string> {
-  const response = await post("/v1/conversations", { title }, person);
+  const response = await call("POST", "/v1/conversations", person, { title });
   expect(response.status).toBe(201);
   return ((await response.json()) as { id: string }).id;
 }
 
 async function say(person: Person, conversationId: string, body: string): Promise<string> {
-  const response = await post(
-    `/v1/conversations/${conversationId}/messages`,
-    { body, clientMsgId: crypto.randomUUID() },
-    person,
-  );
+  const response = await call("POST", `/v1/conversations/${conversationId}/messages`, person, {
+    body,
+    clientMsgId: crypto.randomUUID(),
+  });
   expect(response.status, `реплика «${body}» не отправилась`).toBe(201);
   return ((await response.json()) as { id: string }).id;
 }
 
-/** Позвать второго человека в то же пространство. */
-async function invite(owner: Person): Promise<Person> {
-  const created = await post("/v1/invites", { maxUses: 50 }, owner);
-  const { token } = (await created.json()) as { token: string };
-  const entered = await post("/v1/auth/join", {
-    token,
-    email: freshEmail(),
-    password: PASSWORD,
-    displayName: "Коллега",
-  });
-  if (entered.status !== 201) throw new Error(`вход по ссылке: ${entered.status}`);
-  return { cookie: sessionCookie(entered) };
-}
-
 /** Закрепить разговор в СВОЕЙ панели либо снять закрепление (task-038). */
-async function pin(person: Person, conversationId: string, on: boolean): Promise<Response> {
-  return fetch(`${BASE}/v1/conversations/${conversationId}/pin`, {
-    method: on ? "POST" : "DELETE",
-    headers: { cookie: person.cookie },
-  });
+function pin(person: Person, conversationId: string, on: boolean): Promise<Response> {
+  return call(on ? "POST" : "DELETE", `/v1/conversations/${conversationId}/pin`, person);
 }
 
 /** Названия каналов в том порядке, в каком их показывает панель. */
 async function order(person: Person): Promise<string[]> {
-  const response = await get("/v1/conversations", person);
+  const response = await call("GET", "/v1/conversations", person);
   expect(response.status).toBe(200);
   const body = (await response.json()) as { items: { title: string }[] };
   return body.items.map((one) => one.title);
 }
 
 describe("порядок каналов в панели", () => {
-  beforeAll(async () => {
-    const health = await get("/health");
-    if (!health.ok) throw new Error(`Стек не поднят (${BASE}/health). Запусти: make up`);
-  });
+  beforeAll(requireStand);
 
   it("канал, в котором сказали позже, стоит выше", async () => {
-    const person = await newPerson();
+    const person = await newPerson("Смотрящий");
     const first = await newChannel(person, "Первый");
     const second = await newChannel(person, "Второй");
     const third = await newChannel(person, "Третий");
@@ -138,7 +77,7 @@ describe("порядок каналов в панели", () => {
    * у одного закреплённое сверху, у другого нет.
    */
   it("закреплённый канал стоит выше свежего", async () => {
-    const person = await newPerson();
+    const person = await newPerson("Смотрящий");
     const quiet = await newChannel(person, "Редкий");
     const fresh = await newChannel(person, "Свежий");
 
@@ -160,13 +99,13 @@ describe("порядок каналов в панели", () => {
   });
 
   it("закрепление личное: у коллеги порядок свой", async () => {
-    const owner = await newPerson();
+    const owner = await newPerson("Смотрящий");
     const quiet = await newChannel(owner, "Редкий");
     const fresh = await newChannel(owner, "Свежий");
     await say(owner, quiet, "давно");
     await say(owner, fresh, "только что");
 
-    const mate = await invite(owner);
+    const mate = await colleague(owner, "Коллега");
     expect((await pin(owner, quiet, true)).status).toBe(204);
 
     expect((await order(owner)).slice(0, 2)).toEqual(["Редкий", "Свежий"]);
@@ -177,18 +116,34 @@ describe("порядок каналов в панели", () => {
   });
 
   it("закрепить дважды — тот же исход, а не ошибка", async () => {
-    const person = await newPerson();
+    const person = await newPerson("Смотрящий");
     const channel = await newChannel(person, "Дважды");
+    const fresh = await newChannel(person, "Свежий");
+    await say(person, channel, "давно");
+    await say(person, fresh, "только что");
+
     expect((await pin(person, channel, true)).status).toBe(204);
     expect(
       (await pin(person, channel, true)).status,
       "повтор закрепления отвечает ошибкой — а он ничего не меняет",
     ).toBe(204);
+    // Исход, а не только код: после двойного закрепления порядок верен,
+    // и снятие закрепления его по-прежнему отпускает. Сколько строк завёл
+    // повтор, отсюда не видно: снятие убирает все строки пары.
+    expect((await order(person)).slice(0, 2), "дважды закреплённый не наверху").toEqual([
+      "Дважды",
+      "Свежий",
+    ]);
+    expect((await pin(person, channel, false)).status).toBe(204);
+    expect(
+      (await order(person)).slice(0, 2),
+      "снятие после двойного закрепления не отпустило",
+    ).toEqual(["Свежий", "Дважды"]);
   });
 
   it("чужой разговор закрепить нельзя", async () => {
-    const owner = await newPerson();
-    const stranger = await newPerson();
+    const owner = await newPerson("Смотрящий");
+    const stranger = await newPerson("Чужой");
     const channel = await newChannel(owner, "Не твой");
 
     expect(
@@ -198,7 +153,7 @@ describe("порядок каналов в панели", () => {
   });
 
   it("правка старой реплики не поднимает канал наверх", async () => {
-    const person = await newPerson();
+    const person = await newPerson("Смотрящий");
     const old = await newChannel(person, "Старый");
     const fresh = await newChannel(person, "Свежий");
 
@@ -208,10 +163,8 @@ describe("порядок каналов в панели", () => {
 
     // Правка двигает номер ИЗМЕНЕНИЯ (Р-021) — по нему живёт догон.
     // Место в списке живёт по другому вопросу: когда тут говорили.
-    const edit = await fetch(`${BASE}/v1/messages/${oldMessage}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", cookie: person.cookie },
-      body: JSON.stringify({ body: "давняя реплика, исправленная" }),
+    const edit = await call("PATCH", `/v1/messages/${oldMessage}`, person, {
+      body: "давняя реплика, исправленная",
     });
     expect(edit.status).toBe(200);
 

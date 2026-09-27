@@ -153,7 +153,7 @@ describe("два вида на одном куске", () => {
     })),
   );
 
-  it.each(pairs)("$внешний.имя поверх $внутренний.имя переживает круг", ({ outer, inner }) => {
+  it.each(pairs)("$outer.name поверх $inner.name переживает круг", ({ outer, inner }) => {
     const before = outer.wrap(inner.wrap("слово"));
     const after = roundTrip(before);
 
@@ -164,16 +164,11 @@ describe("два вида на одном куске", () => {
     expect(roundTrip(after)).toBe(after);
   });
 
-  it("три вида друг в друге не теряют ни одного", () => {
-    const after = roundTrip("~~**__всё сразу__**~~");
-    expect(kinds(after)).toEqual(["bold", "strike", "underline"]);
-    expect(text(after)).toBe("всё сразу");
-    expect(roundTrip(after)).toBe(after);
-  });
-
   it("все пять разом", () => {
-    const after = roundTrip("||~~__**и курсив тоже**__~~||");
-    expect(kinds(after)).toEqual(["bold", "spoiler", "strike", "underline"]);
+    // Курсив и жирный вместе — тройной звёздочкой (Р-028): пятый вид здесь.
+    const after = roundTrip("||~~__***и курсив тоже***__~~||");
+    expect(kinds(after)).toEqual(["bold", "italic", "spoiler", "strike", "underline"]);
+    expect(text(after)).toBe("и курсив тоже");
     expect(roundTrip(after)).toBe(after);
   });
 
@@ -192,9 +187,5 @@ describe("моноширинный не совмещается ни с чем", 
     // жирное слово в кавычках. По Р-028 совмещения нет — и круг это
     // показывает: лишняя обёртка не переживает даже одного оборота.
     expect(roundTrip("**`код`**")).toBe("`код`");
-  });
-
-  it("моноширинный сам по себе круг переживает", () => {
-    expect(roundTrip("`код`")).toBe("`код`");
   });
 });

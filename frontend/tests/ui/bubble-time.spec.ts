@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { bubble, createChannel, fontsReady, register, say } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 /**
  * Время в углу реплики не налезает на её текст — иначе последнее слово
@@ -7,7 +7,7 @@ import { bubble, createChannel, fontsReady, register, say } from "./fixtures.js"
  *
  * Проверяется только это. Сколько воздуха между словом и временем и насколько
  * время свисает за поле — решение дизайна (правила tdesktop, `Corner.tsx`),
- * и числа здесь ломали бы тест при каждой правке вида (.temper/rules/testing.md).
+ * и числа здесь ломали бы тест при каждой правке вида (AGENTS.md#тесты).
  *
  * Конец текста меряется диапазоном, а не рамкой узла: в строчном узле рядом
  * с текстом лежит невидимая распорка под время, и рамка узла её включила бы.

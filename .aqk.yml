@@ -17,9 +17,9 @@ entry:
   - CLAUDE.md
 
 # AQK-1 — свод правил и проверки командами.
-rules: .temper/rules
-# Методички живут рядом со стандартами, в .temper, а не в .aqk/docs.
-docs: .temper/references
+rules: dock/standards
+# Энциклопедия и методические материалы живут в `dock/ai`, а не в служебной папке AQK.
+docs: dock/ai
 # Что наш lint (Biome) уже держит из каталога — машиночитаемо, а не только
 # комментарием ниже: без этого doctor советовал ставить их вторым арбитром.
 covers:
@@ -35,7 +35,18 @@ gates:
   lint: "npm run lint"
   typecheck: "npm run typecheck"
   arch: "npm run arch"
+  # Подсадки к самому сторожу границ (Р-047): каждое правило обязано краснеть.
+  arch-check: "npm run arch:check"
   decisions: "npm run decisions"
+  docs: "make docs"
+  # Замок версий годен для сборки образа: есть двоичные файлы для Linux
+  # и нет призрачных рабочих областей. Заведён 26.09 ценой трёх прогонов —
+  # разбор у цели `deps-lock` в Makefile, причина — npm/cli#8320.
+  deps-lock: "make deps-check"
+  # Критерии успеха среза называются числами, а не словами. Храповик:
+  # старые планы не переписываем — сделанный план есть запись о случившемся.
+  proof: "make proof"
+  decisions-check: "make decisions-check"
   arbiter-check: "npm run arbiter:check"
   contrast: "npm run contrast"
   unit: "npm run unit"
@@ -55,6 +66,12 @@ gates:
   # ищет его в конфигурации и был прав, покраснев на этой строке.
   map: "npm run map"
   map-check: "npm run map:check"
+  # План, тест, спека и ревью — строками в коммите продукта (task-116, Р-048).
+  # Владелец 26.09: «у нас есть путь план — тест — код — ревью или нет?» —
+  # правила были, сторожа не было, и два десятка коммитов прошли мимо.
+  # Смотрит ВСЮ историю от появления правила: хук обходится, история — нет.
+  cycle: "npm run cycle"
+  cycle-check: "npm run cycle:check"
   # Настройки настоящей установки рождаются программой, а не копированием
   # образца (Р-030 ⑤). Гейт стережёт главное: в рождённом коробке файле нет
   # ни дев-режима, ни разрешения заводить много компаний. Глазами это
@@ -76,6 +93,34 @@ gates:
   # с бюджетом запросов на обращение (query-budget.e2e, N+1). Объявить гейт,
   # которому нужна живая система, AQK пока иначе не даёт (обратная связь, п. 8).
   cost: "npm run cost"
+  # Описание API не отстало от схем дверей (task-120). Без базы: сборка приложения.
+  openapi: "npm run openapi:check"
+  # Арбитр описания по стенду (`make api-fuzz`) здесь НЕ объявлен: doctor гоняет
+  # всё объявленное внутри make check, а фаззеру нужны стенд и минуты. Держит
+  # его конвейер шагом после приёмочных — это видит api-contract-has-arbiter.
+  # Правила сверки «план заявил — агент сделал» по записи сессии (task-109).
+  # Сама сверка запускается руками: записи сессии в конвейере нет.
+  trace-check: "make trace-check"
+  # План не идёт владельцу без второго прохода: разбор критика свежим
+  # контекстом и ответ на каждое замечание (task-109). Раньше второй проход
+  # случался, только когда владелец вставлял промпт руками.
+  plan-review: "make plan-review"
+  # «Не пусто» вместо значения в тестах (task-125). Правило AGENTS.md было с сентября,
+  # сторожа не было — ревизия 27.09 нашла 21 место. Храповик поимённо:
+  # tools/ratchets/weak-asserts.txt только укорачивается.
+  weak-asserts: "npm run weak-asserts"
+  weak-asserts-check: "npm run weak-asserts:check"
+  # Слепой сон в браузерной спеке запрещён правилом Biome из группы nursery (task-125).
+  # Такое правило могут переименовать в минорной версии — и конфиг молча перестанет
+  # сторожить; эта подсадка краснеет раньше. Версия Biome закреплена точно.
+  biome-rules-check: "npm run biome-rules:check"
+  # Правило с `paths:` движок кладёт в контекст по открытому файлу (task-126). Отказы
+  # молчаливые: шаблон переехавших файлов или переименованный скилл — правило мертво.
+  rules-paths: "npm run rules-paths"
+  rules-paths-check: "npm run rules-paths:check"
+  # Правило «красное — сначала причина» держит хук commit-msg (task-126); сам он здесь
+  # не объявлен — CI не сверяет сам себя. Объявлены подсадки его правила.
+  ci-red-check: "npm run ci-red:check"
 
   # Из каталога AQK. Каждый проверен подсаженным нарушением в НАШЕМ коде,
   # а не только на своих образцах.
@@ -109,6 +154,19 @@ gates:
   secrets-not-in-code: "bash tools/gates/secrets-not-in-code/check.sh ."
   gates-run-in-ci: "bash tools/gates/gates-run-in-ci/check.sh ."
   personal-config-not-shared: "bash tools/gates/personal-config-not-shared/check.sh ."
+  # Два свода агента (AGENTS.md и CLAUDE.md) не расходятся: CLAUDE.md включает
+  # AGENTS.md строкой @AGENTS.md. Из AQK 0.17. `aqk add` положил гейт в gates/,
+  # мимо `samples: tools/gates`, — перенесён руками; у grep в нём LC_ALL=C (см. скрипт).
+  entry-docs-agree: "bash tools/gates/entry-docs-agree/check.sh ."
+  # Из AQK 0.18, первыми по его совету (27.09). Скопированы руками из kit/gates:
+  # `aqk add` кладёт гейт в gates/ мимо `samples` — находка отдана в AQK.
+  # Спецификации API у нас пока нет — гейт зелёный впустую до task-120.
+  api-contract-has-arbiter: "bash tools/gates/api-contract-has-arbiter/check.sh ."
+  # Разбор делегирован zizmor (в CI ставится отдельным шагом).
+  ci-not-hijackable: "bash tools/gates/ci-not-hijackable/check.sh ."
+  entry-commands-exist: "bash tools/gates/entry-commands-exist/check.sh ."
+  # Набор гейтов только растёт; снимок — tools/ratchets/gates-declared.txt.
+  protection-not-removed: "bash tools/gates/protection-not-removed/check.sh ."
 
 # Совещательные: видны в каждом прогоне, уронить его не могут (см. cost).
 advisory: [cost]

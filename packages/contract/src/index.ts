@@ -11,10 +11,29 @@
  * ОДИНАКОВО. Не «то, что удобно переиспользовать» — иначе он превратится
  * в свалку общего назначения, а такой пакет связывает всех со всеми.
  */
-export { MENTION_SOURCE, mentionedIds, mentionMarkup } from "./mentions.js";
+export { KEY_SHAPES, type KeyProvider, keyShapeMessage } from "./keys.js";
 export {
-  PROJECT_COLORS,
+  escapeLabel,
+  LABEL_SOURCE,
+  MENTION_SOURCE,
+  mentionedIds,
+  mentionMarkup,
+  unescapeLabel,
+} from "./mentions.js";
+export {
+  contrastRatio,
+  inkOn,
+  isProjectColor,
   PROJECT_ICONS,
-  type ProjectColor,
+  PROJECT_PRESETS,
   type ProjectIcon,
 } from "./projectLook.js";
+export { SEARCH_TOTAL_CAP, searchFold, searchWords } from "./search.js";
+export {
+  eventOf,
+  framed,
+  nextDelay,
+  RECONNECT,
+  retryAfterMs,
+  type StreamEvent,
+} from "./stream.js";

@@ -19,6 +19,8 @@
   --muted-on-soft: #d4d4d4;
   --accent-ink: #0a0a0a;
   --danger: #ce2c31;
+  --link: #0071c7;
+  --link-on-soft: #0d7dd4;
   --on-danger: #ffffff;
   color-scheme: light;
 }
@@ -42,6 +44,8 @@
   --muted-on-soft: #e9e3d7;
   --accent-ink: #4f5f5d;
   --danger: #9e342b;
+  --link: #0069be;
+  --link-on-soft: #84e3ff;
   --on-danger: #ffffff;
   color-scheme: light;
 }
@@ -65,6 +69,8 @@
   --muted-on-soft: #eee5d6;
   --accent-ink: #425950;
   --danger: #94352d;
+  --link: #005db1;
+  --link-on-soft: #94f4ff;
   --on-danger: #ffffff;
   --tag-red: #a13c32;
   --tag-orange: #8b4c10;
@@ -94,6 +100,8 @@
   --muted-on-soft: #e0ebea;
   --accent-ink: #a6d2c8;
   --danger: #ffb0a8;
+  --link: #3d9ef8;
+  --link-on-soft: #78d7ff;
   --on-danger: #32130f;
   color-scheme: dark;
 }
@@ -117,6 +125,8 @@
   --muted-on-soft: #eee7dc;
   --accent-ink: #e6c997;
   --danger: #ffb4a9;
+  --link: #2c90e8;
+  --link-on-soft: #6bcaff;
   --on-danger: #3b130e;
   color-scheme: dark;
 }
@@ -141,6 +151,8 @@
   --muted-on-soft: #d4d4d4;
   --accent-ink: #000000;
   --danger: #ce2c31;
+  --link: #0074ca;
+  --link-on-soft: #047ad1;
   --on-danger: #fff;
   color-scheme: light;
 }
@@ -163,6 +175,8 @@
   --muted-on-soft: #a3a3a3;
   --accent-ink: #fafafa;
   --danger: #ff9592;
+  --link: #1c85dc;
+  --link-on-soft: #3093ec;
   --on-danger: #000;
   color-scheme: dark;
 }
@@ -185,6 +199,8 @@
   --muted-on-soft: #656d76;
   --accent-ink: #096cdc;
   --danger: #ce222d;
+  --link: #0072c8;
+  --link-on-soft: #006fc5;
   --on-danger: #fff;
   color-scheme: light;
 }
@@ -207,6 +223,8 @@
   --muted-on-soft: #8d949e;
   --accent-ink: #3083f8;
   --danger: #f85249;
+  --link: #2188e0;
+  --link-on-soft: #3698f1;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -229,6 +247,8 @@
   --muted-on-soft: #626c7a;
   --accent-ink: #9a6700;
   --danger: #dc282b;
+  --link: #0074ca;
+  --link-on-soft: #006dc3;
   --on-danger: #fff;
   color-scheme: light;
 }
@@ -251,6 +271,8 @@
   --muted-on-soft: #a4a9b4;
   --accent-ink: #b0b5bf;
   --danger: #d2744b;
+  --link: #3295ee;
+  --link-on-soft: #46a6ff;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -273,6 +295,8 @@
   --muted-on-soft: #6b655b;
   --accent-ink: #966706;
   --danger: #dc282b;
+  --link: #0074ca;
+  --link-on-soft: #006dc3;
   --on-danger: #fff;
   color-scheme: light;
 }
@@ -295,6 +319,8 @@
   --muted-on-soft: #5c6370;
   --accent-ink: #1b7741;
   --danger: #ad4b21;
+  --link: #006ac0;
+  --link-on-soft: #006fc5;
   --on-danger: #fff;
   color-scheme: light;
 }
@@ -317,6 +343,8 @@
   --muted-on-soft: #606876;
   --accent-ink: #976a0a;
   --danger: #ab5421;
+  --link: #0072c8;
+  --link-on-soft: #0069be;
   --on-danger: #fff;
   color-scheme: light;
 }
@@ -339,6 +367,8 @@
   --muted-on-soft: #a4a9b4;
   --accent-ink: #fdb212;
   --danger: #d96226;
+  --link: #2a8ee7;
+  --link-on-soft: #50b0ff;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -361,6 +391,8 @@
   --muted-on-soft: #98a4b3;
   --accent-ink: #1fd5f9;
   --danger: #db632f;
+  --link: #288de5;
+  --link-on-soft: #42a3fd;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -383,6 +415,8 @@
   --muted-on-soft: #9ca0a6;
   --accent-ink: #7aabff;
   --danger: #ee5396;
+  --link: #3093ec;
+  --link-on-soft: #44a4ff;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -405,6 +439,8 @@
   --muted-on-soft: #a6a596;
   --accent-ink: #fde50d;
   --danger: #f43454;
+  --link: #2188e0;
+  --link-on-soft: #3d9ef8;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -427,6 +463,8 @@
   --muted-on-soft: #92a8b0;
   --accent-ink: #00e5ff;
   --danger: #fa3899;
+  --link: #2389e2;
+  --link-on-soft: #46a6ff;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -449,6 +487,8 @@
   --muted-on-soft: #a59fb0;
   --accent-ink: #c58cf0;
   --danger: #ff6369;
+  --link: #268be3;
+  --link-on-soft: #399bf4;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -471,6 +511,8 @@
   --muted-on-soft: #98aaa7;
   --accent-ink: #2fd4be;
   --danger: #ff6369;
+  --link: #2a8ee7;
+  --link-on-soft: #3fa0fa;
   --on-danger: #fff;
   color-scheme: dark;
 }
@@ -493,6 +535,8 @@
   --muted-on-soft: #9fa2b5;
   --accent-ink: #8fa4ff;
   --danger: #ff6369;
+  --link: #268be3;
+  --link-on-soft: #3d9ef8;
   --on-danger: #fff;
   color-scheme: dark;
 }

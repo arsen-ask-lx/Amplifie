@@ -18,8 +18,8 @@
 ровно к тому сообщению, где его позвали. Как в Телеграме.
 
 Почему именно так, а не поиском имени по тексту —
-[Р-031](../decisions/031-упоминания.md). Внешне наблюдаемое поведение —
-[openspec/changes/chat-mentions](../../openspec/changes/chat-mentions/proposal.md).
+[Р-031](../decisions.md#r-031). Внешне наблюдаемое поведение —
+[openspec/changes/chat-mentions](../../openspec/changes/archive/2026-09-10-chat-mentions/proposal.md).
 
 ## 2. Что уже есть
 
@@ -185,7 +185,7 @@
 
 ## 7. Границы
 
-- читать: `AGENTS.md`, Р-020, Р-029, Р-031, `.temper/rules/`,
+- читать: `AGENTS.md`, Р-020, Р-029, Р-031, `AGENTS.md`,
   `markup.ts`, `RichField.tsx`, `repo.ts` разговоров, `address.ts`,
   дельту `openspec/changes/chat-mentions`;
 - менять: перечисленные в шагах файлы, строку задачи в `dock/README.md`,
@@ -285,3 +285,5 @@
 - что стало общим механизмом: запись упоминания в `@amplifie/contract` —
   одна на обе стороны; `kernel/talk/access.ts` — единственная проверка
   видимости разговора; узел `mention` в разметке.
+
+

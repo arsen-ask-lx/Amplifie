@@ -9,3 +9,15 @@ dist
 *.log
 dock
 .env
+# ⚠️ Ниже — то, что 26.09 нашёл скилл docker-build-strategies: всё это
+# уезжало в контекст КАЖДОЙ сборки. Одна только `tmp` — 57 МБ журналов
+# прогонов; `test-results` растёт записями упавших сценариев (trace.zip).
+tmp
+test-results
+playwright-report
+.claude
+openspec
+.vscode
+.idea
+*.md
+LICENSE

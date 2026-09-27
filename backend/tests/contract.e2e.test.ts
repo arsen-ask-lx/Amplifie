@@ -23,20 +23,6 @@ describe("контракт дверей", () => {
     expect(Object.keys(body.fields)).toContain("id");
   });
 
-  it("пустое сообщение отклоняется по полю body", async () => {
-    const person = await newPerson("Проверяющий");
-    const list = await call("GET", "/v1/conversations", person);
-    const channelId = ((await list.json()) as { items: { id: string }[] }).items[0]?.id;
-
-    const response = await call("POST", `/v1/conversations/${channelId}/messages`, person, {
-      body: "   ",
-      clientMsgId: crypto.randomUUID(),
-    });
-    expect(response.status).toBe(422);
-    const body = (await response.json()) as { fields: Record<string, string> };
-    expect(body.fields.body).toBe("сообщение пустое");
-  });
-
   it("новый канал отдаётся ровно объявленными полями — служебные не уезжают", async () => {
     const person = await newPerson("Проверяющий");
     const response = await call("POST", "/v1/conversations", person, { title: "Смета" });

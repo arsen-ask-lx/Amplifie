@@ -1,3 +1,4 @@
+import { KEY_SHAPES, type KeyProvider, keyShapeMessage } from "@amplifie/contract";
 import { db, withTransaction } from "../../platform/db.js";
 import { keyringFromEnv, open, seal } from "../../platform/secrets.js";
 import { appendEvent } from "../journal/index.js";
@@ -29,29 +30,22 @@ export type Scope = "участник" | "пространство";
 export class BadKeyFormatError extends Error {}
 export class NoSecretKeyError extends Error {}
 
-/**
- * Как выглядит ключ у поставщика.
- *
- * Проверяем форму ДО сохранения: опечатка, найденная сразу, дешевле
- * молчаливого отказа модели через неделю. Проверка нарочно грубая —
- * префикс и длина. Точную форму знает только поставщик, и гнаться
- * за ней значит однажды отвергнуть законный ключ нового поколения.
- */
-const SHAPES: Record<string, { prefix: string; least: number }> = {
-  anthropic: { prefix: "sk-ant-", least: 20 },
-  openai: { prefix: "sk-", least: 20 },
-};
-
 /** Сколько последних знаков показываем. Держится ещё и проверкой в базе. */
 const HINT = 4;
 
+/**
+ * Форма ключа — ДО сохранения: опечатка, найденная сразу, дешевле
+ * молчаливого отказа модели через неделю. Правило — `KEY_SHAPES` в общем
+ * договоре: его же читает схема двери.
+ */
 function shapeOf(provider: string, key: string): void {
-  const shape = SHAPES[provider];
-  if (!shape) throw new BadKeyFormatError(`неизвестный поставщик: ${provider}`);
+  if (!(provider in KEY_SHAPES)) throw new BadKeyFormatError(`неизвестный поставщик: ${provider}`);
+  const known = provider as KeyProvider;
+  const shape = KEY_SHAPES[known];
+  // Вторая линия за схемой двери: ядро зовут не только из HTTP.
+  // В тексте ошибки — ТОЛЬКО ожидаемый префикс, ни куска ключа.
   if (!key.startsWith(shape.prefix) || key.length < shape.least) {
-    // В тексте ошибки — ТОЛЬКО ожидаемый префикс. Ни куска самого ключа,
-    // ни его длины: сообщение об ошибке уходит в лог и на экран.
-    throw new BadKeyFormatError(`ключ ${provider} начинается с «${shape.prefix}»`);
+    throw new BadKeyFormatError(keyShapeMessage(known));
   }
 }
 

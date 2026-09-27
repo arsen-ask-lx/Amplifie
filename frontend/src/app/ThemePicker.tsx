@@ -73,7 +73,7 @@ function ThemeItem({
       <span
         aria-hidden="true"
         data-theme={candidate.id}
-        className="size-3 shrink-0 rounded-pill bg-accent ring-1 ring-edge"
+        className="size-3 shrink-0 rounded-pill bg-accent"
       />
       <span className="min-w-0 flex-1 truncate">{candidate.label}</span>
       {selected ? <Check className="size-4 text-accent" aria-label="Выбрана" /> : null}

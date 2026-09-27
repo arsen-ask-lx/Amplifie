@@ -31,7 +31,7 @@ export const MAP = "dock/README.md";
  */
 const TRIGGERS = [
   {
-    at: /^dock\/decisions\/[^/]+\.md$/u,
+    at: /^dock\/decisions\.md$/u,
     why: "реестр решений в карте",
     newOnly: false,
   },
@@ -41,7 +41,7 @@ const TRIGGERS = [
     newOnly: false,
   },
   {
-    at: /^dock\/долг\.md$/u,
+    at: /^dock\/debt\.md$/u,
     why: "очередь работ ссылается на реестр долга",
     newOnly: false,
   },

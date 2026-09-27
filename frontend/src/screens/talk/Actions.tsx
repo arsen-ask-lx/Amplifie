@@ -30,6 +30,10 @@ export interface Deeds {
   canRemove: (message: Message) => boolean;
   /** Войти в режим выделения, начав с этой реплики. */
   onSelect: (message: Message) => void;
+  /** Все «не ушедшие» — ещё раз, щелчком по «!» (task-111). */
+  onRetry: () => void;
+  /** Не отправлять реплику, которая ещё ждёт (task-111). */
+  onCancel: (message: Message) => void;
 }
 
 /** Что сейчас с выделением. `null` — режима выделения нет. */
@@ -57,6 +61,7 @@ export interface Picking {
  */
 export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
   const { message } = row;
+  if (message.state) return <UnsentActions message={message} deeds={deeds} />;
   const pinned = message.pinnedAt !== null;
 
   return (
@@ -112,6 +117,29 @@ export function Actions({ row, deeds }: { row: Row; deeds: Deeds }) {
       <ContextMenuItem onSelect={() => deeds.onSelect(message)}>
         <CheckSquare />
         Выделить
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+}
+
+/**
+ * Меню реплики, которую сервер ещё не записал (task-111).
+ *
+ * ⚠️ ТОЛЬКО ТО, ЧТО НЕ ХОДИТ НА СЕРВЕР. Черновик в очереди живёт до минуты,
+ * а сервер о нём не знает: «Удалить» получило бы 404, и через минуту очередь
+ * отправила бы то, что человек удалил. Ответить, изменить, закрепить,
+ * переслать — те же 404. Остаются текст и отмена — её решает очередь.
+ */
+function UnsentActions({ message, deeds }: { message: Message; deeds: Deeds }) {
+  return (
+    <ContextMenuContent>
+      <ContextMenuItem onSelect={() => void copyAndTell(message.body, COPIED.text)}>
+        <Copy />
+        Копировать текст
+      </ContextMenuItem>
+      <ContextMenuItem variant="destructive" onSelect={() => deeds.onCancel(message)}>
+        <Trash />
+        Не отправлять
       </ContextMenuItem>
     </ContextMenuContent>
   );

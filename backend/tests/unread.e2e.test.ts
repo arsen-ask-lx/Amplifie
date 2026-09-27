@@ -14,25 +14,7 @@
  * Бьёт по живому стеку через настоящий порт. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-function freshEmail(): string {
-  return `unread-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-interface Person {
-  cookie: string;
-  participantId: string;
-}
+import { call, colleague, newPerson, type Person, requireStand } from "./stand.js";
 
 interface Conversation {
   id: string;
@@ -42,47 +24,8 @@ interface Conversation {
   unread: number;
 }
 
-async function get(path: string, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, { headers: person ? { cookie: person.cookie } : {} });
-}
-
-async function post(path: string, body: unknown, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(person ? { cookie: person.cookie } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-}
-
-async function newPerson(tag: string): Promise<Person> {
-  const response = await post("/v1/auth/register", {
-    email: freshEmail(),
-    password: PASSWORD,
-    displayName: tag,
-    workspaceName: `Пространство ${tag}`,
-  });
-  if (response.status !== 201) throw new Error(`регистрация не удалась: ${response.status}`);
-  const body = (await response.json()) as { participant: { id: string } };
-  return { cookie: sessionCookie(response), participantId: body.participant.id };
-}
-
-/** Позвать второго в то же пространство: непрочитанное без него не проверить. */
-async function invite(owner: Person, tag: string): Promise<Person> {
-  const created = await post("/v1/invites", { maxUses: 50 }, owner);
-  const { token } = (await created.json()) as { token: string };
-  const entered = await post("/v1/auth/join", {
-    token,
-    email: freshEmail(),
-    password: PASSWORD,
-    displayName: tag,
-  });
-  if (entered.status !== 201) throw new Error(`вход по ссылке не удался: ${entered.status}`);
-  const body = (await entered.json()) as { participant: { id: string } };
-  return { cookie: sessionCookie(entered), participantId: body.participant.id };
-}
+const get = (path: string, person?: Person) => call("GET", path, person);
+const post = (path: string, body: unknown, person?: Person) => call("POST", path, person, body);
 
 async function conversations(person: Person): Promise<Conversation[]> {
   const response = await get("/v1/conversations", person);
@@ -122,15 +65,12 @@ async function markRead(person: Person, conversationId: string, seq: number): Pr
 }
 
 describe("непрочитанное", () => {
-  beforeAll(async () => {
-    const health = await get("/health");
-    if (!health.ok) throw new Error(`Стек не поднят (${BASE}/health). Запусти: make up`);
-  });
+  beforeAll(requireStand);
 
   describe("счётчик", () => {
     it("растёт от чужих реплик, а своя реплика гасит всё до неё", async () => {
       const owner = await newPerson("Хозяин");
-      const guest = await invite(owner, "Гость");
+      const guest = await colleague(owner, "Гость");
       const channel = await channelOf(owner);
 
       await say(guest, channel.id, "первое чужое");
@@ -157,7 +97,7 @@ describe("непрочитанное", () => {
 
     it("обнуляется отметкой и возвращает пересчитанный остаток", async () => {
       const owner = await newPerson("Читатель");
-      const guest = await invite(owner, "Писатель");
+      const guest = await colleague(owner, "Писатель");
       const channel = await channelOf(owner);
 
       await say(guest, channel.id, "раз");
@@ -190,7 +130,7 @@ describe("непрочитанное", () => {
        * присваивание — этот тест обязан покраснеть.
        */
       const owner = await newPerson("Двухвкладочный");
-      const guest = await invite(owner, "Собеседник");
+      const guest = await colleague(owner, "Собеседник");
       const channel = await channelOf(owner);
 
       const first = await say(guest, channel.id, "раз");
@@ -213,7 +153,7 @@ describe("непрочитанное", () => {
 
     it("повторная отметка тем же номером ничего не меняет", async () => {
       const owner = await newPerson("Повторяющий");
-      const guest = await invite(owner, "Говорящий");
+      const guest = await colleague(owner, "Говорящий");
       const channel = await channelOf(owner);
 
       const seq = await say(guest, channel.id, "единственная");
@@ -237,7 +177,7 @@ describe("непрочитанное", () => {
        */
       const owner = await newPerson("Заводивший");
       const channel = await channelOf(owner);
-      const late = await invite(owner, "Пришедший позже");
+      const late = await colleague(owner, "Пришедший позже");
 
       const seq = await say(owner, channel.id, "сказано до его прихода");
       expect(await unreadOf(late, channel.id)).toBe(1);
@@ -246,6 +186,56 @@ describe("непрочитанное", () => {
       expect(response.status, "отметка отказала тому, кто не состоит в канале").toBe(200);
       expect((await response.json()) as { unread: number }).toEqual({ unread: 0 });
       expect(await unreadOf(late, channel.id), "число не погасло").toBe(0);
+    });
+  });
+
+  describe("task-107: лента открывается на первом непрочитанном", () => {
+    it("отдаёт окно вокруг первой непрочитанной и говорит, докуда прочитано", async () => {
+      const owner = await newPerson("Хозяин");
+      const guest = await colleague(owner, "Сосед");
+      const channel = await channelOf(owner);
+
+      // Хозяин прочитал первые три, дальше двадцать чужих непрочитанных.
+      for (let n = 1; n <= 3; n += 1) await say(guest, channel.id, `прочитанная ${n}`);
+      const readTo = await say(guest, channel.id, "последняя прочитанная");
+      await markRead(owner, channel.id, readTo);
+      const first = await say(guest, channel.id, "первая непрочитанная");
+      for (let n = 1; n <= 20; n += 1) await say(guest, channel.id, `непрочитанная ${n}`);
+
+      const response = await get(
+        `/v1/conversations/${channel.id}/messages?around=unread&limit=10`,
+        owner,
+      );
+      expect(response.status).toBe(200);
+      const page = (await response.json()) as {
+        items: { seq: number; body: string }[];
+        readSeq: number;
+      };
+
+      // ⚠️ ОКНО ВОКРУГ ПЕРВОЙ НЕПРОЧИТАННОЙ, А НЕ КОНЕЦ ЧАТА. Иначе человек
+      // открывает чат внизу и «читает» то, чего не видел (жалоба владельца 17.09).
+      expect(page.items.map((one) => one.seq)).toContain(first);
+      expect(
+        page.items.some((one) => one.body === "непрочитанная 20"),
+        "окно доехало до конца чата — это не открытие на непрочитанном",
+      ).toBe(false);
+      // Черта рисуется по этому числу, и оно приходит с лентой: у чата вне
+      // первой порции панели строки с отметкой может ещё не быть (Д-51).
+      expect(page.readSeq, "лента не сказала, докуда прочитано").toBe(readTo);
+    });
+
+    it("непрочитанного нет — последняя страница, как раньше", async () => {
+      const owner = await newPerson("Хозяин");
+      const channel = await channelOf(owner);
+      for (let n = 1; n <= 5; n += 1) await say(owner, channel.id, `своя ${n}`);
+
+      const response = await get(
+        `/v1/conversations/${channel.id}/messages?around=unread&limit=10`,
+        owner,
+      );
+      expect(response.status).toBe(200);
+      const page = (await response.json()) as { items: { body: string }[]; hasMore: boolean };
+      expect(page.items.at(-1)?.body).toBe("своя 5");
     });
   });
 

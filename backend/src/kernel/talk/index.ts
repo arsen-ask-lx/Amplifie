@@ -1,5 +1,13 @@
-export { ConversationNotVisibleError, type Viewer } from "./access.js";
+export { audienceFor, ConversationNotVisibleError, type Viewer } from "./access.js";
+export { searchChats } from "./chatSearch.js";
 export { MentionNotAllowedError, peopleToMention, whereMentioned } from "./mentions.js";
+export {
+  deleteMessage,
+  editMessage,
+  listPinned,
+  PinLimitError,
+  pinMessage,
+} from "./messageActions.js";
 export { setConversationPin, setProjectPin } from "./pins.js";
 export {
   createProject,
@@ -9,19 +17,18 @@ export {
   scopeFeed,
   setProject,
 } from "./projects.js";
+export { searchMessages } from "./search.js";
 export {
   createChannel,
   createDefaultChannel,
   createThread,
   deleteConversation,
-  deleteMessage,
-  editMessage,
   listConversations,
   listMessages,
-  listPinned,
   listProjectConversations,
+  listRecent,
   markRead,
-  pinMessage,
+  panelSnapshot,
   sendAsAgent,
   sendMessage,
   sync,

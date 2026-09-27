@@ -1,3 +1,4 @@
+import { KEY_SHAPES } from "@amplifie/contract";
 import { Plus } from "@phosphor-icons/react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { api, type ModelKey } from "../../data/api.js";
@@ -31,8 +32,9 @@ import {
  */
 
 const PROVIDERS = [
-  { id: "anthropic", label: "Anthropic (Claude)", prefix: "sk-ant-" },
-  { id: "openai", label: "OpenAI", prefix: "sk-" },
+  // Префикс — из общего правила ключей: его же проверяют схема двери и ядро.
+  { id: "anthropic", label: "Anthropic (Claude)", prefix: KEY_SHAPES.anthropic.prefix },
+  { id: "openai", label: "OpenAI", prefix: KEY_SHAPES.openai.prefix },
 ];
 
 /**
@@ -184,7 +186,10 @@ export function KeyPanel({ onChange }: { onChange: () => void }) {
               value={key}
               placeholder={shape ? `${shape.prefix}…` : ""}
               className={QUIET_FIELD}
-              autoComplete="off"
+              // ⚠️ `new-password`, А НЕ `off`: Chrome игнорирует `off` у полей
+              // пароля и всё равно подставляет сохранённое — с сереньким
+              // полем поверх нашего (владелец 17.09).
+              autoComplete="new-password"
               spellCheck={false}
               onChange={(event) => setKey(event.target.value)}
             />

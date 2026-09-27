@@ -61,6 +61,34 @@ function State({ bridge }: { bridge: Bridge }) {
 }
 
 /**
+ * Что показывать про исход: строку запуска, ответ модели, отказ.
+ *
+ * ⚠️ ОДИН КУСОК НА ОБА МЕСТА — окно в «Агентах» и то же самое на месте
+ * внутри окна установки. Двумя копиями они разъехались бы: у одной
+ * появилась бы кнопка нового кода, у другой нет.
+ */
+function Result({
+  command,
+  copied,
+  answer,
+  failure,
+  onCopy,
+}: {
+  command: string | null;
+  copied: boolean;
+  answer: { text: string; ms: number } | null;
+  failure: string | null;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      {command ? <Command command={command} copied={copied} onCopy={onCopy} /> : null}
+      <Outcome answer={answer} failure={failure} />
+    </div>
+  );
+}
+
+/**
  * Мосты приходят СВОЙСТВАМИ, а не своим запросом.
  *
  * Этот экран рисуется только внутри «Агентов», и до task-012 оба
@@ -72,6 +100,7 @@ export function ModelScreen({
   bridges,
   onChanged,
   issueAtOnce = false,
+  framed = false,
 }: {
   bridges: Bridge[];
   onChanged: () => void | Promise<void>;
@@ -85,6 +114,17 @@ export function ModelScreen({
    * на каждый заход в раздел.
    */
   issueAtOnce?: boolean;
+  /**
+   * Панель уже стоит внутри окна — тогда результат показывается НА МЕСТЕ.
+   *
+   * ⚠️ ОКНО ПОВЕРХ ОКНА — ЭТО БАГ, А НЕ УСТРОЙСТВО (владелец 17.09:
+   * «нахрена там 2 окна»). В разделе «Агенты» панель висит на странице,
+   * и код подключения уместно показать отдельным окном; в установке
+   * панель сама лежит в окне, и второе окно вставало поверх первого.
+   * Признак передаёт хозяин: панель не умеет и не должна узнавать,
+   * во что её поставили.
+   */
+  framed?: boolean;
 }) {
   const [command, setCommand] = useState<string | null>(null);
   /**
@@ -201,40 +241,57 @@ export function ModelScreen({
         </div>
       ) : null}
 
+      {/* ⚠️ ВНУТРИ ОКНА СОСТОЯНИЕ ВЫШЕ ДЕЙСТВИЙ (task-105, DESIGN.md). Первая
+        редакция показывала код ПОД кнопками, и читать окно приходилось снизу
+        вверх: сперва «Показать код», потом сам код. */}
+      {framed ? (
+        <Result
+          command={command}
+          copied={copied}
+          answer={answer}
+          failure={failure}
+          onCopy={() => void copy()}
+        />
+      ) : null}
+
       {/* Действия прижаты вправо, главное — крайнее справа: взгляд
         заканчивает чтение там же, где его встречает кнопка. */}
       <div className="flex flex-wrap items-center justify-end gap-2 border-line border-t pt-4">
-        <Button variant="outline" disabled={issuing} onClick={showOrIssue}>
-          {command ? "Показать код" : "Подключить"}
+        <Button
+          variant="outline"
+          disabled={issuing}
+          onClick={framed ? () => void issue() : showOrIssue}
+        >
+          {framed ? "Новый код" : command ? "Показать код" : "Подключить"}
         </Button>
         <Button disabled={checking} onClick={() => void check()}>
           {checking ? "Спрашиваем…" : "Проверить"}
         </Button>
       </div>
 
-      <Dialog open={resultOpen} onOpenChange={setResultOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{command ? "Подключение нейросети" : "Проверка нейросети"}</DialogTitle>
-          </DialogHeader>
+      {framed ? null : (
+        <Dialog open={resultOpen} onOpenChange={setResultOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{command ? "Подключение нейросети" : "Проверка нейросети"}</DialogTitle>
+            </DialogHeader>
 
-          {command ? (
-            <Command command={command} copied={copied} onCopy={() => void copy()} />
-          ) : null}
-          <Outcome answer={answer} failure={failure} />
+            <Result
+              command={command}
+              copied={copied}
+              answer={answer}
+              failure={failure}
+              onCopy={() => void copy()}
+            />
 
-          <DialogFooter>
-            {command ? (
-              <Button variant="outline" disabled={issuing} onClick={() => void issue()}>
-                Новый код
-              </Button>
-            ) : null}
-            <DialogClose asChild>
-              <Button variant="outline">Готово</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline">Готово</Button>
+              </DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

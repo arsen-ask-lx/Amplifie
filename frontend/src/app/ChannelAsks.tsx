@@ -26,29 +26,25 @@ import { Input } from "../shared/ui/input.js";
  * в том, известна ли папка заранее; двумя окнами они разъехались бы.
  */
 export function NewChatDialog({
-  open,
   /** Название папки, если чат заводят внутри неё. Для заголовка окна. */
   folderTitle,
   onCreate,
   onClose,
 }: {
-  open: boolean;
   folderTitle?: string | undefined;
   onCreate: (title: string) => Promise<void>;
   onClose: () => void;
 }) {
+  // Поле рождается с окном и умирает с ним: окно на странице только
+  // на время вопроса (task-103), обнулять руками нечего.
   const [title, setTitle] = useState("");
 
   return (
     <FormDialog
-      open={open}
       title={folderTitle ? `Новый чат в проекте «${folderTitle}»` : "Новый чат"}
       submitLabel="Завести"
       canSubmit={title.trim() !== ""}
-      onSubmit={async () => {
-        await onCreate(title.trim());
-        setTitle("");
-      }}
+      onSubmit={() => onCreate(title.trim())}
       explain={(failure) =>
         statusOf(failure) === null
           ? "Сервер не ответил. Проверьте связь и повторите."

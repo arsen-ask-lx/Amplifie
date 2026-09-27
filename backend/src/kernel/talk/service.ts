@@ -2,13 +2,16 @@ import type { Message, SyncLine } from "@amplifie/contract/api";
 import { publish } from "../../platform/bus.js";
 import { change } from "../../platform/change.js";
 import { db, type Executor, withTransaction } from "../../platform/db.js";
+import { remember, visibleTo } from "../../platform/tail.js";
 import { appendEvent } from "../journal/index.js";
-import { ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
+import { audienceFor, ConversationNotVisibleError, requireVisible, type Viewer } from "./access.js";
 import { mentionedWhoSee, setMentions } from "./mentions.js";
 import { listProjectsFor, requireProject, requireVisibleProject } from "./projects.js";
 import * as repo from "./repo.js";
 
-function presentConversation(row: Awaited<ReturnType<typeof repo.listConversationsFor>>[number]) {
+export function presentConversation(
+  row: Awaited<ReturnType<typeof repo.listConversationsFor>>[number],
+) {
   return {
     id: row.id,
     kind: row.kind,
@@ -29,7 +32,7 @@ function presentConversation(row: Awaited<ReturnType<typeof repo.listConversatio
  * копии. Надгробие без текста: удалённое не отдаётся никому, включая тех,
  * кто уже видел его на экране (как redaction у Matrix).
  */
-type MessageView = Message;
+export type MessageView = Message;
 
 /** Цитата — напоминание, а не второе сообщение: столько же, сколько у Телеграма. */
 const EXCERPT = 120;
@@ -48,7 +51,10 @@ function presentLine(row: Awaited<ReturnType<typeof repo.listMessagesAfter>>[num
   return presentMessage(row);
 }
 
-function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[number]): MessageView {
+/** Вид реплики из строки хранилища — один на ленту, догон, закреплённое и поиск. */
+export function presentMessage(
+  row: Awaited<ReturnType<typeof repo.listMessages>>[number],
+): MessageView {
   return {
     id: row.id,
     clientMsgId: row.clientMsgId,
@@ -76,7 +82,7 @@ function presentMessage(row: Awaited<ReturnType<typeof repo.listMessages>>[numbe
 }
 
 /** Вид сообщения по идентификатору. Одно место, где он собирается. */
-async function viewOf(tx: Executor, messageId: string): Promise<MessageView> {
+export async function viewOf(tx: Executor, messageId: string): Promise<MessageView> {
   const row = await repo.findMessageViewById(tx, messageId);
   if (!row) throw new Error(`сообщение ${messageId} записано, но не читается обратно`);
   return presentMessage(row);
@@ -95,9 +101,10 @@ function isDuplicateClientMsgId(error: unknown): boolean {
  * Панель целиком: разговоры и проекты одним ответом — её перечитывают
  * на каждый звонок потока (Р-006), и второй обмен удвоил бы самый частый.
  */
-export async function listConversations(viewer: Viewer) {
+/** Первые `limit` видимых разговоров в порядке панели (Д-15: без предела было 1,4 МБ). */
+export async function listConversations(viewer: Viewer, limit: number) {
   const [rows, projects] = await Promise.all([
-    repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId),
+    repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, { limit }),
     listProjectsFor(db, viewer.participantId, viewer.workspaceId),
   ]);
   return {
@@ -121,6 +128,21 @@ export async function listProjectConversations(
     limit: limit + 1,
     ...(after ? { after } : {}),
   });
+  return pageOf(rows, limit);
+}
+
+/**
+ * Порция строк панели: сами строки и курсор продолжения.
+ *
+ * ⚠️ ОДНА СТРОКА СВЕРХ ЛИМИТА ВМЕСТО ВТОРОГО ЗАПРОСА. «Есть ли ещё» — это
+ * `COUNT(*)` по всему списку, то есть цена вопроса больше цены ответа.
+ * Курсор непрозрачен для клиента: в нём порядок сервера — закрепление,
+ * последняя активность и имя строки.
+ */
+function pageOf(
+  rows: Awaited<ReturnType<typeof repo.listConversationsFor>>,
+  limit: number,
+): { items: ReturnType<typeof presentConversation>[]; next: string | null } {
   const page = rows.slice(0, limit);
   const tail = page.at(-1);
   return {
@@ -135,6 +157,65 @@ export async function listProjectConversations(
             }),
           ).toString("base64url")
         : null,
+  };
+}
+
+/** Сколько «Недавних» приезжает сразу. Дальше — по прокрутке, курсором. */
+const RECENT_PAGE = 25;
+
+/**
+ * Следующая порция «Недавних» — чатов без папки (Р-033). Первая приезжает
+ * в сводном ответе; эта дверь нужна, когда человек долистал панель до низа.
+ */
+export async function listRecent(viewer: Viewer, after: repo.PanelCursor | undefined) {
+  const rows = await repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, {
+    loose: true,
+    rootOnly: true,
+    limit: RECENT_PAGE + 1,
+    ...(after ? { after } : {}),
+  });
+  return pageOf(rows, RECENT_PAGE);
+}
+
+/**
+ * Сводный ответ панели (task-064, Р-037): проекты со счётчиками, первая
+ * порция «Недавних» и строка открытого чата.
+ *
+ * ⚠️ ЧАТОВ ПРОЕКТОВ ЗДЕСЬ НЕТ, И В ЭТОМ ВЕСЬ СМЫСЛ. Прежний ответ вёз все
+ * разговоры пространства: замер 11.09 — 1,4 МБ и 5 241 строка на каждое
+ * сообщение в любом чате. Чаты проекта приезжают, когда его раскрыли.
+ *
+ * ⚠️ ОТКРЫТЫЙ ЧАТ ПРИХОДИТ ОТДЕЛЬНОЙ СТРОКОЙ. Он может лежать в свёрнутом
+ * проекте, и без него лента не знает ни названия, ни своих прав.
+ */
+export async function panelSnapshot(viewer: Viewer, openId?: string) {
+  const [projects, counts, recentRows, openRows] = await Promise.all([
+    listProjectsFor(db, viewer.participantId, viewer.workspaceId),
+    repo.projectCountsFor(db, viewer.participantId, viewer.workspaceId),
+    repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, {
+      loose: true,
+      rootOnly: true,
+      limit: RECENT_PAGE + 1,
+    }),
+    openId
+      ? repo.listConversationsFor(db, viewer.participantId, viewer.workspaceId, {
+          onlyId: openId,
+          limit: 1,
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const byProject = new Map(counts.map((one) => [one.projectId, one]));
+  return {
+    projects: projects.map((folder) => ({
+      ...folder,
+      unread: byProject.get(folder.id)?.unread ?? 0,
+      mentions: byProject.get(folder.id)?.mentions ?? 0,
+    })),
+    recent: pageOf(recentRows, RECENT_PAGE),
+    // Нет такого чата или он не виден — `null`, а не отказ: панель обязана
+    // нарисоваться и по мёртвой ссылке.
+    open: openRows[0] ? presentConversation(openRows[0]) : null,
   };
 }
 
@@ -154,7 +235,8 @@ export async function markRead(viewer: Viewer, conversationId: string, seq: numb
 }
 
 /**
- * Лента разговора страницами назад.
+ * Лента разговора страницами: назад от `before` либо вперёд от `after`
+ * (task-099). `hasMore` — есть ли ещё в ту же сторону.
  *
  * `hasMore` считается по признаку «страница набралась целиком»: просить
  * у базы отдельный COUNT ради этого — лишний запрос на каждое листание.
@@ -165,17 +247,69 @@ export async function listMessages(
   viewer: Viewer,
   conversationId: string,
   limit: number,
-  before?: number,
+  from: { before?: number; after?: number; around?: "unread" } = {},
 ) {
   await requireVisible(db, viewer, conversationId);
-  const rows = await repo.listMessages(db, conversationId, limit, before);
-  // Голова пространства — начальный курсор догона для свежей вкладки;
-  // без неё клиент переигрывал историю страницами (Д-19).
+  // Открыть на первом непрочитанном (task-107): окно вокруг него, как
+  // у перехода по цитате, плюс отметка прочтения для черты.
+  if (from.around === "unread") return await aroundUnread(viewer, conversationId, limit);
+  /**
+   * Голова пространства — курсор догона для этой ленты (Д-19).
+   *
+   * ⚠️ ГОЛОВА ЧИТАЕТСЯ ДО СТРОК, как граница в `sync` (task-099). Прочитанная
+   * после, она бывала новее строк: реплика, записанная между двумя чтениями,
+   * в странице отсутствовала, а курсор уже стоял за ней — клиент называл её
+   * «уже видели» и не показывал до перезагрузки. Голова до строк бывает
+   * только старше их: догон привезёт лишнее, и слияние по идентификатору
+   * его поглотит.
+   */
   const head = await repo.currentSeq(db, viewer.workspaceId);
+  const rows =
+    from.after === undefined
+      ? await repo.listMessages(db, conversationId, limit, from.before)
+      : await repo.listMessagesNewer(db, conversationId, limit, from.after);
   return { items: rows.map(presentMessage), hasMore: rows.length === limit, head };
 }
 
-/** Записать сообщение: номер, вставка, упоминания, событие, вид. Общее для человека и агента. */
+/**
+ * Лента вокруг первой непрочитанной реплики (task-107).
+ *
+ * ⚠️ ОКНО, А НЕ «ВСЁ ПОСЛЕ ОТМЕТКИ». Непрочитанных бывает тысяча, и отдавать
+ * их разом значит платить за то, чего человек не увидит: он читает сверху вниз.
+ * Половина до черты нужна, чтобы было от чего оттолкнуться глазами — та же
+ * форма, что у перехода к реплике (task-099).
+ *
+ * ⚠️ НЕПРОЧИТАННОГО НЕТ — ПОСЛЕДНЯЯ СТРАНИЦА, как раньше. Это обычный случай,
+ * и отдельного вида ответа он не заслуживает.
+ */
+async function aroundUnread(viewer: Viewer, conversationId: string, limit: number) {
+  const head = await repo.currentSeq(db, viewer.workspaceId);
+  const { readSeq, firstUnread } = await repo.readStateOf(db, conversationId, viewer.participantId);
+  if (firstUnread === null) {
+    const rows = await repo.listMessages(db, conversationId, limit);
+    return { items: rows.map(presentMessage), hasMore: rows.length === limit, head, readSeq };
+  }
+  // Половина «до» включает саму реплику, половина «после» — то, что новее:
+  // границы те же, что у окна вокруг номера, поэтому дыры между ними нет.
+  const half = Math.max(1, Math.floor(limit / 2));
+  const [older, newer] = await Promise.all([
+    repo.listMessages(db, conversationId, half, firstUnread + 1),
+    repo.listMessagesNewer(db, conversationId, half, firstUnread),
+  ]);
+  return {
+    items: [...older, ...newer].map(presentMessage),
+    hasMore: older.length === half,
+    hasNewer: newer.length === half,
+    head,
+    readSeq,
+  };
+}
+
+/**
+ * Записать сообщение: номер, вставка, упоминания, событие. Общее для человека
+ * и агента. Отдаёт идентификатор, а НЕ готовый вид — см. `viewOf` ниже:
+ * вид собирается после фиксации, чтобы не держать замок пространства чтением.
+ */
 async function writeMessage(
   tx: Executor,
   target: { workspaceId: string },
@@ -189,9 +323,15 @@ async function writeMessage(
     replyToId?: string | null;
     forwardedFromId?: string | null;
   },
-): Promise<MessageView> {
+): Promise<{ id: string; mentioned: string[] }> {
   // Номер — `UPDATE` строки в этой же транзакции, а не последовательность:
   // при откате он возвращается, и дыры не остаётся.
+  //
+  // ⚠️ ОТСЮДА И ДО ФИКСАЦИИ СТРОКА ПРОСТРАНСТВА ЗАПЕРТА, и все остальные
+  // отправители стоят в очереди. Замер task-081: одно пространство держит
+  // 64-107 записей в секунду против 181-212 у разных пространств на той же
+  // машине. Поэтому ниже — только то, без чего запись неполна; всякое
+  // чтение «для ответа» делается после фиксации.
   const seq = await repo.nextSeq(tx, target.workspaceId);
 
   const created = await repo.insertMessage(tx, {
@@ -200,7 +340,12 @@ async function writeMessage(
     ...input,
   });
 
-  await setMentions(tx, created.id, await mentionedWhoSee(tx, input.conversationId, input.body));
+  // ⚠️ ПРИ ВСТАВКЕ ЗОВЁМ ТОЛЬКО ЕСЛИ ЕСТЬ КОГО ЗВАТЬ. `setMentions`
+  // переписывает упоминания целиком, то есть начинает с `DELETE`, — и правке
+  // это нужно (снятый зов обязан погаснуть). У новой строки удалять нечего,
+  // и пустой `DELETE` здесь стоял под замком пространства на каждой отправке.
+  const mentioned = await mentionedWhoSee(tx, input.conversationId, input.body);
+  if (mentioned.length > 0) await setMentions(tx, created.id, mentioned);
 
   // Ответил — значит видел всё до ответа (как у Slack и Telegram). Своих
   // непрочитанных тогда не бывает, и счётчику не нужно перебирать свои
@@ -217,13 +362,82 @@ async function writeMessage(
     payload: { conversationId: input.conversationId, seq },
   });
 
-  return viewOf(tx, created.id);
+  // ⚠️ ПОЗВАННЫЕ ЕДУТ НАРУЖУ, А НЕ ОСТАЮТСЯ ЗДЕСЬ (task-092). С панелью,
+  // считающей приращение сама, клиенту нужен ответ на «позвали ли меня»,
+  // а посчитать его он не может: упоминание живёт в тексте (Р-020).
+  // Список уже посчитан выше — отдать его стоит ноль запросов.
+  return { id: created.id, mentioned };
 }
 
 export interface SendResult {
   message: MessageView;
   /** true — сообщение уже было: клиент повторил отправку после разрыва. */
   replayed: boolean;
+}
+
+/**
+ * Новая реплика записана: положить её в хвост и позвонить (task-067).
+ *
+ * ⚠️ ОДИН ВОПРОС «КОМУ ВИДНО» НА ОБА ДЕЛА. Хвосту он нужен, чтобы быстрая
+ * дорога не отдала закрытую переписку постороннему; звонку — чтобы адрес
+ * не уехал тому, кто разговора не видит. Спросить дважды значит удвоить
+ * запись, а спросить на каждого слушателя — вернуть то самое стадо.
+ *
+ * ⚠️ СНАЧАЛА ЗАПОМНИТЬ, ПОТОМ ПОЗВОНИТЬ. Наоборот вкладка успела бы прийти
+ * в догон раньше, чем хвост о реплике узнал, — и ушла бы в базу зря.
+ *
+ * В хвост кладётся ровно то, что отдал бы догон: `presentMessage` один
+ * и тот же на обеих дорогах, и номер изменения у новой реплики равен
+ * её номеру.
+ */
+async function told(
+  workspaceId: string,
+  conversationId: string,
+  line: MessageView,
+  mentioned: string[],
+  projectId: string | null,
+) {
+  const audience = await audienceFor(conversationId);
+  remember(workspaceId, { seq: line.seq, audience, line });
+
+  /**
+   * ⚠️ РАЗДАЧА НЕ ЗАДЕРЖИВАЕТ ОТВЕТ ОТПРАВИТЕЛЮ.
+   * Раздача звонков — это запись в каждый открытый поток, и держать на ней
+   * отправителя неправильно по устройству: его реплика уже в базе.
+   *
+   * ЧЕСТНО ПРО ЗАМЕР: выигрыш этим НЕ доказан. На 1200 вкладках ответ
+   * на отправку был 3,1 с до правки и 2,4 с после — разница в пределах
+   * разброса, и причина тех секунд не здесь (стенд на той же машине
+   * держал 1200 потоков в двенадцати процессах). Правка оставлена как
+   * верная по устройству, а не как измеренное ускорение.
+   *
+   * Обещание Р-006 сохраняется: звонок уходит ПОСЛЕ фиксации. Меняется
+   * только то, ждёт ли его отправитель, — а ему ждать незачем: свою
+   * реплику он уже получил ответом.
+   *
+   * Ошибку раздачи не глотаем: она уходит тому, кто объявлен шине
+   * (`setBusFailureReporter`), то есть в логи витрины.
+   */
+  /**
+   * ⚠️ В СОБЫТИЕ ЕДЕТ ТОТ ЖЕ ОБЪЕКТ, ЧТО И В ХВОСТ (task-085).
+   * Не копия и не «похожая строка», а буквально он же: иначе у одних
+   * данных появилось бы два способа собраться, и они разошлись бы молча.
+   * Адресаты те же и посчитаны один раз — второго вопроса к базе
+   * из-за посылки не появляется.
+   */
+  void publish(
+    workspaceId,
+    // Пустой список не возим: у большинства реплик зовов нет, а поле
+    // в каждом событии — это байты на каждую вкладку.
+    {
+      conversation: conversationId,
+      line,
+      ...(mentioned.length > 0 ? { mentions: mentioned } : {}),
+      // Папка — чтобы свёрнутая папка узнала о новом без запроса (task-119).
+      ...(projectId ? { project: projectId } : {}),
+    },
+    audience,
+  );
 }
 
 /**
@@ -241,18 +455,19 @@ export async function sendMessage(
   },
 ): Promise<SendResult> {
   try {
-    const result = await withTransaction(async (tx) => {
+    const written = await withTransaction(async (tx) => {
       const target = await requireVisible(tx, viewer, conversationId);
 
       const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
-      if (already) return { replayed: true, message: await viewOf(tx, already.id) };
+      // Повтор не звонит, поэтому и позванных ему знать незачем.
+      if (already) return { replayed: true, id: already.id, mentioned: [], projectId: null };
 
       // Цитата показывает текст, а её номер пришёл от клиента: без проверки
       // видимости по нему вытаскивался бы кусок чужого разговора.
       const replyToId = await visibleMessageId(tx, viewer, input.replyToId);
       const forwardedFromId = await visibleMessageId(tx, viewer, input.forwardedFromId);
 
-      const message = await writeMessage(tx, target, {
+      const made = await writeMessage(tx, target, {
         conversationId,
         authorParticipantId: viewer.participantId,
         body: input.body,
@@ -261,12 +476,33 @@ export async function sendMessage(
         forwardedFromId,
       });
 
-      return { replayed: false, message };
+      return {
+        replayed: false,
+        id: made.id,
+        mentioned: made.mentioned,
+        projectId: target.projectId,
+      };
     });
 
+    /**
+     * ⚠️ ВИД СОБИРАЕТСЯ ПОСЛЕ ФИКСАЦИИ, А НЕ ВНУТРИ ТРАНЗАКЦИИ.
+     * Это чтение с пятью присоединениями, и внутри оно шло под замком
+     * строки пространства, то есть за счёт ожидания всех остальных отправителей
+     * (Д-2, замер task-081). Записи это не касается: всё-или-ничего
+     * осталось в транзакции, а за ней живёт только чтение для ответа.
+     *
+     * Цена названа: успей кто-то править реплику в эту щель — отправитель
+     * увидит в ответе правку. Это не потеря: правка двигает номер изменения,
+     * и та же строка приедет всем догоном.
+     */
+    const message = await viewOf(db, written.id);
+
     // Звонок после фиксации (Р-006); повтор не звонит — ничего не изменилось.
-    if (!result.replayed) publish(viewer.workspaceId);
-    return result;
+    // Адрес — этот разговор: вкладки других разговоров не поднимаются (task-067).
+    if (!written.replayed) {
+      await told(viewer.workspaceId, conversationId, message, written.mentioned, written.projectId);
+    }
+    return { replayed: written.replayed, message };
   } catch (error) {
     // Гонка двух запросов с одним ключом: проигравший откатывается
     // и получает то же сообщение, а не 500.
@@ -289,14 +525,14 @@ export async function sendAsAgent(
   conversationId: string,
   input: { body: string; clientMsgId: string },
 ): Promise<MessageView> {
-  const result = await withTransaction(async (tx) => {
+  const written = await withTransaction(async (tx) => {
     const target = await requireVisible(tx, onBehalfOf, conversationId);
 
     // Ключ выведен из обращения: двойной зов — один ответ.
     const already = await repo.findMessageByClientId(tx, conversationId, input.clientMsgId);
-    if (already) return { fresh: false, message: await viewOf(tx, already.id) };
+    if (already) return { fresh: false, id: already.id, mentioned: [], projectId: null };
 
-    const message = await writeMessage(tx, target, {
+    const made = await writeMessage(tx, target, {
       conversationId,
       authorParticipantId: agentParticipantId,
       body: input.body,
@@ -305,42 +541,58 @@ export async function sendAsAgent(
       trust: "untrusted",
     });
 
-    return { fresh: true, message };
+    return { fresh: true, id: made.id, mentioned: made.mentioned, projectId: target.projectId };
   });
 
+  // Вид — после фиксации, по той же причине, что у отправки человека.
+  const message = await viewOf(db, written.id);
+
   // Звонок только после фиксации (Р-006), и только если что-то изменилось.
-  if (result.fresh) publish(onBehalfOf.workspaceId);
-  return result.message;
+  if (written.fresh) {
+    await told(
+      onBehalfOf.workspaceId,
+      conversationId,
+      message,
+      written.mentioned,
+      written.projectId,
+    );
+  }
+  return message;
 }
 
 export async function createThread(viewer: Viewer, parentId: string, title: string) {
-  return change(viewer.workspaceId, async (tx) => {
-    const parent = await requireVisible(tx, viewer, parentId);
-    if (parent.parentId) {
-      // Дерево двухуровневое: иначе «корень» неоднозначен.
-      throw new ConversationNotVisibleError();
-    }
+  return change(
+    viewer.workspaceId,
+    async (tx) => {
+      const parent = await requireVisible(tx, viewer, parentId);
+      if (parent.parentId) {
+        // Дерево двухуровневое: иначе «корень» неоднозначен.
+        throw new ConversationNotVisibleError();
+      }
 
-    const created = await repo.insertConversation(tx, {
-      workspaceId: parent.workspaceId,
-      kind: "thread",
-      title,
-      parentId,
-    });
+      const created = await repo.insertConversation(tx, {
+        workspaceId: parent.workspaceId,
+        kind: "thread",
+        title,
+        parentId,
+      });
 
-    // Участников у ветки нет — право от корня (триггер conversation_member_root_only).
+      // Участников у ветки нет — право от корня (триггер conversation_member_root_only).
 
-    await appendEvent(tx, {
-      kind: "thread.created",
-      workspaceId: parent.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "conversation",
-      subjectId: created.id,
-      payload: { parentId, title },
-    });
+      await appendEvent(tx, {
+        kind: "thread.created",
+        workspaceId: parent.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "conversation",
+        subjectId: created.id,
+        payload: { parentId, title },
+      });
 
-    return { id: created.id, kind: created.kind, title: created.title, parentId };
-  });
+      return { id: created.id, kind: created.kind, title: created.title, parentId };
+      // Адрес — новая ветка; кому она видна, решается у корня (task-067).
+    },
+    (made) => made.id,
+  );
 }
 
 /**
@@ -350,6 +602,18 @@ export async function createThread(viewer: Viewer, parentId: string, title: stri
  * за следующей страницей сразу, не дожидаясь звонка.
  */
 export async function sync(viewer: Viewer, afterSeq: number, limit: number) {
+  /**
+   * ⚠️ БЫСТРАЯ ДОРОГА ПЕРВОЙ, И ОНА НЕ ТРОГАЕТ БАЗУ. Хвост отвечает,
+   * только если помнит ВСЁ после этого курсора; во всех остальных случаях
+   * он честно говорит «спроси базу» (task-067). Права видимости он
+   * применяет сам — иначе быстрая дорога стала бы боковым каналом.
+   *
+   * Замерено: сотня вкладок, смотрящих один чат, стоила 101 транзакции
+   * базы на одну реплику. Отсюда и работа.
+   */
+  const fast = visibleTo<SyncLine>(viewer.workspaceId, afterSeq, limit, viewer.participantId);
+  if (fast) return { messages: fast.lines, seq: fast.head, hasMore: false };
+
   // Граница — первой: записанное после неё придёт следующим догоном.
   const bound = await repo.currentSeq(db, viewer.workspaceId);
   const after = (from: number, upTo: number, size: number) =>
@@ -421,36 +685,40 @@ async function openConversation(
   viewer: Viewer,
   input: { kind: string; title: string; visibility: Visibility; projectId?: string | undefined },
 ) {
-  return change(viewer.workspaceId, async (tx) => {
-    // Проект — той же проверкой, что при переносе: иначе по чужому номеру
-    // канал заводился бы в панель соседней компании.
-    if (input.projectId) await requireProject(tx, viewer.workspaceId, input.projectId);
+  return change(
+    viewer.workspaceId,
+    async (tx) => {
+      // Проект — той же проверкой, что при переносе: иначе по чужому номеру
+      // канал заводился бы в панель соседней компании.
+      if (input.projectId) await requireProject(tx, viewer.workspaceId, input.projectId);
 
-    const made = await repo.insertConversation(tx, {
-      workspaceId: viewer.workspaceId,
-      kind: input.kind,
-      title: input.title,
-      visibility: input.visibility,
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-    });
-    await repo.insertMember(tx, {
-      conversationId: made.id,
-      participantId: viewer.participantId,
-      workspaceId: viewer.workspaceId,
-      role: "owner",
-    });
+      const made = await repo.insertConversation(tx, {
+        workspaceId: viewer.workspaceId,
+        kind: input.kind,
+        title: input.title,
+        visibility: input.visibility,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+      });
+      await repo.insertMember(tx, {
+        conversationId: made.id,
+        participantId: viewer.participantId,
+        workspaceId: viewer.workspaceId,
+        role: "owner",
+      });
 
-    await appendEvent(tx, {
-      kind: "conversation.created",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "conversation",
-      subjectId: made.id,
-      payload: { kind: input.kind, title: made.title, visibility: made.visibility },
-    });
+      await appendEvent(tx, {
+        kind: "conversation.created",
+        workspaceId: viewer.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "conversation",
+        subjectId: made.id,
+        payload: { kind: input.kind, title: made.title, visibility: made.visibility },
+      });
 
-    return made;
-  });
+      return made;
+    },
+    (made) => made.id,
+  );
 }
 
 /**
@@ -475,29 +743,33 @@ export async function createChannel(
  * Удаление мягкое.
  */
 export async function deleteConversation(viewer: Viewer, conversationId: string): Promise<void> {
-  await change(viewer.workspaceId, async (tx) => {
-    const found = await repo.findVisibleConversation(tx, conversationId, viewer.participantId);
-    if (!found) throw new ConversationNotVisibleError();
+  await change(
+    viewer.workspaceId,
+    async (tx) => {
+      const found = await repo.findVisibleConversation(tx, conversationId, viewer.participantId);
+      if (!found) throw new ConversationNotVisibleError();
 
-    // Ветка не удаляется отдельно: она живёт и умирает вместе с корнем.
-    if (found.parentId !== null) throw new ConversationNotVisibleError();
+      // Ветка не удаляется отдельно: она живёт и умирает вместе с корнем.
+      if (found.parentId !== null) throw new ConversationNotVisibleError();
 
-    const role = await repo.roleIn(tx, conversationId, viewer.participantId);
-    if (role !== "owner") throw new ConversationNotVisibleError();
+      const role = await repo.roleIn(tx, conversationId, viewer.participantId);
+      if (role !== "owner") throw new ConversationNotVisibleError();
 
-    const gone = await repo.softDeleteConversation(tx, conversationId);
-    if (!gone) throw new ConversationNotVisibleError();
+      const gone = await repo.softDeleteConversation(tx, conversationId);
+      if (!gone) throw new ConversationNotVisibleError();
 
-    await appendEvent(tx, {
-      kind: "conversation.deleted",
-      workspaceId: viewer.workspaceId,
-      actorParticipantId: viewer.participantId,
-      subjectType: "conversation",
-      subjectId: conversationId,
-      // Название — чтобы по журналу было видно, что снесли.
-      payload: { title: found.title },
-    });
-  });
+      await appendEvent(tx, {
+        kind: "conversation.deleted",
+        workspaceId: viewer.workspaceId,
+        actorParticipantId: viewer.participantId,
+        subjectType: "conversation",
+        subjectId: conversationId,
+        // Название — чтобы по журналу было видно, что снесли.
+        payload: { title: found.title },
+      });
+    },
+    conversationId,
+  );
 }
 
 /**
@@ -514,120 +786,4 @@ async function visibleMessageId(
   if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
   await requireVisible(tx, viewer, found.conversationId);
   return found.id;
-}
-
-/** Сообщение не моё, не существует или удалено — снаружи всё это «нет». */
-async function requireMine(tx: Executor, viewer: Viewer, messageId: string) {
-  const found = await repo.findMessage(tx, messageId);
-  if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
-  // «Не твоё» и «нет такого» — один ответ: иначе выдаём, что оно существует.
-  if (found.authorParticipantId !== viewer.participantId) throw new ConversationNotVisibleError();
-  await requireVisible(tx, viewer, found.conversationId);
-  return found;
-}
-
-/**
- * Удалить можно своё — и чужое, если человек здесь модерирует (Р-035).
- * Для остальных чужое — «нет такого», как и прежде.
- */
-async function requireDeletable(tx: Executor, viewer: Viewer, messageId: string) {
-  const found = await repo.findMessage(tx, messageId);
-  if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
-  await requireVisible(tx, viewer, found.conversationId);
-  if (found.authorParticipantId === viewer.participantId) return { found, moderated: false };
-  if (await repo.canModerate(tx, found.conversationId, viewer.participantId)) {
-    return { found, moderated: true };
-  }
-  throw new ConversationNotVisibleError();
-}
-
-/**
- * Событие о реплике в журнал — без текста: журнал живёт дольше сообщения
- * и читается шире разговора.
- */
-async function logMessageEvent(
-  tx: Executor,
-  viewer: Viewer,
-  kind: string,
-  messageId: string,
-  found: { conversationId: string; seq: bigint | number | string },
-  extra: Record<string, unknown> = {},
-): Promise<void> {
-  await appendEvent(tx, {
-    kind,
-    workspaceId: viewer.workspaceId,
-    actorParticipantId: viewer.participantId,
-    subjectType: "message",
-    subjectId: messageId,
-    payload: { conversationId: found.conversationId, seq: Number(found.seq), ...extra },
-  });
-}
-
-/** Изменить своё сообщение. Отметку «изменено» ставит хранилище. */
-export async function editMessage(
-  viewer: Viewer,
-  messageId: string,
-  body: string,
-): Promise<MessageView> {
-  return change(viewer.workspaceId, async (tx) => {
-    const found = await requireMine(tx, viewer, messageId);
-    const changed = await repo.updateMessageBody(tx, viewer.workspaceId, messageId, body);
-    if (!changed) throw new ConversationNotVisibleError();
-
-    // Убрал упоминание — значок у человека гаснет.
-    await setMentions(tx, messageId, await mentionedWhoSee(tx, found.conversationId, body));
-
-    await logMessageEvent(tx, viewer, "message.edited", messageId, found);
-    return viewOf(tx, messageId);
-  });
-}
-
-/** Удалить своё сообщение — мягко: на него ссылаются ответы и пересылки. */
-export async function deleteMessage(viewer: Viewer, messageId: string): Promise<void> {
-  await change(viewer.workspaceId, async (tx) => {
-    const { found, moderated } = await requireDeletable(tx, viewer, messageId);
-    const gone = await repo.softDeleteMessage(tx, viewer.workspaceId, messageId);
-    if (!gone) throw new ConversationNotVisibleError();
-
-    // Актор — удаливший; признак говорит, что сообщение было чужим (Р-035).
-    await logMessageEvent(
-      tx,
-      viewer,
-      "message.deleted",
-      messageId,
-      found,
-      moderated ? { moderated } : {},
-    );
-  });
-}
-
-/** Закрепить или открепить — любому, кому виден разговор, как в Телеграме и Слаке. */
-export async function pinMessage(
-  viewer: Viewer,
-  messageId: string,
-  pinned: boolean,
-): Promise<void> {
-  await change(viewer.workspaceId, async (tx) => {
-    const found = await repo.findMessage(tx, messageId);
-    if (!found || found.deletedAt !== null) throw new ConversationNotVisibleError();
-    await requireVisible(tx, viewer, found.conversationId);
-
-    // Повтор — не ошибка: результат тот же.
-    await repo.setPinned(tx, viewer.workspaceId, messageId, pinned ? new Date() : null);
-
-    await logMessageEvent(
-      tx,
-      viewer,
-      pinned ? "message.pinned" : "message.unpinned",
-      messageId,
-      found,
-    );
-  });
-}
-
-/** Закреплённое разговора, свежее сверху. */
-export async function listPinned(viewer: Viewer, conversationId: string) {
-  await requireVisible(db, viewer, conversationId);
-  const rows = await repo.listPinned(db, conversationId);
-  return { items: rows.map(presentMessage) };
 }

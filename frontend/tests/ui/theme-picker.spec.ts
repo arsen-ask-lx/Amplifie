@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { register } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 test("палитра в шапке меняет тему несколько раз и закрывается только снаружи", async ({ page }) => {
   await register(page, "Подбирающий тему");

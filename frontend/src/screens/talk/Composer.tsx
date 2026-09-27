@@ -2,6 +2,7 @@ import { PaperPlaneRight } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { Message, Quote as QuoteData } from "../../data/api.js";
 import { Button } from "../../shared/ui/button.js";
+import { focusAfterClose, registerField } from "../../shared/ui/focusAfterClose.js";
 import { Above } from "./Above.js";
 import { FieldMenu } from "./FieldMenu.js";
 import { type FieldApi, RichField } from "./RichField.js";
@@ -26,6 +27,20 @@ import { type FieldApi, RichField } from "./RichField.js";
  * читалась плашкой, приклеенной снизу: у Телеграма низ экрана — то же
  * полотно, что и переписка.
  */
+/**
+ * Печатный знак, который сейчас никуда не попадёт: фокус не в поле ввода,
+ * не в окне и не в меню. Такой знак полоса ввода забирает себе.
+ */
+function typedIntoNowhere(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
+  if (event.key.length !== 1 || event.key === " ") return false;
+  const active = document.activeElement;
+  const typing =
+    active instanceof HTMLElement &&
+    (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/u.test(active.tagName));
+  return !typing && document.querySelector("[role=dialog], [role=menu]") === null;
+}
+
 export function Composer({
   conversationId,
   onSend,
@@ -39,7 +54,7 @@ export function Composer({
   /** Где пишем — нужно подсказке «кого позвать» (Р-031). */
   conversationId: string | null;
   /** Этот чат в проекте — значит агента можно позвать по всему проекту. */
-  onSend: (body: string, clientMsgId: string, scope?: "conversation" | "project") => Promise<void>;
+  onSend: (body: string, clientMsgId: string, scope?: "conversation" | "project") => void;
   replying: QuoteData | null;
   onCancelReply: () => void;
   editing: Message | null;
@@ -92,17 +107,56 @@ export function Composer({
   }, [editing?.id]);
 
   /**
-   * Взяли реплику в ответ — курсор сразу в поле.
+   * Курсор в поле — сразу и ещё раз, когда меню или окно отпустят фокус.
    *
-   * ⚠️ НЕ СРАЗУ, А ТРЕМЯ ПОПЫТКАМИ. Меню по правой кнопке доигрывает
-   * закрытие ПОСЛЕ обработчика пункта и уводит фокус — не одним действием,
-   * а цепочкой отложенных. Замер показывал `BODY` даже через 400 мс.
+   * ⚠️ ЗАЯВКА ВМЕСТО ТРЁХ ТАЙМЕРОВ (владелец 26.09). Меню «Ответить» и окно
+   * «Новый чат» закрываются дольше, чем ждали таймеры в 0, 60 и 150 мс,
+   * и забирают фокус себе — «Ответить» в первый раз оставляло курсор
+   * в никуда. Теперь окно само отдаёт фокус полю в миг закрытия
+   * (`focusAfterClose`).
    */
+  const takeFocus = () => {
+    field.current?.focus();
+    focusAfterClose(() => field.current?.focus());
+  };
+
+  /**
+   * Открыл чат — сразу печатаешь (владелец 26.09: «нужно ткнуть в строку
+   * ввода и только потом печатать — жутко неудобно»). Так в Telegram:
+   * выбрал чат — курсор уже в поле.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: фокус по смене чата, а не по ссылке на поле
+  useEffect(() => {
+    if (conversationId) takeFocus();
+  }, [conversationId]);
+
+  // Щелчок по уже открытому чату в панели тоже возвращает курсор сюда.
+  useEffect(() => registerField(() => field.current?.focus()), []);
+
+  /**
+   * Печатаешь — буквы идут в поле, куда бы ни щёлкнул до этого (как в Telegram
+   * Desktop). Владелец 26.09: щелчок по закреплённому или по ленте уводил
+   * фокус, и набранное уходило в никуда.
+   *
+   * ⚠️ ТОЛЬКО ПЕЧАТНЫЙ ЗНАК И ТОЛЬКО ВНЕ ДРУГОГО ПОЛЯ. Сочетания (Ctrl+C,
+   * Shift+F10) и стрелки остаются тем, чем были. Пробел — ленте: им листают.
+   * Открыто окно или меню — буквы принадлежат ему.
+   *
+   * Фокус меняется ДО того, как браузер вставит знак, поэтому знак ложится
+   * уже в поле: ловить и повторять его руками не нужно.
+   */
+  useEffect(() => {
+    const redirect = (event: KeyboardEvent) => {
+      if (typedIntoNowhere(event)) field.current?.focus();
+    };
+    window.addEventListener("keydown", redirect, true);
+    return () => window.removeEventListener("keydown", redirect, true);
+  }, []);
+
+  /** Взяли реплику в ответ — курсор сразу в поле. */
   // biome-ignore lint/correctness/useExhaustiveDependencies: важен факт появления цитаты, а не её поля
   useEffect(() => {
-    if (!replying) return;
-    const timers = [0, 60, 150].map((delay) => setTimeout(() => field.current?.focus(), delay));
-    return () => timers.forEach(clearTimeout);
+    if (replying) takeFocus();
   }, [replying?.id]);
 
   /**
@@ -112,7 +166,17 @@ export function Composer({
    * с часиками, а её судьба помечается на ней же.
    */
   function submit(): void {
-    const body = text.current.trim();
+    /**
+     * ⚠️ СПРАШИВАЕМ РЕДАКТОР, А НЕ КОПИЮ (Д-21). Копия ниже обновляется
+     * слушателем редактора, а тот зовётся следующим тактом. Кто вставил
+     * текст и мгновенно нажал ввод — отправлял пустоту и оставался
+     * с заполненным полем. Копия осталась только у выключенной кнопки:
+     * ей нужно значение на каждое нажатие, и опоздание на такт там не видно.
+     *
+     * Запасной путь на случай, если поле ещё не назвалось (первый кадр):
+     * тогда единственное, что у нас есть, — копия.
+     */
+    const body = (field.current?.read() ?? text.current).trim();
     if (!body) return;
 
     if (editing) {
@@ -136,7 +200,7 @@ export function Composer({
      * проект (Р-032), и дверь принимает `scope`. Не хватает ей только
      * места в интерфейсе — и это записано долгом, а не забыто.
      */
-    void onSend(body, key, "conversation");
+    onSend(body, key, "conversation");
   }
 
   return (

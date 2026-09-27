@@ -1,4 +1,3 @@
-import { type Browser, expect, type Page, test } from "@playwright/test";
 import {
   bubble,
   createChannel,
@@ -10,6 +9,7 @@ import {
   saveEdit,
   say,
 } from "./fixtures.js";
+import { type Browser, expect, type Page, test } from "./guard.js";
 
 /**
  * П-2, П-3, П-4: правка, удаление и закрепление доезжают до второй вкладки.

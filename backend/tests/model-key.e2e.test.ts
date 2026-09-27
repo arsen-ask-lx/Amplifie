@@ -11,17 +11,11 @@
  * Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
+import { BASE, newPerson, type Person, requireStand } from "./stand.js";
 
 /** Приметная середина: её и ищем в ответах. Хвост уходит в подсказку. */
 function markedKey(mark: string): string {
   return `sk-ant-api03-${mark}-хвостик${mark.slice(0, 2)}`;
-}
-
-interface Person {
-  cookie: string;
 }
 
 interface KeyView {
@@ -30,32 +24,6 @@ interface KeyView {
   /** Последние знаки — чтобы человек узнал свой ключ. Не сам ключ. */
   hint: string;
   scope: "участник" | "пространство";
-}
-
-function freshEmail(): string {
-  return `key-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-async function newPerson(tag: string): Promise<Person> {
-  const response = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (response.status !== 201) throw new Error(`регистрация ${tag}: ${response.status}`);
-  return { cookie: sessionCookie(response) };
 }
 
 function call(path: string, person: Person, init: RequestInit = {}): Promise<Response> {
@@ -95,10 +63,7 @@ async function everythingSeenBy(person: Person): Promise<string> {
 }
 
 describe("свой ключ модели", () => {
-  beforeAll(async () => {
-    const health = await fetch(`${BASE}/health`);
-    if (!health.ok) throw new Error(`стек не поднят (${BASE}/health): make up`);
-  });
+  beforeAll(requireStand);
 
   describe("В-1 ключ не выходит наружу", () => {
     it("сохранённый ключ не встречается ни в одном ответе", async () => {
@@ -146,10 +111,11 @@ describe("свой ключ модели", () => {
     });
   });
 
-  // ⚠️ В-5 «чужой ключ недоступен» УДАЛЁН вместе с приглашениями: проверка
-  // требовала второго человека в том же пространстве, а другой двери
-  // для него не было. Изоляция ключей в коде осталась, доказательства
-  // у неё больше нет (2026-09-07).
+  // ⚠️ В-5 «чужой ключ недоступен» ПРОВЕРКИ НЕ ИМЕЕТ. Её убрали 2026-09-07,
+  // когда второму человеку в пространство войти было неоткуда. Дверь с тех
+  // пор есть (приглашение, `colleague` в `stand.ts`), а тест не вернулся:
+  // ключи между коллегами — дыра из ревизии 27.09, отдельный план
+  // «коллега того же пространства» (task-125, «не здесь»).
 
   describe("форма ключа проверяется до сохранения", () => {
     it("мусор вместо ключа не сохраняется", async () => {

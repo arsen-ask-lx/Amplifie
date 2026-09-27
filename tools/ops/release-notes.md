@@ -8,10 +8,22 @@ sha256sum -c SHA256SUMS
 docker load -i amplifie-*-images.tar.gz
 
 # 3. Родить настройки установки: пароль базы и ключ шифрования, порт 8080
-docker run --rm -v "$PWD:/w" -w /w node:24-alpine node make-env.mjs box 8080
+docker run --rm -v "$PWD:/w" -w /w node:26.10.0-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 node make-env.mjs box 8080
 
 # 4. Поднять
 docker compose up -d --pull never
+```
+
+Обновление: сверить суммы, загрузить новый архив, заменить `compose.yml` новым
+(версия образов записана в нём) и снова `docker compose up -d --pull never`.
+`.env` не трогается — в нём только пароль и ключ.
+
+Если установка поднята до выпуска с защитными заголовками (веб-сервер тогда работал
+от root), один раз отдайте его том новому пользователю — иначе сертификат домена
+некуда будет записать:
+
+```sh
+docker run --rm -v <проект>_caddy_data:/data --user 0 caddy:2.11.4-alpine chown -R 10001:10001 /data
 ```
 
 Первый зарегистрированный человек заводит компанию, остальные входят по приглашению.

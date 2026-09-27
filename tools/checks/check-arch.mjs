@@ -1,77 +1,94 @@
 #!/usr/bin/env node
 /**
- * Границы модулей — с проверкой, что обход вообще состоялся.
+ * Границы модулей — обход репозитория без компилятора (Р-047).
  *
- * ЗАЧЕМ ОБЁРТКА. 2026-09-07, подъём до TypeScript 7.0: dependency-cruiser
- * не поддерживает седьмую версию (её compiler API появится в 7.1), обошёл
- * НОЛЬ модулей и напечатал «no dependency violations found» с кодом 0.
- * Подсаженное нарушение `kernel` → `surface` он при этом не увидел.
+ * ЗАЧЕМ СВОЙ. dependency-cruiser читает TypeScript через API компилятора,
+ * которого у TypeScript 7 нет до 7.1. Дважды (07.09 и 26.09) он обходил
+ * ноль модулей и печатал «no dependency violations found» с кодом 0 —
+ * сторож ослеп и рапортовал «чисто». Правила и их подсадки — в
+ * `arch-rules.mjs` и `arch-rules.test.mjs`; здесь только обход и защиты.
  *
- * То есть сторож ослеп и отрапортовал «всё чисто». Это опаснее падения:
- * падение чинят, а зелёный никто не проверяет.
- *
- * ЧТО ЗДЕСЬ ДОБАВЛЕНО К САМОМУ ИНСТРУМЕНТУ:
- *   ① обошёл меньше порога модулей — падение, даже если нарушений нет;
- *   ② инструмент сам жалуется, что мог что-то пропустить, — падение.
- *
- * Порог намеренно грубый и низкий: он ловит обвал до нуля, а не колебания
- * в пару файлов. Сторож, который краснеет на каждом удалённом файле,
- * выключают через неделю.
+ * ЗАЩИТЫ ОТ СЛЕПОТЫ — они же главное, что унаследовано от прежней обёртки:
+ *   ① обойдено меньше порога файлов — падение, даже если нарушений нет;
+ *   ② относительный импорт, который не нашёлся на диске, — падение:
+ *      это разбор ошибся, и молчать о нём значит видеть не весь граф.
  */
-import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, sep } from "node:path";
 
-const CONFIG = "tools/dependency-cruiser.cjs";
+import { cycles, importsOf, orphans, resolveSpec, violations } from "./arch-rules.mjs";
+
 const SCOPE = ["backend", "bridge", "frontend"];
+const SKIP = new Set(["node_modules", "dist", "migrations", "test-results", "playwright-report"]);
+const CODE = /\.(ts|tsx)$/u;
 
 /**
- * Меньше этого числа модулей — значит, обход не состоялся.
- *
- * На 2026-09-07 их 125: 65 на беке и мосту плюс фронт, который вошёл
- * в область обхода вместе с task-012. Порог держим много ниже, чтобы он
- * говорил «обвал», а не «файлов стало меньше».
- *
- * ⚠️ ПОДНИМАЕТСЯ ВМЕСТЕ С ОБЛАСТЬЮ. Оставить прежние 20 после того, как
- * модулей стало вдвое больше, значило бы разрешить гейту потерять весь
- * фронт целиком и остаться зелёным — ровно тот случай, из-за которого
- * порог и заведён (Р-015).
+ * Меньше этого числа файлов — обход не состоялся. На 26.09 их больше
+ * трёхсот; порог держим много ниже: он ловит обвал, а не «файлов меньше».
  */
-const FLOOR = 60;
+const FLOOR = 150;
 
-/** Инструмент сам признаётся, что мог пропустить исходники. */
-const BLIND = /missing-typescript-transpiler|likely to have missed/iu;
-
-// Одной строкой, а не массивом: с `shell: true` Node предупреждает, что
-// аргументы не экранируются. Строка здесь наша целиком, из констант выше —
-// пользовательского ввода в ней нет.
-const command = `npx depcruise ${SCOPE.join(" ")} --config ${CONFIG} --output-type err-long`;
-const run = spawnSync(command, { shell: true, encoding: "utf8" });
-
-const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
-process.stdout.write(output);
-
-if (run.status !== 0) process.exit(run.status ?? 1);
-
-if (BLIND.test(output)) {
-  console.error(
-    "\nГраницы модулей: инструмент сообщил, что мог пропустить исходники.\n" +
-      "  ПОЧИНИТЬ: это не предупреждение, а слепой сторож. Чаще всего —\n" +
-      "  несовместимая версия TypeScript (см. dock/decisions/015).\n" +
-      "  Зелёный отчёт от ослепшего арбитра хуже, чем его отсутствие.",
-  );
-  process.exit(1);
+function filesIn(dir) {
+  const out = [];
+  for (const name of readdirSync(dir)) {
+    if (SKIP.has(name)) continue;
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) out.push(...filesIn(path));
+    else if (CODE.test(name)) out.push(path.split(sep).join("/"));
+  }
+  return out;
 }
 
-const counted = /(\d+)\s+modules/u.exec(output);
-const modules = counted ? Number(counted[1]) : 0;
+const files = SCOPE.flatMap((dir) => filesIn(dir));
+const exists = (path) => existsSync(path) && statSync(path).isFile();
 
-if (modules < FLOOR) {
-  console.error(
-    `\nГраницы модулей: обойдено ${modules} модулей, ожидалось не меньше ${FLOOR}.\n` +
-      "  ПОЧИНИТЬ: обход не состоялся — проверь пути в package.json и версию\n" +
-      "  TypeScript. «Нарушений не найдено» при нуле модулей означает не\n" +
-      "  чистоту, а то, что смотреть было не на что.",
-  );
-  process.exit(1);
+const graph = new Map(files.map((file) => [file, new Set()]));
+const unresolved = [];
+for (const file of files) {
+  for (const spec of importsOf(readFileSync(file, "utf8"))) {
+    const target = resolveSpec(file, spec, exists);
+    if (target === undefined) unresolved.push(`${file} → ${spec}`);
+    else if (target !== null && CODE.test(target)) graph.get(file)?.add(target);
+  }
 }
 
-console.log(`границы модулей: обойдено ${modules} модулей — OK`);
+const problems = [];
+for (const one of violations(graph)) {
+  problems.push(`${one.rule}: ${one.from} → ${one.to}\n      ${one.why}`);
+}
+for (const part of cycles(graph)) {
+  problems.push(`клубок: ${part.join(" → ")}\n      Разорви через модуль-лист.`);
+}
+for (const file of orphans(graph)) {
+  problems.push(
+    `сирота: ${file}\n      Никто не импортирует — мёртвый код либо забыли подключить.`,
+  );
+}
+
+let blind = false;
+if (unresolved.length > 0) {
+  blind = true;
+  console.error(`\nГраницы модулей: импорты, которых нет на диске (${unresolved.length}):`);
+  for (const line of unresolved) console.error(`  ${line}`);
+  console.error(
+    "  ПОЧИНИТЬ: либо импорт и правда битый, либо разбор путей не понял запись —\n" +
+      "  тогда учи resolveSpec. Граф без этих рёбер — неполный, и «чисто» по нему врёт.",
+  );
+}
+if (files.length < FLOOR) {
+  blind = true;
+  console.error(
+    `\nГраницы модулей: обойдено ${files.length} файлов, ожидалось не меньше ${FLOOR}.\n` +
+      "  ПОЧИНИТЬ: обход не состоялся — смотреть было не на что, а не «всё чисто».",
+  );
+}
+
+if (problems.length > 0) {
+  console.error(`\nГраницы модулей: нарушений ${problems.length}\n`);
+  for (const problem of problems) console.error(`  ${problem}`);
+}
+
+if (blind || problems.length > 0) process.exit(1);
+
+const edges = [...graph.values()].reduce((sum, set) => sum + set.size, 0);
+console.log(`границы модулей: ${files.length} файлов, ${edges} связей, нарушений нет — OK`);

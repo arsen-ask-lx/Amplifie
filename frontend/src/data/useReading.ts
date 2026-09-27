@@ -1,6 +1,7 @@
 import { mentionedIds } from "@amplifie/contract";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Conversation, type Message } from "./api.js";
+import { type ReadMarks, readMarks } from "./readMarks.js";
 
 /**
  * Прочитанное: докуда человек дочитал и что ему ещё не показывали (Р-029).
@@ -10,28 +11,25 @@ import { api, type Conversation, type Message } from "./api.js";
  * на «что показать», прочитанное — на «что человек уже видел». Они
  * встречаются ровно в одном месте — в номере последней реплики.
  *
- * ⚠️ ОТМЕТКА ИДЁТ, ТОЛЬКО ЕСЛИ ЧЕЛОВЕК СМОТРИТ. Три условия разом, и все
- * три взяты у Телеграма (`MainWindow::markingAsRead`): лента внизу,
- * вкладка на виду, окно в фокусе. Без третьего вкладка, забытая открытой
- * на ночь, к утру пометит прочитанным всё, что пришло, — и человек
- * не узнает, что ему писали. Отменить это нечем: номер идёт только
- * вперёд.
+ * ⚠️ ПРОЧИТАНО — ЭТО УВИДЕНО (task-107). Лента сообщает наибольший номер,
+ * который человек и правда видел на экране, — так же у Telegram Desktop
+ * (`ListWidget::paintEvent` → `readInboxTill`). Прежде условием было «лента
+ * внизу», и оно гасило счётчик целиком при открытии чата: человек не читал
+ * ничего, а непрочитанное исчезало (жалоба владельца 17.09).
+ *
+ * ⚠️ ДВА УСЛОВИЯ ОСТАЛИСЬ, И ОНИ ВАЖНЫ (`MainWindow::markingAsRead`):
+ * вкладка на виду и окно в фокусе. Без них вкладка, забытая открытой
+ * на ночь, к утру пометит прочитанным всё пришедшее — и человек
+ * не узнает, что ему писали. Отменить это нечем: номер идёт только вперёд.
  */
 
-/** Сколько ждать, прежде чем сказать серверу. У них — те же 3 секунды. */
-const DELAY_MS = 3000;
-
 export interface Reading {
+  /** Лента увидела реплики до этого номера включительно (task-107). */
+  seen: (seq: number) => void;
   /** Сколько непрочитанного у разговора — с поправкой на нашу отметку. */
   unreadOf: (conversationId: string) => number;
   /** Сколько раз тут позвали тебя и ты этого не видел — с той же поправкой. */
   mentionsOf: (conversationId: string) => number;
-  /**
-   * Где рисовать черту «Непрочитанные сообщения» в ОТКРЫТОМ разговоре.
-   * `null` — черты нет. Черта стоит перед первой репликой с номером
-   * больше этого.
-   */
-  boundary: number | null;
 }
 
 /** Смотрит ли человек на нас прямо сейчас. */
@@ -39,38 +37,60 @@ function isWatching(): boolean {
   return document.visibilityState === "visible" && document.hasFocus();
 }
 
+/**
+ * Ушли из чата — отметка уходит сейчас, а не через окно, иначе число
+ * успевало загореться снова. Экранную отметку ставим в очередь заново:
+ * оборванная сетью иначе не ушла бы никогда (разбор критика 21.09).
+ */
+function leaveChat(marks: ReadMarks, left: string, shown: number | undefined): void {
+  if (shown) marks.seen(left, shown);
+  marks.flush(left);
+}
+
+/** Реплики чатов, чью отметку сервер уже подтвердил, держать больше незачем. */
+function forgetConfirmed(
+  kept: Record<string, Message[]>,
+  rooms: Map<string, Conversation>,
+  shown: Record<string, number>,
+): void {
+  for (const id of Object.keys(kept)) {
+    if ((rooms.get(id)?.readSeq ?? 0) >= (shown[id] ?? 0)) delete kept[id];
+  }
+}
+
 export function useReading({
   rooms,
   currentId,
   messages,
   meId,
-  following,
+  onRead,
 }: {
   rooms: Conversation[];
   currentId: string | null;
   /** Лента ОТКРЫТОГО разговора — та же, что видит человек. */
   messages: Message[];
   meId: string;
-  /** Внизу ли лента. Ссылка: прокрутка не имеет права перерисовывать. */
-  following: React.RefObject<boolean>;
+  /** Сервер подтвердил отметку и назвал остаток — число ставится в панель (task-097). */
+  onRead: (conversationId: string, seq: number, unread: number) => void;
 }): Reading {
   /**
-   * Что мы уже отметили сами. Держим рядом с серверным числом, потому что
-   * счётчик на экране обязан гаснуть СРАЗУ, не дожидаясь ответа: ждать
-   * сервер, чтобы убрать своё же число, — это подвисающий интерфейс.
-   * Так же поступает их клиент.
+   * Докуда человек увидел — для ЭКРАНА. Ставится в момент показа, а не ответом
+   * сервера (task-108): ждать сервер, чтобы убрать своё же число, — это
+   * подвисающий интерфейс. Так же у Telegram (`readInboxTill` ставит число
+   * до запроса).
+   *
+   * ⚠️ ЭКРАН И СЕРВЕР — ДВА РАЗНЫХ ВОПРОСА. Здесь — «что показать»; «что
+   * отправить и когда» решает только `readMarks`, и повтор после отказа сети
+   * живёт там. Решай хук «уже отправлено» по этой отметке — оборванная
+   * отметка терялась бы навсегда (разбор критика 21.09).
+   *
+   * ⚠️ В REF, А КОПИЯ — В STATE. `seen` читает ref, поэтому его ссылка
+   * постоянна, и наблюдатель ленты не пересобирается на каждом шаге прокрутки.
    */
+  const shownRef = useRef<Record<string, number>>({});
   const [readUpTo, setReadUpTo] = useState<Record<string, number>>({});
 
-  /**
-   * ⚠️ ЧЕРТА ЗАМИРАЕТ, И ЭТО ВЕСЬ ЕЁ СМЫСЛ. Она берётся один раз —
-   * при открытии разговора — и дальше не двигается, сколько бы реплик
-   * ни пришло. Черта, убегающая вниз за каждым новым сообщением, всегда
-   * стоит под последним и не отвечает на вопрос «докуда я дочитал».
-   * У них она тоже создаётся один раз (`addUnreadBar`) и снимается
-   * только уходом из разговора.
-   */
-  const [boundary, setBoundary] = useState<number | null>(null);
+  /** Какой чат открыт сейчас: по смене уходит отложенная отметка прежнего. */
   const openRef = useRef<string | null>(null);
 
   /**
@@ -83,77 +103,83 @@ export function useReading({
   const roomsRef = useRef(byId);
   roomsRef.current = byId;
 
+  /**
+   * Когда и что сказать серверу — отдельный модуль (task-097): на каждый чат
+   * своё окно, в пути не больше одного запроса.
+   *
+   * ⚠️ СОЗДАЁТСЯ В ЭФФЕКТЕ, А НЕ ПРИ ОТРИСОВКЕ. Двойное монтирование
+   * в разработке остановило бы модуль, созданный один раз, навсегда.
+   * Уход со страницы чата (настройки) отправляет отложенное сразу:
+   * иначе последняя отметка терялась бы вместе с экраном.
+   */
+  const onReadRef = useRef(onRead);
+  onReadRef.current = onRead;
+  const marks = useRef<ReadMarks | null>(null);
   useEffect(() => {
-    if (openRef.current === currentId) return;
-    openRef.current = currentId;
-    const room = currentId ? roomsRef.current.get(currentId) : undefined;
-    // Ноль значит «не читал ничего»: черта встанет перед самой первой
-    // чужой репликой. Отсутствие непрочитанного — черты нет вовсе.
-    setBoundary(room && room.unread > 0 ? room.readSeq : null);
-  }, [currentId]);
-
-  /** Отложенная отправка: пока человек листает, номера копятся в одну. */
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pendingRef = useRef<{ id: string; seq: number } | null>(null);
-
-  const send = useCallback(async () => {
-    const pending = pendingRef.current;
-    pendingRef.current = null;
-    if (!pending) return;
-    try {
-      const { unread } = await api.markRead(pending.id, pending.seq);
-      // Число с сервера точнее нашего: он видит весь разговор, мы — окно.
-      setReadUpTo((prev) => ({ ...prev, [pending.id]: pending.seq }));
-      if (unread === 0) return;
-    } catch {
-      // Отметка не дошла — число просто останется. Это БЕЗОПАСНЫЙ отказ:
-      // перечитать хуже, чем не заметить, а обратное теряет сообщение
-      // навсегда. Поэтому здесь ни повтора, ни жалобы человеку.
-    }
+    const made = readMarks(
+      // Ответ сервера ставит в строку точное число; экран уже сдвинут в `seen`.
+      (conversationId, seq, unread) => onReadRef.current(conversationId, seq, unread),
+      {
+        send: api.markRead,
+        now: Date.now,
+        setTimeout: (run, ms) => window.setTimeout(run, ms),
+        clearTimeout: (timer) => window.clearTimeout(timer as number),
+      },
+    );
+    marks.current = made;
+    return () => {
+      made.flushAll();
+      made.stop();
+      marks.current = null;
+    };
   }, []);
 
   /**
-   * Решить, надо ли сказать серверу, и когда.
+   * Последние реплики каждого чата, где мы были (task-108, разбор критика).
    *
-   * ⚠️ ТРИ УСЛОВИЯ РАЗОМ, И ТРЕТЬЕ — НЕ ПРИДИРКА. Лента внизу, вкладка
-   * на виду, окно в фокусе. Без последнего вкладка, забытая открытой
-   * на ночь, к утру пометит прочитанным всё пришедшее — и человек
-   * не узнает, что ему писали. Отменить нечем: номер идёт только вперёд.
+   * ⚠️ БЕЗ НИХ ЧИСЛО ПОКИНУТОГО ЧАТА ЗАГОРАЛОСЬ СНОВА. Хук видит ленту только
+   * открытого чата; ушли — поправке не на чем считаться, и строка прыгала
+   * к серверному числу, ещё не знающему отложенной отметки. Правило подсчёта
+   * то же (`readLocally`) — меняется только, по каким репликам оно считает.
+   * Когда сервер подтвердит отметку, `readSeq` строки сдвинется, и эти реплики
+   * сами выпадут из подсчёта: двойного вычитания нет.
    */
-  const schedule = useCallback(
-    (id: string, lastSeq: number) => {
-      if (!following.current || !isWatching()) return;
-      const room = roomsRef.current.get(id);
-      const already = readUpTo[id] ?? room?.readSeq ?? 0;
-      if (lastSeq <= already) return;
-
-      pendingRef.current = { id, seq: lastSeq };
-      clearTimeout(timer.current);
-      // Полное обнуление уходит сразу: его видит глаз. Всё остальное
-      // копится — человек листает, а не читает по одной реплике.
-      if ((room?.unread ?? 0) > 0) void send();
-      else timer.current = setTimeout(() => void send(), DELAY_MS);
-    },
-    [readUpTo, following, send],
-  );
-
-  const lastSeq = messages.at(-1)?.seq;
+  const keptRef = useRef<Record<string, Message[]>>({});
+  useEffect(() => {
+    const id = messages[0]?.conversationId;
+    if (id) keptRef.current[id] = messages;
+  }, [messages]);
 
   useEffect(() => {
-    if (!currentId || lastSeq === undefined) return;
+    const left = openRef.current;
+    if (left === currentId) return;
+    if (left && marks.current) leaveChat(marks.current, left, shownRef.current[left]);
+    forgetConfirmed(keptRef.current, roomsRef.current, shownRef.current);
+    openRef.current = currentId;
+  }, [currentId]);
 
-    const scheduleNow = () => schedule(currentId, lastSeq);
-
-    scheduleNow();
-    // Вернулся к вкладке — самое время отметить: до этого мы намеренно
-    // молчали, даже если лента всё это время стояла внизу.
-    document.addEventListener("visibilitychange", scheduleNow);
-    window.addEventListener("focus", scheduleNow);
-    return () => {
-      document.removeEventListener("visibilitychange", scheduleNow);
-      window.removeEventListener("focus", scheduleNow);
-    };
-  }, [currentId, lastSeq, schedule]);
+  /**
+   * Лента увидела реплики до этого номера — сказать серверу (task-107).
+   *
+   * ⚠️ ДВА УСЛОВИЯ: вкладка на виду и окно в фокусе. Забытая открытой
+   * вкладка иначе пометит прочитанным всё, что придёт за ночь.
+   *
+   * ⚠️ НОМЕР ТОЛЬКО ВПЕРЁД. Прокрутка вверх не «распрочитывает»: сервер
+   * и так двигает отметку только вперёд, но лишний запрос не нужен.
+   *
+   * Когда именно уйдёт запрос — решает модуль отметок (не чаще раза
+   * в три секунды на чат), а не этот хук.
+   */
+  const seen = useCallback((seq: number) => {
+    const id = openRef.current;
+    if (!id || !isWatching()) return;
+    if (seq <= (roomsRef.current.get(id)?.readSeq ?? 0)) return;
+    if (seq > (shownRef.current[id] ?? 0)) {
+      shownRef.current = { ...shownRef.current, [id]: seq };
+      setReadUpTo(shownRef.current);
+    }
+    marks.current?.seen(id, seq);
+  }, []);
 
   /**
    * Сколько из посчитанного сервером мы успели прочесть сами.
@@ -169,7 +195,7 @@ export function useReading({
    */
   const readLocally = useCallback(
     (room: Conversation, ourSeq: number, counts: (one: Message) => boolean) =>
-      messages.filter(
+      (room.id === currentId ? messages : (keptRef.current[room.id] ?? [])).filter(
         (one) =>
           one.conversationId === room.id &&
           one.seq > room.readSeq &&
@@ -177,7 +203,7 @@ export function useReading({
           one.author.id !== meId &&
           counts(one),
       ).length,
-    [messages, meId],
+    [messages, meId, currentId],
   );
 
   /**
@@ -228,5 +254,5 @@ export function useReading({
     [adjusted, meId],
   );
 
-  return { unreadOf, mentionsOf, boundary };
+  return { unreadOf, mentionsOf, seen };
 }

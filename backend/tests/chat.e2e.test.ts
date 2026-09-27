@@ -2,7 +2,7 @@
  * ПРИЁМОЧНЫЙ ТЕСТ СРЕЗА «ЧАТ». Написан ДО кода и обязан быть красным.
  *
  * Проверяет три вещи, ради которых делался разбор мессенджеров
- * (dock/06-разбор-мессенджеров.md):
+ * (dock/reference/messaging-research.md):
  *   ① сообщение нельзя потерять и нельзя задвоить;
  *   ② членство читается у корня дерева разговоров, у ветки своих участников нет;
  *   ③ порядок для клиента бездырочный и совпадает с порядком фиксации.
@@ -10,30 +10,7 @@
  * Бьёт по живому стеку через настоящий порт. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-// ⚠️ Имя переменной НЕ BASE_URL: Vite (а значит и Vitest) владеет этим именем
-// и подставляет туда свой `base`, то есть "/".
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-/** Адрес только из латиницы: кириллица в локальной части не проходит проверку. */
-function freshEmail(): string {
-  return `chat-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  if (!header) throw new Error("сервер не выдал печеньку сессии");
-  return header.split(";")[0] ?? "";
-}
-
-interface Person {
-  cookie: string;
-  participantId: string;
-  workspaceId: string;
-}
+import { call, newPerson, type Person, requireStand } from "./stand.js";
 
 interface Conversation {
   id: string;
@@ -42,43 +19,12 @@ interface Conversation {
   parentId: string | null;
 }
 
-/** Заводит нового человека со своим пространством и возвращает его сессию. */
-async function newPerson(tag: string): Promise<Person> {
-  const response = await fetch(`${BASE}/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: freshEmail(),
-      password: PASSWORD,
-      displayName: tag,
-      workspaceName: `Пространство ${tag}`,
-    }),
-  });
-  if (response.status !== 201) throw new Error(`регистрация не удалась: ${response.status}`);
-  const body = (await response.json()) as {
-    participant: { id: string };
-    workspace: { id: string };
-  };
-  return {
-    cookie: sessionCookie(response),
-    participantId: body.participant.id,
-    workspaceId: body.workspace.id,
-  };
-}
-
 async function get(path: string, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, { headers: person ? { cookie: person.cookie } : {} });
+  return call("GET", path, person);
 }
 
 async function post(path: string, body: unknown, person?: Person): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(person ? { cookie: person.cookie } : {}),
-    },
-    body: JSON.stringify(body),
-  });
+  return call("POST", path, person, body);
 }
 
 async function conversations(person: Person): Promise<Conversation[]> {
@@ -126,10 +72,7 @@ async function pageBackwards(person: Person, channelId: string, first: Feed["ite
 }
 
 describe("чат", () => {
-  beforeAll(async () => {
-    const health = await get("/health");
-    if (!health.ok) throw new Error(`Стек не поднят (${BASE}/health). Запусти: make up`);
-  });
+  beforeAll(requireStand);
 
   describe("канал появляется сам", () => {
     it("при регистрации в пространстве уже есть канал, и человек в нём состоит", async () => {
@@ -197,7 +140,7 @@ describe("чат", () => {
       };
 
       expect(replayed.author).toEqual(first.author);
-      expect(replayed.author.name).not.toBe("");
+      expect(replayed.author.name).toBe("Автор");
     });
 
     it("одновременный повтор одного ключа не роняет запрос и не оставляет дыру", async () => {
@@ -330,6 +273,10 @@ describe("чат", () => {
       const stranger = await newPerson("Чужой");
       const channel = await channelOf(owner);
 
+      // Положительный контроль: хозяину тот же адрес отвечает — 404 ниже
+      // про чужого, а не про неверный адрес.
+      expect((await get(`/v1/conversations/${channel.id}/messages`, owner)).status).toBe(200);
+
       const feed = await get(`/v1/conversations/${channel.id}/messages`, stranger);
       // Именно 404: код не должен выдавать, что такой разговор существует.
       expect(feed.status).toBe(404);
@@ -347,6 +294,10 @@ describe("чат", () => {
 
       const ownerIds = new Set(ownerList.map((c) => c.id));
       expect(strangerList.some((c) => ownerIds.has(c.id))).toBe(false);
+      // Положительный контроль: у каждого ровно свой канал с рождения —
+      // иначе «пересечения нет» прошло бы и на двух пустых списках.
+      expect(ownerList).toHaveLength(1);
+      expect(strangerList).toHaveLength(1);
     });
 
     it("у ветки нет своих участников — доступ наследуется от канала", async () => {
@@ -378,7 +329,11 @@ describe("чат", () => {
         { title: "Закрытая" },
         owner,
       );
+      expect(created.status).toBe(201);
       const thread = (await created.json()) as Conversation;
+
+      // Положительный контроль: хозяин ветку читает.
+      expect((await get(`/v1/conversations/${thread.id}/messages`, owner)).status).toBe(200);
 
       const feed = await get(`/v1/conversations/${thread.id}/messages`, stranger);
       expect(feed.status).toBe(404);
@@ -394,7 +349,8 @@ describe("чат", () => {
       expect(response.status).toBe(422);
       const body = (await response.json()) as { error: string; fields?: Record<string, string> };
       expect(body.error).toBe("validation_failed");
-      expect(body.fields?.body).toBeTruthy();
+      // Слова — из схемы двери (`sendBody` в @amplifie/contract): их видит человек.
+      expect(body.fields?.body).toBe("сообщение пустое");
     });
 
     it("без сессии писать нельзя", async () => {

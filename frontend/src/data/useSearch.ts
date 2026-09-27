@@ -1,0 +1,101 @@
+import { searchWords } from "@amplifie/contract";
+import { useCallback, useState } from "react";
+import { api, type SearchHit, type SearchPage } from "./api.js";
+import { usePausedAsk } from "./usePausedAsk.js";
+
+/**
+ * Поиск по сообщениям в окне Ctrl+K (task-100) и внутри чата (task-106):
+ * когда спрашивать сервер и что показывать, пока он отвечает.
+ *
+ * Пауза, отмена прежнего запроса и память по строке — общие с поиском чата
+ * в окне «Переслать» и живут в `usePausedAsk` (task-117). Здесь — то, что
+ * есть только у сообщений: следующие страницы и число «3 из 17».
+ */
+
+type Found = {
+  kind: "найдено";
+  items: SearchHit[];
+  next: number | null;
+  /** Сколько всего попаданий — только у поиска в чате (task-106). */
+  total?: number;
+  /** Грузится следующая страница. */
+  more: boolean;
+  /** Следующая страница не загрузилась: найденное остаётся, «Повторить» — ниже. */
+  broken: boolean;
+};
+
+export type SearchState =
+  | { kind: "пусто" }
+  | { kind: "коротко" }
+  | { kind: "ищем" }
+  | Found
+  | { kind: "отказ" };
+
+/** Страница ответа в состояние: `total` есть только у поиска в чате. */
+function shown(page: SearchPage): Found {
+  return {
+    kind: "найдено",
+    items: page.items,
+    next: page.next,
+    more: false,
+    broken: false,
+    ...(page.total === undefined ? {} : { total: page.total }),
+  };
+}
+
+/**
+ * @param room искать только в этом чате (task-106). `null` — по всем видимым.
+ */
+export function useSearch(room: string | null = null) {
+  const [query, setQuery] = useState("");
+  const words = searchWords(query);
+  const inRoom = room ? { conversationId: room } : {};
+  // ⚠️ ЧАТ — ЧАСТЬ КЛЮЧА ПАМЯТИ. Иначе выдача по «договор» из одного чата
+  // показалась бы в другом: ключ по словам совпал бы, а попадания нет.
+  const key = `${room ?? ""} ${words.join(" ")}`;
+  const asked = usePausedAsk<Found>({
+    key,
+    // Признак, а не сама строка: пробел в конце не меняет слов и не должен
+    // перезапускать поиск.
+    blank: query.trim() === "",
+    short: words.length === 0,
+    ask: (signal) => api.search(query, { signal, ...inRoom }).then(shown),
+  });
+  const state: SearchState = asked.state.kind === "найдено" ? asked.state.value : asked.state;
+
+  /** Поправить найденное — если оно всё ещё про ту же строку. */
+  const patch = useCallback(
+    (at: string, change: (found: Found) => Found) =>
+      asked.setState((was) =>
+        was.kind === "найдено" && was.key === at ? { ...was, value: change(was.value) } : was,
+      ),
+    [asked.setState],
+  );
+
+  /** Следующая страница — к прокрутке до низа выдачи. Одна за раз. */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: строка и чат уже в ключе
+  const loadMore = useCallback(() => {
+    if (state.kind !== "найдено" || state.next === null || state.more) return;
+    const before = state.next;
+    patch(key, (found) => ({ ...found, more: true, broken: false }));
+    api
+      .search(query, { before, ...inRoom })
+      .then((page) =>
+        patch(key, (found) => ({
+          ...found,
+          items: [...found.items, ...page.items],
+          next: page.next,
+          // Число всего считает только первая страница: оно не меняется,
+          // пока человек ходит по попаданиям.
+          more: false,
+          broken: false,
+        })),
+      )
+      .catch(() => {
+        // Найденное не теряется: строка «Повторить» под списком.
+        patch(key, (found) => ({ ...found, more: false, broken: true }));
+      });
+  }, [state, key, patch]);
+
+  return { query, setQuery, words, state, loadMore, retry: asked.retry };
+}

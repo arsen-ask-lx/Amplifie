@@ -88,22 +88,14 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
     onRemove: (message: Message) => setRemoving([message]),
     canRemove,
     onSelect: (message: Message) => setPicked(new Set([message.id])),
+    onRetry: () => chat.retry(),
+    onCancel: (message: Message) => chat.cancel(message),
   };
 
-  // «Загружаем…» только когда показать НЕЧЕГО. Если лента уже на экране,
-  // подгрузка идёт молча: подменять готовое содержимое надписью — это
-  // мигание на ровном месте.
-  if (chat.loading && chat.messages.length === 0) {
-    return <p className="p-8 text-center text-body text-muted">Загружаем…</p>;
-  }
+  if (chat.conversations.length === 0) return <NoChats loading={chat.loading} />;
 
-  if (chat.conversations.length === 0) {
-    return (
-      <p className="p-8 text-center text-body text-muted">
-        В этом пространстве ещё нет чатов. Заведите первый — «Новый чат» слева.
-      </p>
-    );
-  }
+  // Какой разговор открыт — из адреса (Р-019), а не из строки панели.
+  const openKey = chat.panel.currentId;
 
   return (
     <>
@@ -113,24 +105,33 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
         onUnpin={(message) => void chat.pin(message.id, false)}
       />
 
-      <Feed
-        // Смена разговора пересоздаёт ленту: тогда «прыгнуть в конец
-        // до отрисовки» работает как «при открытии», без лишнего состояния.
-        key={chat.current?.id ?? "пусто"}
-        messages={chat.messages}
-        mentions={chat.current ? chat.panel.mentionsOf(chat.current.id) : 0}
-        onGoToMention={() => void jumpToMention()}
-        hasOlder={chat.hasOlder}
-        onLoadOlder={() => chat.loadOlder()}
-        title={chat.current?.title}
-        meId={meId}
-        focus={chat.focus}
-        deeds={deeds}
-        onGo={go}
-        picking={picked ? { chosen: picked, toggle } : null}
-        boundary={chat.boundary}
-        onFollow={chat.follow}
-      />
+      {feedPending(chat) ? (
+        <div className="min-h-0 flex-1" />
+      ) : (
+        <Feed
+          // Смена разговора пересоздаёт ленту: «прыгнуть в конец до отрисовки»
+          // работает как «при открытии». ⚠️ Ключ из адреса (task-101): строка
+          // панели у чата из поиска приезжала позже, и лента создавалась дважды.
+          key={openKey}
+          messages={chat.messages}
+          mentions={chat.current ? chat.panel.mentionsOf(chat.current.id) : 0}
+          onGoToMention={() => void jumpToMention()}
+          hasOlder={chat.hasOlder}
+          onLoadOlder={() => chat.loadOlder()}
+          hasNewer={chat.hasNewer}
+          onLoadNewer={() => chat.loadNewer()}
+          onToLatest={chat.toLatest}
+          title={chat.current?.title}
+          meId={meId}
+          focus={chat.focus}
+          deeds={deeds}
+          onGo={go}
+          picking={picked ? { chosen: picked, toggle } : null}
+          boundary={chat.boundary}
+          onFollow={chat.follow}
+          onSeen={chat.seen}
+        />
+      )}
       <AgentFailure failure={chat.agentFailure} />
 
       {picked ? (
@@ -156,6 +157,10 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
       ) : null}
 
       <Composer
+        // ⚠️ Ключ по разговору (task-101): поле больше не снимается на загрузку,
+        // и без ключа набранное в одном чате уехало бы в другой. Ключ отличен
+        // от ключа ленты: одинаковые ключи соседей React путает.
+        key={`поле-${openKey}`}
         conversationId={chat.current?.id ?? null}
         onSend={chat.send}
         replying={chat.replying}
@@ -189,6 +194,28 @@ export function Room({ chat, meId }: { chat: Chat; meId: string }) {
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Лента пуста и грузится — на её месте пустое место без слов (task-101).
+ * Прежде «Загружаем…» вставало вместо всей середины, и поле ввода снималось
+ * на каждое открытие чата (владелец, показ 17.09).
+ */
+function feedPending(chat: Chat): boolean {
+  return chat.loading && chat.messages.length === 0;
+}
+
+/**
+ * Чатов нет. До первого ответа панели это «ещё не знаем» — пусто и без слов;
+ * после — пространство без единого чата, и экран говорит это прямо.
+ */
+function NoChats({ loading }: { loading: boolean }) {
+  if (loading) return null;
+  return (
+    <p className="p-8 text-center text-body text-muted">
+      В этом пространстве ещё нет чатов. Заведите первый — «Новый чат» слева.
+    </p>
   );
 }
 

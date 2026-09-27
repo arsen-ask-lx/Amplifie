@@ -22,13 +22,7 @@
  * Перед запуском: make up
  */
 import { describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-const PASSWORD = "правильный-конский-скотч-батарейка";
-
-function freshEmail(): string {
-  return `entry-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
+import { BASE, freshEmail, PASSWORD } from "./stand.js";
 
 describe("дверь: открыта ли регистрация", () => {
   it("отвечает без сессии", async () => {

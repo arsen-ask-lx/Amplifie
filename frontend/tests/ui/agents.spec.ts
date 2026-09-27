@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { register } from "./fixtures.js";
+import { expect, test } from "./guard.js";
 
 test("агенты оставляют две рабочие секции без вступительных пояснений", async ({ page }) => {
   await register(page, "Оператор");
@@ -20,24 +20,15 @@ test("агенты живут в настройках, а старая ссыл�
   await expect(page.getByRole("link", { name: "Агенты" })).toBeVisible();
 });
 
-test("выдача кода открывается поверх неподвижной формы ключа", async ({ page }) => {
+test("«Подключить» открывает окно со строкой запуска моста", async ({ page }) => {
   await register(page, "Подключение");
   await page.goto("/settings/agents");
-
-  // При открытом диалоге Radix правильно скрывает фон от чтения с экрана.
-  // Геометрию фона поэтому измеряем по семантическому тегу, а не по роли:
-  // иначе тест проверяет не сдвиг, а работу фокус-ловушки общего Dialog.
-  const keyHeading = page.locator("h3").filter({ hasText: "Ключ API" });
-  const before = await keyHeading.boundingBox();
-  if (!before) throw new Error("заголовок ключа не измеряется");
 
   await page.getByRole("button", { name: "Подключить" }).click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel("Строка запуска моста")).toBeVisible();
-  const after = await keyHeading.boundingBox();
-  expect(after?.y).toBe(before.y);
 });
 
 test("ошибка проверки живёт в окне подключения, а не раздвигает страницу", async ({ page }) => {
@@ -53,19 +44,17 @@ test("ошибка проверки живёт в окне подключени�
   ).toBeVisible();
 });
 
-test("выбранный пункт тихого списка повторяет скругление поля", async ({ page }) => {
-  await register(page, "Радиус");
+/**
+ * Неверный ключ — причина словами (task-120). Форма ключа теперь проверяется
+ * схемой двери, и отказ приходит полем `fields.key`, а не `detail`: человек
+ * обязан увидеть то же «с чего начинается ключ», что и прежде.
+ */
+test("ключ не той формы — форма говорит, с чего он начинается", async ({ page }) => {
+  await register(page, "Оператор");
   await page.goto("/settings/agents");
 
-  const trigger = page.getByRole("combobox", { name: "Кому" });
-  const radius = async (locator: typeof trigger) =>
-    locator.evaluate((element) => getComputedStyle(element).borderTopLeftRadius);
-  // Поле меряем ДО раскрытия: открытый список прячет остальную страницу
-  // от чтения экрана (aria-hidden), и по роли поле уже не найти.
-  const fieldRadius = await radius(trigger);
+  await page.getByRole("textbox", { name: "Ключ", exact: true }).fill("просто текст");
+  await page.getByRole("button", { name: "Сохранить ключ" }).click();
 
-  await trigger.click();
-  const selected = page.getByRole("option", { name: "Только мой", exact: true });
-  await expect(selected).toBeVisible();
-  expect(await radius(selected)).toBe(fieldRadius);
+  await expect(page.getByText(/^ключ \w+ начинается с «sk-/u)).toBeVisible();
 });

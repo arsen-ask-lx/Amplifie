@@ -2,8 +2,21 @@
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--isolated"],
+      "args": ["-y", "chrome-devtools-mcp@1.9.0", "--isolated", "--no-usage-statistics"],
       "env": {}
+    },
+    "prometheus": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--network",
+        "amplifie_default",
+        "ghcr.io/tjhop/prometheus-mcp-server:v0.18.0",
+        "--prometheus.url",
+        "http://prometheus:9090"
+      ]
     }
   }
 }

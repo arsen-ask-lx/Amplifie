@@ -1,5 +1,14 @@
-import { expect, type Page, type PlaywrightWorkerArgs, test } from "@playwright/test";
-import { bubbles, createChannel, feedBox, login, openChannel, register, say } from "./fixtures.js";
+import {
+  bubbles,
+  createChannel,
+  feedBox,
+  login,
+  openChannel,
+  register,
+  say,
+  seedHistory,
+} from "./fixtures.js";
+import { expect, type Page, test } from "./guard.js";
 
 /**
  * ОКНО ЛЕНТЫ (task-016, Р-023): старое вытесняется — но только у того,
@@ -11,109 +20,15 @@ import { bubbles, createChannel, feedBox, login, openChannel, register, say } fr
  * что делает лента, когда реплик много. Всё остальное — через экран.
  */
 
-/** Сколько реплик держит лента. Должно совпадать с `ОКНО` в `useChat`. */
+/**
+ * Сколько реплик держит лента (Р-023). Литерал, а не `WINDOW_SIZE` из
+ * `frontend/src/data/useFeedSync.ts`: там он не выведен наружу, и ожидание
+ * из кода проверяемого покраснеть на его же ошибке не смогло бы.
+ */
 const WINDOW_SIZE = 300;
 
 /** Заметно больше окна: иначе вытеснению нечего вытеснять. */
 const SEEDED = 360;
-
-/** Адрес стенда — тот же, что у самой проверки. */
-const BASE = process.env.UI_URL ?? "http://localhost:8477";
-
-/** Сколько говорит один голос. Ниже порога в тридцать, с запасом. */
-const PER_REQUEST = 25;
-
-/**
- * Насеять историю: много людей по многу реплик.
- *
- * ⚠️ РАНЬШЕ СЕЯЛ ОДИН ЧЕЛОВЕК, И ЭТО БЫЛО НЕПРАВДОЙ. Порог отправки —
- * тридцать реплик в минуту на человека (Р-025), потому что быстрее
- * человек не печатает. Посев в триста шестьдесят строк от одного имени
- * упёрся в него, как и должен был: столько за минуту не говорят.
- *
- * Оживлённый канал оживлён не потому, что кто-то один строчит, а потому
- * что людей много. Поэтому и здесь их много: владелец зовёт одной ссылкой,
- * каждый вошедший говорит своё. Заодно это первый посев, который стал
- * возможен только после появления приглашений.
- *
- * Через `request`, а не через браузер: двенадцать вкладок ради двенадцати
- * голосов — это минуты прогона за то, что проверяется одним запросом.
- * У каждого своя корзинка печенек, значит и свой счётчик.
- */
-type Requests = PlaywrightWorkerArgs["playwright"]["request"];
-
-/** Ссылка-приглашение от имени владельца: одна на весь посев. */
-async function inviteToken(page: Page): Promise<string> {
-  const made = await page.evaluate(async () => {
-    const response = await fetch("/v1/invites", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ maxUses: 100 }),
-    });
-    return (await response.json()) as { token: string };
-  });
-  return made.token;
-}
-
-/**
- * Один голос: вошёл по ссылке и сказал сколько-то строк.
- *
- * ⚠️ ПО ЗАПАСУ ДО ПОРОГА, А НЕ ВПРИТЫК. Порог — тридцать в минуту;
- * попадать в него ровно значит однажды промахнуться на единицу
- * и краснеть без причины.
- */
-async function oneVoice(
-  requests: Requests,
-  room: string,
-  token: string,
-  from: number,
-  count: number,
-): Promise<void> {
-  const guest = await requests.newContext({ baseURL: BASE });
-  const entered = await guest.post("/v1/auth/join", {
-    data: {
-      token,
-      email: `seed-${Date.now()}-${from}@example.test`,
-      password: "очень-длинный-пароль-для-теста",
-      displayName: `Голос ${from}`,
-    },
-  });
-  if (!entered.ok()) throw new Error(`посев: вход не удался (${entered.status()})`);
-
-  // ⚠️ РАЗОМ, А НЕ ПО ОЧЕРЕДИ. Триста шестьдесят запросов друг за другом
-  // не укладывались в срок проверки: сценарий падал на тридцатой секунде
-  // не от поломки, а от собственной медлительности — худший вид красного.
-  // Один голос говорит меньше, чем ему позволено в минуту (25 из 30),
-  // поэтому порог отправки это не задевает.
-  const posts = Array.from({ length: count }, (_, n) => {
-    const index = from + n;
-    // ⚠️ ПЕРВАЯ — С ОСОБЫМ ТЕКСТОМ. Искать «строка номер 1» нельзя:
-    // то же вхождение есть у десятой, сотой и ещё сотни других,
-    // и проверка «осталась одна» насчитала сто одиннадцать.
-    const body = index === 1 ? "самая первая строка" : `строка номер ${index}`;
-    return guest.post(`/v1/conversations/${room}/messages`, {
-      data: { body, clientMsgId: crypto.randomUUID() },
-    });
-  });
-  for (const said of await Promise.all(posts)) {
-    if (!said.ok()) throw new Error(`посев: реплика не ушла (${said.status()})`);
-  }
-  await guest.dispose();
-}
-
-async function seed(page: Page, requests: Requests, count: number): Promise<void> {
-  const room = new URL(page.url()).pathname.split("/").pop();
-  if (!room) throw new Error("не понял, какой канал открыт");
-
-  const token = await inviteToken(page);
-  for (let sent = 0; sent < count; sent += PER_REQUEST) {
-    await oneVoice(requests, room, token, sent + 1, Math.min(PER_REQUEST, count - sent));
-  }
-
-  await page.reload();
-  await expect(bubbles(page).first()).toBeVisible();
-}
 
 /**
  * Долистать до самого верха: старое грузится страницами по мере подхода.
@@ -160,7 +75,7 @@ test("листающий назад ничего не теряет, а верн�
 }) => {
   const person = await register(page);
   await createChannel(page, "Много");
-  await seed(page, playwright.request, SEEDED);
+  await seedHistory(page, playwright.request, SEEDED);
 
   // Начальная загрузка отдаёт одну страницу: полное окно лента набирает
   // только листанием назад. Это само по себе стоит проверить.

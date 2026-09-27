@@ -11,22 +11,7 @@
  * Бьёт по живому стеку через настоящий порт. Перед запуском: make up
  */
 import { beforeAll, describe, expect, it } from "vitest";
-
-const BASE = process.env.AMPLIFIE_BASE_URL ?? "http://localhost:8477";
-
-/**
- * ⚠️ АДРЕС ТОЛЬКО ЛАТИНИЦЕЙ. Кириллица в местной части даёт 422 — на этом
- * молча легли семь приёмочных, и полдня ушло на поиск.
- */
-function freshEmail(tag: string): string {
-  return `${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-function sessionCookie(response: Response): string | null {
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const header = raw.find((c) => c.startsWith("amplifie_session="));
-  return header ? (header.split(";")[0] ?? null) : null;
-}
+import { BASE, freshEmail, newPerson, type Person, requireStand, sessionCookie } from "./stand.js";
 
 async function post(path: string, body: unknown, cookie?: string): Promise<Response> {
   return fetch(`${BASE}${path}`, {
@@ -44,24 +29,11 @@ async function get(path: string, cookie?: string): Promise<Response> {
   return fetch(`${BASE}${path}`, { headers: cookie ? { cookie } : {} });
 }
 
-interface Owner {
-  cookie: string;
-  workspaceId: string;
-}
-
 /** Владелец со своей компанией: тот, кто зовёт. */
+type Owner = Person;
+
 async function newOwner(name: string): Promise<Owner> {
-  const response = await post("/v1/auth/register", {
-    email: freshEmail("owner"),
-    password: "очень-длинный-пароль-для-теста",
-    displayName: name,
-    workspaceName: `Компания ${name}`,
-  });
-  expect(response.status, "регистрация владельца").toBe(201);
-  const cookie = sessionCookie(response);
-  const body = (await response.json()) as { workspace: { id: string } };
-  if (!cookie) throw new Error("нет печеньки сессии");
-  return { cookie, workspaceId: body.workspace.id };
+  return newPerson(name);
 }
 
 /** Позвать: ссылка с пределом входов и сроком. */
@@ -83,10 +55,7 @@ async function join(token: string, tag = "guest"): Promise<Response> {
 }
 
 describe("вход второго человека в компанию", () => {
-  beforeAll(async () => {
-    const health = await get("/health");
-    if (!health.ok) throw new Error(`стек не поднят (${health.status}) — сначала make up`);
-  });
+  beforeAll(requireStand);
 
   it("П-2: вошедший по ссылке оказывается в ТОЙ ЖЕ компании и видит общий канал", async () => {
     const owner = await newOwner("Зовущий");
@@ -99,7 +68,6 @@ describe("вход второго человека в компанию", () => {
     expect(me.workspace.id, "гость попал в чужую компанию, а не в ту же").toBe(owner.workspaceId);
 
     const cookie = sessionCookie(entered);
-    if (!cookie) throw new Error("вход по приглашению не выдал сессию");
     const rooms = await get("/v1/conversations", cookie);
     expect(rooms.status).toBe(200);
     const list = (await rooms.json()) as { items: Array<{ title: string }> };
@@ -164,15 +132,22 @@ describe("вход второго человека в компанию", () => {
     expect(secret.status).toBe(201);
 
     const entered = await join(await invite(owner), "outsider");
+    expect(entered.status).toBe(201);
     const cookie = sessionCookie(entered);
-    if (!cookie) throw new Error("нет сессии у вошедшего");
 
-    const rooms = await get("/v1/conversations", cookie);
-    const list = (await rooms.json()) as { items: Array<{ title: string }> };
-    expect(
-      list.items.map((one) => one.title),
-      "закрытый канал просвечивает",
-    ).not.toContain("Только для своих");
+    const titlesOf = async (session: string) => {
+      const rooms = await get("/v1/conversations", session);
+      expect(rooms.status).toBe(200);
+      const list = (await rooms.json()) as { items: Array<{ title: string }> };
+      return list.items.map((one) => one.title);
+    };
+
+    // Положительный контроль: хозяин закрытый канал видит, а вошедший
+    // видит общий — отказ ниже про закрытость, а не про пустой список.
+    expect(await titlesOf(owner.cookie)).toContain("Только для своих");
+    const seen = await titlesOf(cookie);
+    expect(seen).toContain("Общий");
+    expect(seen, "закрытый канал просвечивает").not.toContain("Только для своих");
   });
 
   it("П-8: регистрация НЕ принимает приглашение — второго пути внутрь нет", async () => {
@@ -191,21 +166,30 @@ describe("вход второго человека в компанию", () => {
     });
     expect(response.status).toBe(201);
 
-    const body = (await response.json()) as { workspace: { id: string } };
+    const body = (await response.json()) as { workspace: { id: string; name: string } };
     expect(body.workspace.id, "регистрация впустила по токену в ЧУЖУЮ компанию").not.toBe(
       owner.workspaceId,
     );
+    // И компания — та, что заводили, а не чья-то ещё.
+    expect(body.workspace.name).toBe("Своя компания");
   });
 
-  it("владелец не может позвать в чужую компанию", async () => {
+  it("владелец другой компании не может отозвать чужое приглашение", async () => {
     const first = await newOwner("Первый");
     const second = await newOwner("Второй");
 
     const created = await post("/v1/invites", { maxUses: 50 }, first.cookie);
-    const { id } = (await created.json()) as { id: string };
+    expect(created.status).toBe(201);
+    const { id, token } = (await created.json()) as { id: string; token: string };
 
     // Чужое приглашение не отзывается и не существует для постороннего —
     // ответ тот же 404, что и у несуществующего.
     expect((await del(`/v1/invites/${id}`, second.cookie)).status).toBe(404);
+
+    // Приглашение живо: по нему входят — и именно в компанию первого.
+    const entered = await join(token, "after-foreign-revoke");
+    expect(entered.status, "чужой отзыв погасил приглашение").toBe(201);
+    const me = (await entered.json()) as { workspace: { id: string } };
+    expect(me.workspace.id).toBe(first.workspaceId);
   });
 });

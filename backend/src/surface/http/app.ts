@@ -1,11 +1,19 @@
+import { failure } from "@amplifie/contract/api";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
-import { serializerCompiler, validatorCompiler } from "@fastify/type-provider-zod";
+import swagger from "@fastify/swagger";
+import {
+  jsonSchemaTransform,
+  serializerCompiler,
+  validatorCompiler,
+} from "@fastify/type-provider-zod";
 import Fastify, { type FastifyInstance } from "fastify";
 import { setSessionTouchFailureReporter } from "../../kernel/identity/index.js";
-import { setBusFailureReporter } from "../../platform/bus.js";
+import { audienceFor } from "../../kernel/talk/index.js";
+import { setAudienceResolver, setBusFailureReporter } from "../../platform/bus.js";
 import { config } from "../../platform/config.js";
 import { countQueries, queriesSoFar } from "../../platform/db.js";
+import { answered } from "../../platform/metrics.js";
 import { answerKnownFailures } from "./failures.js";
 import { OVERALL } from "./limits.js";
 import { registerAgentRoutes } from "./routes/agents.js";
@@ -13,10 +21,17 @@ import { registerAccountRoutes, registerAuthRoutes } from "./routes/auth.js";
 import { registerBridgeHumanRoutes, registerBridgeMachineRoutes } from "./routes/bridge.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerMetricsRoutes } from "./routes/metrics.js";
 import { registerStreamRoutes } from "./routes/stream.js";
-import { requireSession } from "./routes/viewer.js";
+import { requireSession, SESSION_COOKIE } from "./routes/viewer.js";
+import { collectMethods } from "./wrongMethod.js";
 
-export async function buildApp(): Promise<FastifyInstance> {
+/**
+ * `describeApi` — собрать описание API (task-120, Р-049). Только для
+ * `npm run openapi`: рабочему процессу сборщик описания не нужен, и дверей
+ * `/docs` или `/openapi.json` наружу нет.
+ */
+export async function buildApp({ describeApi = false } = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: config.logLevel },
     // Сквозной идентификатор запроса: попадает в каждую строку лога
@@ -50,6 +65,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.warn({ err: error }, "слушатель живых обновлений упал");
   });
 
+  // Кому виден разговор — знает ядро; шина этого знать не должна и не может
+  // (гейт границ ловит обратный импорт). Без этой строки шина молчит
+  // и жалуется — закрывается, а не открывается (task-067).
+  setAudienceResolver(audienceFor);
+
   // Счёт запросов к базе на обращение: стенд отдаёт его заголовком, и по нему
   // приёмочные ловят N+1. В коробке заголовка нет — устройство базы не наружу.
   app.addHook("onRequest", (_request, _reply, done) => countQueries(done));
@@ -64,9 +84,26 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   answerKnownFailures(app);
+  // До маршрутов: сборщик описания видит только двери, объявленные после него.
+  if (describeApi) await describeDoors(app);
+  // До маршрутов: 405 знает методы только тех дверей, что объявлены после.
+  const answerWrongMethods = collectMethods(app);
+
+  /**
+   * Всякий ответ — три числа RED разом: частота, доля неудачных,
+   * время. Общим крюком, а не в каждой двери: тогда новая дверь
+   * не может забыть себя посчитать.
+   *
+   * Имя двери — шаблон маршрута, а не адрес: иначе меток стало бы
+   * столько же, сколько разговоров, и метрики съели бы память.
+   */
+  app.addHook("onResponse", async (request, reply) => {
+    answered(request.routeOptions.url ?? "неизвестная", reply.statusCode, reply.elapsedTime / 1000);
+  });
 
   // Открытые двери: здоровье, вход и машина моста со своим удостоверением.
   registerHealthRoutes(app);
+  registerMetricsRoutes(app);
   registerAuthRoutes(app);
   registerBridgeMachineRoutes(app);
 
@@ -74,12 +111,59 @@ export async function buildApp(): Promise<FastifyInstance> {
   // в каждой двери: новая дверь, объявленная здесь, не может её забыть.
   await app.register(async (signedIn) => {
     requireSession(signedIn);
+    if (describeApi) markSessionRequired(signedIn);
     registerAccountRoutes(signedIn);
     registerBridgeHumanRoutes(signedIn);
     registerAgentRoutes(signedIn);
     registerChatRoutes(signedIn);
     registerStreamRoutes(signedIn);
   });
+  answerWrongMethods();
 
   return app;
+}
+
+/** Схема безопасности описания — печенька сессии, та же, что ставит вход. */
+const SESSION_SCHEME = "session";
+
+async function describeDoors(app: FastifyInstance): Promise<void> {
+  await app.register(swagger, {
+    openapi: {
+      openapi: "3.1.0",
+      info: { title: "Amplifie API", version: "1" },
+      components: {
+        securitySchemes: {
+          [SESSION_SCHEME]: { type: "apiKey", in: "cookie", name: SESSION_COOKIE },
+          // Удостоверение машины моста: `Authorization: Bridge <токен>`, не сессия.
+          bridge: { type: "apiKey", in: "header", name: "authorization" },
+        },
+      },
+    },
+    transform: jsonSchemaTransform,
+  });
+  app.addHook("onRoute", (route) => {
+    const schema = route.schema ?? {};
+    const own = (schema.response ?? {}) as Record<number, unknown>;
+    // Отказы, которые дверь отдаёт по своему устройству, а не по делу:
+    // порог частоты — общий потолок у всех; схема входа — там, где он есть;
+    // «не видно» — у двери с номером в пути (чужое неотличимо от несуществующего).
+    const general: Record<number, unknown> = { 429: failure };
+    // Кривое тело (не JSON, длина не та) отвергает разборщик Fastify — до схемы.
+    if (route.method !== "GET") general[400] = failure;
+    if (schema.body || schema.querystring || schema.params) general[422] = failure;
+    if (schema.params) general[404] = failure;
+    route.schema = { ...schema, response: { ...general, ...own } };
+  });
+}
+
+/**
+ * Двери области сессии помечаются в описании как требующие её — крюком
+ * самой области, а не списком адресов: новая дверь пометится сама, как сама
+ * получает проверку сессии. Без пометки Schemathesis не проверит 401.
+ */
+function markSessionRequired(scope: FastifyInstance): void {
+  scope.addHook("onRoute", (route) => {
+    const response = { 401: failure, ...((route.schema?.response ?? {}) as object) };
+    route.schema = { ...route.schema, response, security: [{ [SESSION_SCHEME]: [] }] };
+  });
 }

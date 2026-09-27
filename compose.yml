@@ -36,6 +36,24 @@ name: amplifie
 # зависят от О-5 («где сервер, какие мощности»), который не отвечен, а взятый
 # с потолка предел сам становится причиной тихого отказа — убитого по памяти
 # процесса под нагрузкой.
+
+# ⚠️ ДЕСКРИПТОРЫ НАЗВАНЫ ЯВНО, И ЭТО ПРО ПРЕДСКАЗУЕМОСТЬ, А НЕ ПРО ЗАПАС.
+#
+# Открытая труба живых обновлений — это файловый дескриптор, и держим мы их
+# тысячами. Предел по умолчанию задаёт демон Docker на ХОЗЯЙСКОЙ машине:
+# у нас намерено 1 048 576, у клиента может оказаться 1024. Отказ при этом
+# не плавный: новые подключения просто получают отказ, и для человека это
+# «приложение не загружается» — причём у части людей и случайно.
+#
+# Числами под цель в 3000 вкладок: у Caddy это 3000 соединений снаружи
+# плюс столько же к беку, у бека — 3000 плюс пул и файлы. 65536 даёт
+# примерно десятикратный запас и не зависит от того, как настроен
+# чужой сервер.
+x-fds: &fds
+  nofile:
+    soft: 65536
+    hard: 65536
+
 x-logging: &logging
   driver: json-file
   options:
@@ -44,7 +62,11 @@ x-logging: &logging
 
 services:
   postgres:
-    image: postgres:18-alpine
+    # ⚠️ ТОЧНАЯ ВЕРСИЯ, НО БЕЗ ОТПЕЧАТКА (task-118, Д-36). Отпечаток в compose
+    # не переживает `docker load` на классическом хранилище Docker: образ
+    # из архива поставки не нашёлся бы по нему. Закрепляет сам архив
+    # и `SHA256SUMS` выпуска; отпечатки живут в `FROM` наших Dockerfile.
+    image: postgres:18.6-alpine
     restart: unless-stopped
     logging: *logging
     environment:
@@ -81,7 +103,12 @@ services:
   # ⚠️ ЗАКОН ЛЮССЕРА НЕ НАРУШЕН: сервис отработал и умер. В рабочей цепочке
   # по-прежнему три узла, а не четыре.
   migrate:
-    image: ${AMPLIFIE_IMAGE_API:-amplifie/api:latest}
+    # ⚠️ БЕЗ `latest` И БЕЗ ЗНАЧЕНИЯ ПО УМОЛЧАНИЮ (task-118, Д-63). С `latest`
+    # клиент получал то, что лежит у него на диске под этим именем. Сборка
+    # выпуска вписывает сюда строку с версией, стенд получает её из Makefile.
+    image: ${AMPLIFIE_IMAGE_API:?не назван образ api — в поставке его строку вписывает сборка выпуска, на стенде задаёт Makefile}
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     # Строкой, а не словом: в YAML голое no читается как «ложь».
     restart: "no"
     logging: *logging
@@ -93,9 +120,13 @@ services:
         condition: service_healthy
 
   api:
-    image: ${AMPLIFIE_IMAGE_API:-amplifie/api:latest}
+    image: ${AMPLIFIE_IMAGE_API:?не назван образ api — в поставке его строку вписывает сборка выпуска, на стенде задаёт Makefile}
     restart: unless-stopped
+    # Беку права ядра не нужны вовсе: порт 3000, пользователь `node`.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
+    ulimits: *fds
     environment:
       DATABASE_URL: ${DATABASE_URL}
       API_PORT: 3000
@@ -132,9 +163,16 @@ services:
 
   # Прокси + статика фронта одним образом: у фронта нет своего сервера.
   caddy:
-    image: ${AMPLIFIE_IMAGE_WEB:-amplifie/web:latest}
+    image: ${AMPLIFIE_IMAGE_WEB:?не назван образ web — в поставке его строку вписывает сборка выпуска, на стенде задаёт Makefile}
     restart: unless-stopped
+    # ⚠️ ИЗ ВСЕХ ПРАВ — ТОЛЬКО ПОРТ НИЖЕ 1024 (task-118). Без `cap_add` Caddy
+    # не запустится вовсе: право на порт выдано его бинарнику, и срезанное
+    # целиком оно даёт «Operation not permitted» (проверено критиком плана).
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
+    ulimits: *fds
     ports:
       # Единственный порт наружу у всей установки.
       - "${HTTP_PORT}:80"

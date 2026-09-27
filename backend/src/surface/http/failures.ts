@@ -10,7 +10,11 @@ import {
   NoSecretKeyError,
   RegistrationClosedError,
 } from "../../kernel/identity/index.js";
-import { ConversationNotVisibleError, MentionNotAllowedError } from "../../kernel/talk/index.js";
+import {
+  ConversationNotVisibleError,
+  MentionNotAllowedError,
+  PinLimitError,
+} from "../../kernel/talk/index.js";
 import { BridgeFailedError, BridgeSilentError } from "../../platform/rendezvous.js";
 
 /**
@@ -27,6 +31,8 @@ const KNOWN: ReadonlyArray<{
   { kind: ConversationNotVisibleError, code: 404, error: "not_found" },
   { kind: InviteNotUsableError, code: 404, error: "not_found" },
   { kind: MentionNotAllowedError, code: 422, error: "mention_not_allowed", detail: true },
+  // Потолок закреплённого (Р-045): не ошибка человека, а правило чата — 409.
+  { kind: PinLimitError, code: 409, error: "pin_limit" },
   { kind: BadKeyFormatError, code: 422, error: "bad_key_format", detail: true },
   { kind: EmailTakenError, code: 409, error: "email_taken" },
   { kind: InvalidCredentialsError, code: 401, error: "invalid_credentials" },
@@ -77,14 +83,20 @@ function answerOf(error: unknown): { code: number; body: unknown } | null {
 }
 
 /**
- * Поставить общий перевод отказов. Незнакомое идёт дальше, к обработчику
- * Fastify по умолчанию: он сам ответит 4xx на свои ошибки разбора и 500
- * на настоящую поломку — и запишет её в лог.
+ * Поставить общий перевод отказов. Свои ошибки разбора (4xx) Fastify
+ * объясняет сам — в них нет ничего, кроме слов о форме запроса.
+ *
+ * ⚠️ НАСТОЯЩАЯ ПОЛОМКА — ОДНИМ СЛОВОМ, БЕЗ ТЕКСТА ОШИБКИ. Обработчик по
+ * умолчанию отдавал `message` наружу, и Schemathesis (task-120) получил в
+ * ответе 500 текст SQL-запроса с параметрами: имена таблиц и чужой ввод.
+ * Подробности — в лог по идентификатору запроса, человеку — «внутренняя ошибка».
  */
 export function answerKnownFailures(app: FastifyInstance): void {
-  app.setErrorHandler((error: FastifyError, _request, reply) => {
+  app.setErrorHandler((error: FastifyError, request, reply) => {
     const answer = answerOf(error);
-    if (!answer) throw error;
-    return reply.code(answer.code).send(answer.body);
+    if (answer) return reply.code(answer.code).send(answer.body);
+    if (error.statusCode !== undefined && error.statusCode < 500) throw error;
+    request.log.error({ err: error }, "необработанная ошибка двери");
+    return reply.code(500).send({ error: "internal_error" });
   });
 }

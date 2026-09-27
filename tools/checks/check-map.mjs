@@ -13,6 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
+import { NAME_STATUS, parseChanges } from "./git-changes.mjs";
 import { MAP, verdict } from "./map-rule.mjs";
 
 function git(...args) {
@@ -25,24 +26,9 @@ function die(lines) {
   process.exit(1);
 }
 
-/**
- * Разбор `--name-status`.
- *
- * У переименования полей три (`R100 старое новое`) — берём последнее:
- * карту волнует, где файл лежит СЕЙЧАС. Буква статуса — первая: `R100`
- * и `R` для правила одно и то же.
- */
-function parseChanges(raw) {
-  return raw
-    .split("\n")
-    .map((line) => line.split("\t"))
-    .filter((parts) => parts.length >= 2 && parts[0])
-    .map((parts) => ({ status: parts[0][0], path: parts[parts.length - 1] }));
-}
-
 /** Изменения и сообщение будущего коммита — из индекса и из файла хука. */
 function staged(messagePath) {
-  const diff = git("diff", "--cached", "--name-status");
+  const diff = git("diff", "--cached", ...NAME_STATUS);
   if (!diff.ok) die(["карта: не удалось прочитать индекс git", `  ${diff.err}`]);
   let message = "";
   try {
@@ -79,7 +65,7 @@ function lastCommit() {
     return { changes: [], message: message.out, what: "первый коммит репозитория" };
   }
 
-  const diff = git("diff", "--name-status", "HEAD^", "HEAD");
+  const diff = git("diff", ...NAME_STATUS, "HEAD^", "HEAD");
   if (!diff.ok) die(["карта: не удалось сравнить HEAD с родителем", `  ${diff.err}`]);
   return { changes: parseChanges(diff.out), message: message.out, what: "последний коммит" };
 }

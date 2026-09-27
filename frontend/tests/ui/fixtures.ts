@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
 
 /**
  * Общая подготовка для проверок интерфейса: завести человека, канал,
@@ -173,6 +173,18 @@ export async function openChannel(page: Page, title: string): Promise<void> {
   await expect(field(page)).toBeVisible();
 }
 
+/**
+ * Открыть меню строки панели правой кнопкой (task-102).
+ *
+ * ⚠️ ТРЁХ ТОЧЕК У СТРОК БОЛЬШЕ НЕТ: действия чата и проекта живут в меню
+ * по правой кнопке. Строка ищется по началу имени — у канала с непрочитанным
+ * доступное имя длиннее названия (см. `openChannel`).
+ */
+export async function rowMenu(page: Page, title: string): Promise<void> {
+  await page.getByRole("button", { name: new RegExp(`^${title}`, "u") }).click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+}
+
 /** Поле ввода реплики. */
 export function field(page: Page) {
   return page.getByLabel("Текст сообщения");
@@ -266,16 +278,14 @@ export async function saveEdit(page: Page, text: string): Promise<void> {
  * Набрать в поле и нажать ввод.
  *
  * ⚠️ ЖДЁМ, ПОКА КНОПКА ОТПРАВКИ ОЖИВЁТ. Это не «подождать миллисекунду»,
- * а видимое человеку условие: пока поле пусто, кнопка выключена. Без
- * ожидания две трети прогонов теряли реплику — измерено отдельным
- * прогоном, 8 потерь из 12.
+ * а видимое человеку условие: пока поле пусто, кнопка выключена.
  *
- * Причина не в тесте: содержимое поля живёт в ДВУХ местах — в самом
- * редакторе и в копии, которую держит поле ввода. Отправка читает копию,
- * а копия обновляется не сразу. Кто вставит текст и мгновенно нажмёт
- * ввод — не отправит ничего (Д-21). Кнопка выключена ровно до того
- * мгновения, когда копия догнала, поэтому ждать её — значит ждать
- * готовности, а не выдуманного срока.
+ * Когда-то без этого ожидания две трети прогонов теряли реплику: отправка
+ * читала копию содержимого, а копия обновлялась тактом позже (Д-21).
+ * Причина закрыта 24.09 — отправка спрашивает редактор, — но ожидание
+ * оставлено: кнопка по-прежнему оживает на такт позже набранного, а этот
+ * помощник и щёлкает по кнопке. Сам путь «вставил и сразу ввод»
+ * проверяется отдельно и мимо этого ожидания: `paste-send.spec.ts`.
  */
 export async function typeInto(
   page: Page,
@@ -320,4 +330,201 @@ export async function typeInto(
   await expect(field(page)).toHaveText(text);
   await expect(page.getByLabel(button, { exact: true })).toBeEnabled();
   await field(page).press("Enter");
+}
+
+/* ── посев истории (перенесён из window.spec.ts, task-099) ───────────── */
+
+/** Адрес стенда — тот же, что у самой проверки. */
+const BASE = process.env.UI_URL ?? "http://localhost:8477";
+
+/** Сколько говорит один голос. Ниже порога в тридцать, с запасом. */
+const PER_REQUEST = 25;
+
+/**
+ * Насеять историю: много людей по многу реплик.
+ *
+ * ⚠️ РАНЬШЕ СЕЯЛ ОДИН ЧЕЛОВЕК, И ЭТО БЫЛО НЕПРАВДОЙ. Порог отправки —
+ * тридцать реплик в минуту на человека (Р-025), потому что быстрее
+ * человек не печатает. Посев в триста шестьдесят строк от одного имени
+ * упёрся в него, как и должен был: столько за минуту не говорят.
+ *
+ * Оживлённый канал оживлён не потому, что кто-то один строчит, а потому
+ * что людей много. Поэтому и здесь их много: владелец зовёт одной ссылкой,
+ * каждый вошедший говорит своё. Заодно это первый посев, который стал
+ * возможен только после появления приглашений.
+ *
+ * Через `request`, а не через браузер: двенадцать вкладок ради двенадцати
+ * голосов — это минуты прогона за то, что проверяется одним запросом.
+ * У каждого своя корзинка печенек, значит и свой счётчик.
+ */
+export type Requests = PlaywrightWorkerArgs["playwright"]["request"];
+
+/** Ссылка-приглашение от имени владельца: одна на весь посев. */
+export async function inviteToken(page: Page): Promise<string> {
+  const made = await page.evaluate(async () => {
+    const response = await fetch("/v1/invites", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ maxUses: 100 }),
+    });
+    return (await response.json()) as { token: string };
+  });
+  return made.token;
+}
+
+/**
+ * Второй человек пространства без браузера: вошёл по ссылке, говорит
+ * запросами. Своя корзинка печенек — свой порог отправки.
+ */
+export async function joinVoice(
+  requests: Requests,
+  token: string,
+  name: string,
+): Promise<Awaited<ReturnType<Requests["newContext"]>>> {
+  counterUp();
+  const guest = await requests.newContext({ baseURL: BASE });
+  const entered = await guest.post("/v1/auth/join", {
+    data: {
+      token,
+      email: `seed-${Date.now()}-${counter}@example.test`,
+      password: "очень-длинный-пароль-для-теста",
+      displayName: name,
+    },
+  });
+  if (!entered.ok()) throw new Error(`вход по ссылке не удался (${entered.status()})`);
+  return guest;
+}
+
+/**
+ * Один голос: вошёл по ссылке и сказал сколько-то строк.
+ *
+ * ⚠️ ПО ЗАПАСУ ДО ПОРОГА, А НЕ ВПРИТЫК. Порог — тридцать в минуту;
+ * попадать в него ровно значит однажды промахнуться на единицу
+ * и краснеть без причины.
+ */
+async function oneVoice(
+  requests: Requests,
+  room: string,
+  token: string,
+  from: number,
+  count: number,
+): Promise<void> {
+  const guest = await joinVoice(requests, token, `Голос ${from}`);
+
+  // ⚠️ ПАЧКАМИ, А НЕ ВСЕ РАЗОМ И НЕ ПО ОЧЕРЕДИ. Триста шестьдесят запросов
+  // друг за другом не укладывались в срок проверки. Все двадцать пять разом
+  // на каждый голос рвали соединения на ~425-й реплике (task-099): каждый
+  // одновременный запрос — новое соединение, и проброс порта Docker
+  // на Windows захлёбывался. Порт после этого отказывал и следующему
+  // сценарию. Замер пробой: пачки по пять — 600 реплик дважды подряд
+  // за 30 с без единого обрыва. Один голос говорит меньше, чем ему
+  // позволено в минуту (25 из 30), поэтому порог отправки это не задевает.
+  for (let n = 0; n < count; n += BATCH) {
+    const batch = Array.from({ length: Math.min(BATCH, count - n) }, (_, k) => {
+      const index = from + n + k;
+      // ⚠️ ПЕРВАЯ — С ОСОБЫМ ТЕКСТОМ. Искать «строка номер 1» нельзя:
+      // то же вхождение есть у десятой, сотой и ещё сотни других,
+      // и проверка «осталась одна» насчитала сто одиннадцать.
+      const body = index === 1 ? "самая первая строка" : `строка номер ${index}`;
+      return guest.post(`/v1/conversations/${room}/messages`, {
+        data: { body, clientMsgId: crypto.randomUUID() },
+      });
+    });
+    const answers = await Promise.all(batch).catch((error: unknown) => {
+      throw new Error(`посев: голос ${from} оборвался на отправке — ${String(error)}`);
+    });
+    for (const said of answers) {
+      if (!said.ok()) throw new Error(`посев: реплика не ушла (${said.status()})`);
+    }
+  }
+  await guest.dispose();
+}
+
+/** Сколько реплик голоса уходит одновременно — см. `oneVoice`. */
+const BATCH = 5;
+
+export async function seedHistory(page: Page, requests: Requests, count: number): Promise<void> {
+  const room = new URL(page.url()).pathname.split("/").pop();
+  if (!room) throw new Error("не понял, какой канал открыт");
+
+  const token = await inviteToken(page);
+  for (let sent = 0; sent < count; sent += PER_REQUEST) {
+    await oneVoice(requests, room, token, sent + 1, Math.min(PER_REQUEST, count - sent));
+  }
+
+  /**
+   * ⚠️ ИСТОРИЯ ЗАСЕЯНА ПРОЧИТАННОЙ (task-107). Чат с непрочитанным теперь
+   * открывается на черте, как в Telegram, а не в конце. Здесь засеяна
+   * давняя переписка, которую человек уже прочёл: иначе после перезагрузки
+   * он стоял бы у первой засеянной реплики, а не в конце разговора.
+   */
+  await page.evaluate(async (room) => {
+    const page = await fetch(`/v1/conversations/${room}/messages`, { credentials: "include" });
+    const { items } = (await page.json()) as { items: { seq: number }[] };
+    await fetch(`/v1/conversations/${room}/read`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ seq: items.at(-1)?.seq ?? 0 }),
+    });
+  }, room);
+
+  await page.reload();
+  await expect(bubbles(page).first()).toBeVisible();
+}
+
+/* ── чат с чужим непрочитанным (task-107, общий с task-108) ─────────── */
+
+/** Строка чата в панели: у неё же живёт число непрочитанного. */
+export function panelRow(page: Page, title: string) {
+  return page.getByRole("button", { name: new RegExp(`^${title}`, "u") });
+}
+
+/** Число непрочитанного в строке панели; `null` — числа нет. */
+export async function unreadIn(page: Page, title: string): Promise<number | null> {
+  const text = (await panelRow(page, title).textContent()) ?? "";
+  const found = /непрочитанных:\s*(\d+)/u.exec(text);
+  return found?.[1] === undefined ? null : Number(found[1]);
+}
+
+/**
+ * Завести чат, набить его чужими репликами и вернуться в другой чат.
+ *
+ * ⚠️ НЕПРОЧИТАННОЕ БЫВАЕТ ТОЛЬКО ЧУЖОЕ (Р-029), поэтому пишет второй человек
+ * через свою корзинку печенек, а не вторая вкладка.
+ *
+ * ⚠️ ДВА ГОЛОСА, А НЕ ОДИН. Порог отправки — тридцать реплик в минуту
+ * на человека (Р-025): сорок от одного упираются в него, и половина
+ * не доходит. Оживлённый чат оживлён числом людей, а не скоростью одного.
+ */
+export async function chatWithUnread(
+  page: Page,
+  requests: Requests,
+  title: string,
+  count: number,
+): Promise<string> {
+  await register(page);
+  await createChannel(page, title);
+  const room = new URL(page.url()).pathname.split("/")[2] ?? "";
+  // Открыт другой чат: в открытом реплики стали бы прочитанными сразу.
+  await createChannel(page, "Другой");
+
+  const token = await inviteToken(page);
+  const half = Math.ceil(count / 2);
+  for (const [voice, from] of [
+    [1, 1],
+    [2, 1 + half],
+  ] as const) {
+    const guest = await joinVoice(requests, token, `Сосед ${voice}`);
+    for (let n = from; n < Math.min(from + half, count + 1); n += 1) {
+      const said = await guest.post(`/v1/conversations/${room}/messages`, {
+        data: { body: `чужая реплика ${n}`, clientMsgId: crypto.randomUUID() },
+      });
+      expect(said.ok(), `реплика ${n} не ушла`).toBe(true);
+    }
+    await guest.dispose();
+  }
+  await expect.poll(async () => await unreadIn(page, title)).toBe(count);
+  return room;
 }
