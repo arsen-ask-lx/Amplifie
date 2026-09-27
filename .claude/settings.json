@@ -30,7 +30,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/read-guard.mjs\"",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/read-guard.mjs"],
             "timeout": 5
           }
         ]
@@ -42,7 +43,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/read-guard.mjs\"",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/read-guard.mjs"],
             "timeout": 5
           }
         ]
@@ -54,7 +56,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/read-guard.mjs\"",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/read-guard.mjs"],
             "timeout": 5
           }
         ]
@@ -66,7 +69,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/read-guard.mjs\"",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/read-guard.mjs"],
             "timeout": 5
           }
         ]
