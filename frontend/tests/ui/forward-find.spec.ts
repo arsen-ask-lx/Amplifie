@@ -140,3 +140,26 @@ test("сервер поиска отказал — окно говорит об 
   await expect(picker(page)).toHaveCount(0);
   await expect.poll(() => bodiesIn(page, spare)).toContain("реплика при отказе");
 });
+
+test("Tab не уводит фокус из окон «Переслать» и поиска в ленту под ними", async ({ page }) => {
+  await register(page, "Клавиатурный");
+  await createChannel(page, "Откуда");
+  await say(page, "реплика для клавиатуры");
+
+  const insideAfterTabs = async (name: string) => {
+    for (let n = 0; n < 6; n++) await page.keyboard.press("Tab");
+    return page
+      .getByRole("dialog", { name })
+      .evaluate((dialog) => dialog.contains(document.activeElement));
+  };
+
+  await menu(page, "реплика для клавиатуры", "Переслать");
+  await expect(picker(page)).toBeVisible();
+  expect(await insideAfterTabs("Переслать"), "Tab увёл фокус из окна «Переслать»").toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(picker(page)).toHaveCount(0);
+
+  await page.keyboard.press("Control+k");
+  await expect(page.getByRole("dialog", { name: "Поиск по сообщениям" })).toBeVisible();
+  expect(await insideAfterTabs("Поиск по сообщениям"), "Tab увёл фокус из окна поиска").toBe(true);
+});

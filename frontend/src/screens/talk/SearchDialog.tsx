@@ -1,17 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SearchHit } from "../../data/api.js";
 import { type SearchState, useSearch } from "../../data/useSearch.js";
 import { lineOf, marksIn, snippetAround } from "../../shared/searchLine.js";
 import { Button } from "../../shared/ui/button.js";
 import { CommandField } from "../../shared/ui/command-field.js";
-import { useDismiss } from "../../shared/useDismiss.js";
+import { Dialog, DialogContent, DialogTitle } from "../../shared/ui/dialog.js";
+import { focusField } from "../../shared/ui/focusAfterClose.js";
 import { dayFormat } from "../../shared/when.js";
 
 /**
  * Поиск по сообщениям всех видимых разговоров — окно по Ctrl+K (task-100).
  *
- * ⚠️ СВОЙ СЛОЙ, КАК У ОКНА ПЕРЕСЫЛКИ, А НЕ ДИАЛОГ НАБОРА. Нужны ровно два
- * правила — Escape и щелчок мимо (`useDismiss`).
+ * ⚠️ ОКНО НАБОРА (`Dialog`), А НЕ СВОЙ СЛОЙ (27.09). Свой слой держал только
+ * Escape и щелчок мимо — Tab уводил фокус в ленту под окном.
  *
  * Выбор найденного — щелчком или стрелками и Enter: переход тем же адресом
  * `/c/<чат>/<номер>`, что у цитаты, и лента откроется вокруг сообщения
@@ -105,7 +106,6 @@ export function SearchDialog({
   onOpen: (conversationId: string, seq: number) => void;
   onClose: () => void;
 }) {
-  const box = useRef<HTMLDivElement>(null);
   const { query, setQuery, words, state, loadMore, retry } = useSearch();
   const [active, setActive] = useState(0);
   const items = state.kind === "найдено" ? state.items : [];
@@ -114,9 +114,6 @@ export function SearchDialog({
   // biome-ignore lint/correctness/useExhaustiveDependencies: сброс по смене запроса и есть смысл
   useEffect(() => setActive(0), [words.join(" ")]);
 
-  // Escape и щелчок мимо — общим правилом слоёв.
-  useDismiss(box, onClose);
-
   const pick = (hit: SearchHit | undefined) => {
     if (!hit) return;
     onOpen(hit.conversationId, hit.seq);
@@ -124,13 +121,21 @@ export function SearchDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-center bg-ink/20 p-4 pt-[12vh]">
-      <div
-        ref={box}
-        role="dialog"
-        aria-label="Поиск по сообщениям"
-        className="flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-line bg-card shadow-float"
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
+        aria-describedby={undefined}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusField();
+        }}
+        className="top-[12vh] flex max-h-[70vh] w-full translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
       >
+        <DialogTitle className="sr-only">Поиск по сообщениям</DialogTitle>
         <CommandField
           value={query}
           label="Что искать"
@@ -180,7 +185,7 @@ export function SearchDialog({
             ) : null}
           </div>
         ) : null}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

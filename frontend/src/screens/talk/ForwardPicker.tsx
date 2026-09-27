@@ -4,8 +4,8 @@ import { api, type Conversation, type Message } from "../../data/api.js";
 import { usePausedAsk } from "../../data/usePausedAsk.js";
 import { Button } from "../../shared/ui/button.js";
 import { CommandField } from "../../shared/ui/command-field.js";
+import { Dialog, DialogContent, DialogTitle } from "../../shared/ui/dialog.js";
 import { focusAfterClose, focusField } from "../../shared/ui/focusAfterClose.js";
-import { useDismiss } from "../../shared/useDismiss.js";
 
 /**
  * Куда переслать: поле поиска и список чатов поверх ленты (task-117).
@@ -20,9 +20,10 @@ import { useDismiss } from "../../shared/useDismiss.js";
  * месте, а не прежняя выдача: реплика, ушедшая в первый попавшийся чат,
  * уже прочитана получателями — отменить нечем.
  *
- * ⚠️ СВОЙ СЛОЙ, А НЕ ДИАЛОГ НАБОРА, КАК У ОКНА ПОИСКА ПО СООБЩЕНИЯМ. Нужны
- * Escape и щелчок мимо (`useDismiss`); после закрытия курсор возвращается
- * в поле ввода чата. Ловушки Tab нет — у обоих окон, записано в очередь.
+ * ⚠️ ОКНО НАБОРА (`Dialog`), А НЕ СВОЙ СЛОЙ (27.09). Свой слой держал только
+ * Escape и щелчок мимо — Tab уводил фокус в ленту под окном. У окна набора
+ * ловушка фокуса, Escape и возврат фокуса; после закрытия курсор — в поле
+ * ввода чата.
  *
  * Текущий разговор из списка не исключён намеренно: переслать себе же
  * в канал — обычный ход, когда реплику поднимают из глубины наверх.
@@ -97,29 +98,30 @@ export function ForwardPicker({
   // biome-ignore lint/correctness/useExhaustiveDependencies: сброс по смене строки и есть смысл
   useEffect(() => setActive(0), [key]);
 
-  const close = () => {
-    onClose();
-    focusField();
-  };
   const pick = (room: Conversation | undefined) => {
     if (!room) return;
     onPick(room.id);
     focusField();
   };
 
-  // Escape и щелчок мимо — общим правилом слоёв (`useDismiss`).
-  useDismiss(box, close);
-
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/20 p-4">
-      <div
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
         ref={box}
-        role="dialog"
-        aria-label="Переслать"
-        className="flex max-h-[70vh] w-80 flex-col overflow-hidden rounded-xl border border-line bg-card shadow-float"
+        aria-describedby={undefined}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusField();
+        }}
+        className="flex max-h-[70vh] w-80 flex-col gap-0 overflow-hidden p-0 sm:max-w-80"
       >
         <div className="px-4 pt-3">
-          <p className="text-lead font-medium text-ink">Переслать</p>
+          <DialogTitle className="text-lead font-medium">Переслать</DialogTitle>
           <p className="mt-0.5 truncate text-aside text-muted">{message.body}</p>
         </div>
 
@@ -175,7 +177,7 @@ export function ForwardPicker({
             ))}
           </div>
         ) : null}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
