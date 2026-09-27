@@ -124,6 +124,9 @@ test("цитата на давнее из конца ленты открывае
   page,
   playwright,
 }) => {
+  // Часы подделаны, чтобы проверить тишину без сна: до прыжка идут как настоящие.
+  // Засев идёт запросами, а не вкладкой, — его прыжок не касается.
+  await page.clock.install();
   const { room } = await prepared(page, playwright.request);
   const feedRequests = countFeedRequests(page, room);
 
@@ -137,19 +140,31 @@ test("цитата на давнее из конца ленты открывае
 
   // П-4.3: чужое новое к давнему не прилипает, непрочитанное не гаснет.
   const colleague = await joinVoice(playwright.request, await inviteToken(page), "Коллега");
+  const marked: number[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith(`/v1/conversations/${room}/read`)) {
+      marked.push(Number((request.postDataJSON() as { seq: number }).seq));
+    }
+  });
   const said = await colleague.post(`/v1/conversations/${room}/messages`, {
     data: { body: "свежее от коллеги", clientMsgId: crypto.randomUUID() },
   });
   expect(said.ok()).toBe(true);
+  const fresh = ((await said.json()) as { seq: number }).seq;
   await expect(page.getByLabel("В конец ленты")).toBeVisible();
-  // Отметка прочтения уходит окном в три секунды — ждём дольше окна.
-  // ⚠️ СОН ОСТАВЛЕН СОЗНАТЕЛЬНО (task-125): проверяется отрицание — за окно
-  // «прочитано» НЕ ушло, — и при правильном поведении запроса нет вовсе, ждать
-  // нечего. Поддельные часы здесь нужно ставить до загрузки 600 засеянных реплик,
-  // а это меняет среду всего сценария; перевести — отдельной правкой с прогоном.
-  await page.waitForTimeout(4_000);
-  await expect(bubble(page, "свежее от коллеги"), "новое прилипло к давнему").toHaveCount(0);
+  /**
+   * ⚠️ ОКНО — ПРЫЖКОМ ЧАСОВ, А НЕ СНОМ. Отметка прочтения уходит окном
+   * в 3 с (Р-029): прыжок дальше окна запускает отложенную отметку, будь она.
+   * Запрос числа непрочитанного идёт после прыжка, а запросы вкладки уходят
+   * по порядку — к его ответу отметка, если была, уже записана в `marked`.
+   */
+  await page.clock.fastForward(4_000);
   expect(await unreadOf(page, room), "чтение давнего погасило непрочитанное").toBe(1);
+  expect(
+    marked.filter((seq) => seq >= fresh),
+    "из давнего ушла отметка на свежее",
+  ).toEqual([]);
+  await expect(bubble(page, "свежее от коллеги"), "новое прилипло к давнему").toHaveCount(0);
 
   // П-4.4: «в конец» — к свежему.
   await page.getByLabel("В конец ленты").click();

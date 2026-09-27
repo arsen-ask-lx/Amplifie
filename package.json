@@ -30,6 +30,7 @@
     "arch:check": "node --test tools/checks/arch-rules.test.mjs",
     "weak-asserts": "node tools/checks/check-weak-asserts.mjs",
     "weak-asserts:check": "node --test tools/checks/weak-asserts-rule.test.mjs",
+    "biome-rules:check": "node --test tools/checks/biome-rules.test.mjs",
     "env:check": "node --test tools/ops/*.test.mjs",
     "openspec": "node tools/checks/check-openspec.mjs",
     "model": "node tools/checks/check-model.mjs",
@@ -47,7 +48,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
-    "@biomejs/biome": "^2.5.14",
+    "@biomejs/biome": "2.5.14",
     "@playwright/test": "1.63.0",
     "@types/react": "^19.3.0",
     "drizzle-kit": "0.31.11",

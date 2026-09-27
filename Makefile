@@ -215,7 +215,7 @@ install: ## поставить зависимости локально (для �
 # ⚠️ НЕ `rm package-lock.json && npm install` НА WINDOWS. Это ровно то
 # действие, которое ломает сборку: 26.09 оно стоило трёх прогонов подряд.
 deps-lock: ## пересобрать package-lock.json в Linux — npm/cli#8320
-> MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/work" -w /work >   $(NODE_IMAGE) npm install --package-lock-only
+> MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/work" -w /work $(NODE_IMAGE) npm install --package-lock-only
 > @echo "замок пересобран в Linux; проверь линуксовые двоичные: make deps-check"
 
 deps-check: ## есть ли в замке двоичные файлы для Linux
@@ -330,6 +330,9 @@ weak-asserts: ## в тестах нет нового «не пусто» вме�
 
 weak-asserts-check: ## проверки правила «не пусто» (подсаженные нарушения)
 > npm run weak-asserts:check
+
+biome-rules-check: ## правила Biome для тестов срабатывают (подсаженный сон в спеке, task-125)
+> npm run biome-rules:check
 
 plan-review: ## план с task-109 не одобрен без «Прочитано», «Варианты» и «Разбор критика»
 > node --test tools/checks/plan-review-rule.test.mjs
@@ -533,4 +536,4 @@ delivery: ## пройти путь клиента: архив образов →
 check: gates ## всё быстрое разом — то же, что гоняет CI (список — .aqk.yml)
 > @echo "все быстрые проверки прошли"
 
-.PHONY: openapi api-fuzz weak-asserts weak-asserts-check caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check
+.PHONY: openapi api-fuzz weak-asserts weak-asserts-check biome-rules-check caddy-volume trace-audit trace-check plan-review help env env-box env-check delivery hooks wait-api up dev-deps work dev dev-api down reset logs ps health dev-status dev-mode-check demo themes psql install migrate migrate-new typecheck lint format arch docs decisions decisions-check contrast rhythm unit no-raw-html failure-map favicon map map-check cycle cycle-check openspec duplicates gates arbiter-check model arbiter label aqk aqk-baseline aqk-vitals aqk-context aqk-report aqk-prompt aqk-learn aqk-prove aqk-probe aqk-why test test-ui load load-outage conditions check

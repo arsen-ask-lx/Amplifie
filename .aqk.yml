@@ -110,6 +110,10 @@ gates:
   # tools/ratchets/weak-asserts.txt только укорачивается.
   weak-asserts: "npm run weak-asserts"
   weak-asserts-check: "npm run weak-asserts:check"
+  # Слепой сон в браузерной спеке запрещён правилом Biome из группы nursery (task-125).
+  # Такое правило могут переименовать в минорной версии — и конфиг молча перестанет
+  # сторожить; эта подсадка краснеет раньше. Версия Biome закреплена точно.
+  biome-rules-check: "npm run biome-rules:check"
 
   # Из каталога AQK. Каждый проверен подсаженным нарушением в НАШЕМ коде,
   # а не только на своих образцах.

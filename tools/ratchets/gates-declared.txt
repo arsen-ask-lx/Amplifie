@@ -9,6 +9,8 @@ arch
 # run arch: npm run arch
 arch-check
 # run arch-check: npm run arch:check
+biome-rules-check
+# run biome-rules-check: npm run biome-rules:check
 ci-actually-fails
 # run ci-actually-fails: bash tools/gates/ci-actually-fails/check.sh .
 ci-not-hijackable
