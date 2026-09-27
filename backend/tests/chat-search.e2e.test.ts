@@ -109,7 +109,12 @@ describe("поиск чата по названию", () => {
   it("П-5: старая дверь списка отдаёт не больше ста строк", async () => {
     const owner = await newPerson("Хозяин");
     // 104 канала плюс общий, который есть у пространства с рождения.
-    await Promise.all(Array.from({ length: 104 }, (_, n) => channel(owner, `Канал ${n}`)));
+    // ⚠️ ПАЧКАМИ ПО ВОСЕМЬ, А НЕ ВСЕ РАЗОМ: сто запросов одновременно рядом
+    // с соседними файлами набора рвали соединение (ECONNRESET, 27.09).
+    for (let from = 0; from < 104; from += 8) {
+      const batch = Array.from({ length: Math.min(8, 104 - from) }, (_, n) => from + n);
+      await Promise.all(batch.map((n) => channel(owner, `Канал ${n}`)));
+    }
     const list = async (query: string) => {
       const response = await call("GET", `/v1/conversations${query}`, owner);
       expect(response.status).toBe(200);
